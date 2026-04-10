@@ -13,6 +13,7 @@ const path = require('path');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const helmet = require('helmet');
+const swaggerUi = require('swagger-ui-express');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('./functions/middlewares');
@@ -23,6 +24,7 @@ const projectRoutes = require('./functions/routes/projects');
 const clientsRoutes = require('./functions/routes/clients');
 const membersRoutes = require('./functions/routes/members');
 const mediaRoutes = require('./functions/routes/media');
+const swaggerSpec = require('./functions/docs/swagger');
 
 const db = require('./functions/db');
 const { logger } = require('./functions/helpers');
@@ -100,6 +102,15 @@ app.use('/api/projects', middlewares.authMiddleware, projectsApi);
 app.use('/api/clients', middlewares.authMiddleware, clientsApi);
 app.use('/api/members', middlewares.authMiddleware, membersApi);
 app.use('/api/media', middlewares.authMiddleware, mediaApi);
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    swaggerOptions: {
+        persistAuthorization: true
+    }
+}));
+app.get('/api/docs.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(swaggerSpec);
+});
 
 app.use('/app', (req, res, next) => {
   if (process.env.NODE_ENV === 'production') {

@@ -1,11 +1,25 @@
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
 const { RedisStore } = require('rate-limit-redis');
-const redisClient = require('./utils/redis_client');
+const { logger } = require('../helpers');
 
-const createStore = () => new RedisStore({
-    sendCommand: (...args) => redisClient.sendCommand(args)
-});
+const shouldUseRedisStore =
+    process.env.RATE_LIMIT_STORE === 'redis' ||
+    process.env.NODE_ENV === 'production';
+
+const createStore = () => {
+    if (!shouldUseRedisStore) return undefined;
+
+    try {
+        const redisClient = require('./utils/redis_client');
+        return new RedisStore({
+            sendCommand: (...args) => redisClient.sendCommand(args)
+        });
+    } catch (error) {
+        logger('RATE_LIMIT').warn('Redis store unavailable, falling back to in-memory store.');
+        return undefined;
+    }
+};
 
 const keyGenerator = (req) => {
     if (req.user && req.user.userId) {
