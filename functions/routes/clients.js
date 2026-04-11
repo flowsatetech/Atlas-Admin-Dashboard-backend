@@ -11,7 +11,7 @@ const { clients: rateLimiter } = middlewares.rateLimiters;
 
 /** CLIENT ROUTES */
 
-// GET /api/clients - Paginated list of clients [cite: 34, 37]
+// GET /api/clients - Paginated list of clients
 router.get('/', rateLimiter,async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
@@ -30,13 +30,13 @@ router.get('/', rateLimiter,async (req, res) => {
     }
 });
 
-// POST /api/clients - Create a new client [cite: 38, 39, 40]
+// POST /api/clients - Create a new client
 router.post('/', rateLimiter, async (req, res) => {
     try {
         // Validation schema based on Page 2 of the Backend Plan 
         const clientSchema = z.object({
             fullName: z.string().min(1),
-            companyId: z.string(), // Plan: use IDs, not names [cite: 4]
+            companyId: z.string(),
             email: z.string().email(),
             phone: z.string(),
             statusId: z.string(),

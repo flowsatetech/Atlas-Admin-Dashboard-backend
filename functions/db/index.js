@@ -91,7 +91,7 @@ async function getAllMembers({ search = "" } = {}) {
 async function addUser(userData) {
     try {
         const result = await users.insertOne(userData);
-        return { ...userData, _id: result.insertedId }; // Return new staff object [cite: 50]
+        return { ...userData, _id: result.insertedId }; // Return new staff object 
     } catch (err) {
         logger("DB").error(err);
         throw err;

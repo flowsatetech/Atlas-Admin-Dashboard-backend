@@ -126,14 +126,13 @@ app.use('/app', (req, res, next) => {
   }
 });
 
-app.use(handler404); // [cite: 104, 117]
+app.use(handler404);
 
 app.listen(PORT, async () => {
     try {
         await db.initializeDB();
         console.log(`Server is running at http://localhost:${PORT}`);
     } catch (err) {
-        // Log the error but DON'T kill the server yet
         console.error("DB Connection failed, but server is still trying to stay up...");
         logger('SERVER').error("DB Error:", err);
     }
