@@ -15,32 +15,83 @@ async function initializeDB() {
     );
     await client.connect();
     db = client.db("atlas-db");
-    users = db.collection("users");
-    projects = db.collection("projects");
-    clients = db.collection("clients");
-    images = db.collection("images");
-    mediaStrings = db.collection("mediaStrings");
-
-    /** Create indexes */
-    await users.createIndex({ email: 1 }, { unique: true });
-
+    
+    // Ensure this line is exactly correct:
+    clients = db.collection("clients"); 
+    
+    // ... rest of your collections
     logger("DB").info("MongoDB initialized successfully");
 }
 
-async function addUser(userData) {
+/** * CLIENTS LOGIC (Developer 3) 
+ * Refactored for pagination and specific ID-based rules [cite: 37, 114]
+ */
+
+async function getClients({ page = 1, limit = 10 } = {}) {
     try {
-        const result = await users.insertOne(userData);
-        return { ...userData, _id: result.insertedId };
+        const skip = (page - 1) * limit;
+        
+        // Fetch data and total count in parallel 
+        const [docs, total] = await Promise.all([
+            clients.find({}).skip(skip).limit(limit).toArray(),
+            clients.countDocuments({})
+        ]);
+
+        return {
+            clients: docs,
+            pagination: {
+                total,
+                page,
+                limit,
+                totalPages: Math.ceil(total / limit)
+            }
+        };
     } catch (err) {
         logger("DB").error(err);
         throw err;
     }
 }
 
-async function getAllMembers() {
+async function getClientById(clientId) {
     try {
-        const doc = await users.find({}).toArray();
+        const doc = await clients.findOne({ id: clientId }); // Identification by ID [cite: 4]
         return doc;
+    } catch (err) {
+        logger("DB").error(err);
+        throw err;
+    }
+}
+
+async function addClient(clientData) {
+    try {
+        const result = await clients.insertOne(clientData);
+        // We return the full object as requested by the plan [cite: 40]
+        return { ...clientData, _id: result.insertedId };
+    } catch (err) {
+        logger("DB").error(err);
+        throw err; // This throw is what triggers the "Unknown error" in your route
+    }
+}
+
+/** * STAFF / USERS LOGIC (Developer 3) 
+ * Manages team members and staff CRUD [cite: 41, 114]
+ */
+
+async function getAllMembers({ search = "" } = {}) {
+    try {
+        const query = search ? { fullName: { $regex: search, $options: 'i' } } : {};
+        const doc = await users.find(query).toArray(); // Search filter support 
+        return doc;
+    } catch (err) {
+        logger("DB").error(err);
+        throw err;
+    }
+}
+
+async function addUser(userData) {
+    try {
+        const result = await users.insertOne(userData);
+        return { ...userData, _id: result.insertedId }; // Return new staff object [cite: 50]
     } catch (err) {
         logger("DB").error(err);
         throw err;
@@ -49,8 +100,7 @@ async function getAllMembers() {
 
 async function getUserByEmail(email) {
     try {
-        const doc = await users.findOne({ email });
-        return doc;
+        return await users.findOne({ email });
     } catch (err) {
         logger("DB").error(err);
         throw err;
@@ -59,8 +109,7 @@ async function getUserByEmail(email) {
 
 async function getUserById(userId) {
     try {
-        const doc = await users.findOne({ userId });
-        return doc;
+        return await users.findOne({ userId });
     } catch (err) {
         logger("DB").error(err);
         throw err;
@@ -80,30 +129,11 @@ async function updateUser(userId, updateData) {
     }
 }
 
+/** PROJECTS LOGIC */
+
 async function getProjects() {
     try {
-        const doc = await projects.find({}).toArray();
-        return doc;
-    } catch (err) {
-        logger("DB").error(err);
-        throw err;
-    }
-}
-
-async function getClientById(clientId) {
-    try {
-        const doc = await clients.findOne({ id: clientId });
-        return doc;
-    } catch (err) {
-        logger("DB").error(err);
-        throw err;
-    }
-}
-
-async function getClients() {
-    try {
-        const doc = await clients.find({}).toArray();
-        return doc;
+        return await projects.find({}).toArray();
     } catch (err) {
         logger("DB").error(err);
         throw err;
@@ -113,27 +143,18 @@ async function getClients() {
 async function addProject(projectData) {
     try {
         const result = await projects.insertOne(projectData);
-        return { changes: result.modifiedCount };
+        return { ...projectData, _id: result.insertedId };
     } catch (err) {
         logger("DB").error(err);
         throw err;
     }
 }
 
-async function addClient(clientData) {
-    try {
-        const result = await clients.insertOne(clientData);
-        return { changes: result.modifiedCount };
-    } catch (err) {
-        logger("DB").error(err);
-        throw err;
-    }
-}
+/** MEDIA & IMAGES LOGIC (Developer 3) [cite: 112] */
 
 async function getImages() {
     try {
-        const result = await images.find({}).toArray();
-        return result;
+        return await images.find({}).toArray();
     } catch (err) {
         logger("DB").error(err);
         throw err;
@@ -143,7 +164,6 @@ async function getImages() {
 async function addImage(id, link) {
     try {
         await images.insertOne({ id, public_id: link.public_id, url: link.url });
-        return;
     } catch (err) {
         logger("DB").error(err);
         throw err;
@@ -153,7 +173,6 @@ async function addImage(id, link) {
 async function updateImageById(id, link) {
     try {
         await images.updateOne({ id }, { $set: { public_id: link.public_id, url: link.url } });
-        return;
     } catch (err) {
         logger("DB").error(err);
         throw err;
@@ -189,7 +208,7 @@ async function getMediaStringById(stringId) {
 
 async function storeMediaString(id, string) {
     try {
-        const url = `${process.env.SERVER_BASE_URL}/api/media/strings/${id}`
+        const url = `${process.env.SERVER_BASE_URL}/api/media/strings/${id}`;
         return await mediaStrings.insertOne({ id, url, string });
     } catch (err) {
         logger("DB").error(err);
@@ -208,25 +227,20 @@ async function updateMediaString(stringId, string) {
 
 module.exports = {
     initializeDB,
-
     getAllMembers,
     addUser,
     getUserByEmail,
     getUserById,
     updateUser,
-
     getProjects,
     addProject,
-
     getClientById,
     getClients,
     addClient,
-
     getImages,
     findImageById,
     addImage,
     updateImageById,
-
     getMediaStrings,
     getMediaStringById,
     storeMediaString,

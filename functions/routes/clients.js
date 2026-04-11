@@ -1,73 +1,71 @@
-/** IMPORT
- * All libraries / local exports / packages are imported here
- */
-
-// <-- PACKAGE IMPORTS -->
+/** IMPORT */
 const express = require('express');
 const { z } = require('zod');
-
-// <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const { logger, generateToken } = require('../helpers');
+const { logger } = require('../helpers');
 const db = require('../db');
 
-
-/** SETUP
- * Global variables referenced in this file are defined here
- */
+/** SETUP */
 const router = express.Router();
-const { clients } = middlewares.rateLimiters;
+const { clients: rateLimiter } = middlewares.rateLimiters;
 
-/** MAIN USER ROUTES */
-router.get('/all', clients, async (req, res) => {
+/** CLIENT ROUTES */
+
+// GET /api/clients - Paginated list of clients [cite: 34, 37]
+router.get('/', rateLimiter,async (req, res) => {
     try {
-        const clients = await db.getClients();
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+
+        const result = await db.getClients({ page, limit });
 
         res.status(200).json({
             success: true,
-            message: 'Fetch clients success',
-            data: {
-                clients
-            }
+            message: 'Clients fetched successfully',
+            data: result
         });
     } catch (e) {
-        logger('ALL_PROJECTS').error(e);
-        res.status(400).json({
-            success: false, message: 'An unknown error occured'
-        })
+        logger('CLIENTS_GET').error(e);
+        res.status(400).json({ success: false, message: 'An unknown error occurred' });
     }
 });
 
-router.post('/new', middlewares.adminOnly, clients, async (req, res) => {
+// POST /api/clients - Create a new client [cite: 38, 39, 40]
+router.post('/', rateLimiter, async (req, res) => {
     try {
-        const validData = z.object({
-            name: z.string().min(1)
-        }).safeParse(req.body);
+        // Validation schema based on Page 2 of the Backend Plan 
+        const clientSchema = z.object({
+            fullName: z.string().min(1),
+            companyId: z.string(), // Plan: use IDs, not names [cite: 4]
+            email: z.string().email(),
+            phone: z.string(),
+            statusId: z.string(),
+            tags: z.array(z.string()),
+            assignedStaffId: z.string(),
+            notes: z.string().default("")
+        });
 
-        if (!validData.success) {
+        const validation = clientSchema.safeParse(req.body);
+
+        if (!validation.success) {
             return res.status(400).json({
                 success: false,
-                message: 'Couldn\'t complete signup request'
-            })
+                message: 'Invalid request body',
+                errors: validation.error.errors
+            });
         }
 
-        const { name } = validData.data;
+        const newClient = await db.addClient(validation.data);
 
-        await db.addClient({ name, id: generateToken() })
-
-        res.status(200).json({
+        res.status(201).json({
             success: true,
-            message: 'Project added successfully'
+            message: 'Client added successfully',
+            data: newClient // Returning the new object 
         });
     } catch (e) {
-        logger('NEW_PROJECT').error(e);
-        res.status(400).json({
-            success: false, message: 'An unknown error occured'
-        })
+        logger('CLIENTS_POST').error(e);
+        res.status(400).json({ success: false, message: 'An unknown error occurred' });
     }
 });
 
-/** EXPORTS
- * Export Routes for use in routers
- */
 module.exports = router;

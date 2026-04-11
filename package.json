@@ -35,5 +35,8 @@
     "rate-limit-redis": "^4.3.1",
     "redis": "^5.10.0",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }
