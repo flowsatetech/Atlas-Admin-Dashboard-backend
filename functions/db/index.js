@@ -10,28 +10,32 @@ let images;
 let mediaStrings;
 
 async function initializeDB() {
-    client = new MongoClient(
-        process.env.NODE_ENV === 'production' ? process.env.MONGO_URI_PROD : process.env.MONGO_URI
-    );
-    await client.connect();
-    db = client.db("atlas-db");
-    
-    // Ensure this line is exactly correct:
-    clients = db.collection("clients"); 
-    
-    // ... rest of your collections
-    logger("DB").info("MongoDB initialized successfully");
+    try {
+        client = new MongoClient(
+            process.env.NODE_ENV === 'production' ? process.env.MONGO_URI_PROD : process.env.MONGO_URI
+        );
+        await client.connect();
+        db = client.db("atlas-db");
+        
+        // Ensure all collections are assigned correctly
+        users = db.collection("users"); 
+        clients = db.collection("clients"); 
+        projects = db.collection("projects");
+        images = db.collection("images");
+        mediaStrings = db.collection("mediaStrings");
+
+        logger("DB").info("MongoDB initialized successfully");
+    } catch (err) {
+        logger("DB").error("Failed to initialize database", err);
+        throw err;
+    }
 }
 
-/** * CLIENTS LOGIC (Developer 3) 
- * Refactored for pagination and specific ID-based rules [cite: 37, 114]
- */
+/** * CLIENTS LOGIC (Developer 3) */
 
 async function getClients({ page = 1, limit = 10 } = {}) {
     try {
         const skip = (page - 1) * limit;
-        
-        // Fetch data and total count in parallel 
         const [docs, total] = await Promise.all([
             clients.find({}).skip(skip).limit(limit).toArray(),
             clients.countDocuments({})
@@ -54,8 +58,7 @@ async function getClients({ page = 1, limit = 10 } = {}) {
 
 async function getClientById(clientId) {
     try {
-        const doc = await clients.findOne({ id: clientId }); // Identification by ID [cite: 4]
-        return doc;
+        return await clients.findOne({ id: clientId });
     } catch (err) {
         logger("DB").error(err);
         throw err;
@@ -65,38 +68,57 @@ async function getClientById(clientId) {
 async function addClient(clientData) {
     try {
         const result = await clients.insertOne(clientData);
-        // We return the full object as requested by the plan [cite: 40]
         return { ...clientData, _id: result.insertedId };
     } catch (err) {
         logger("DB").error(err);
-        throw err; // This throw is what triggers the "Unknown error" in your route
+        throw err;
     }
 }
 
-/** * STAFF / USERS LOGIC (Developer 3) 
- * Manages team members and staff CRUD [cite: 41, 114]
- */
+/** * STAFF / USERS LOGIC (Developer 3) */
 
-async function getAllMembers({ search = "" } = {}) {
+async function getAllMembers({ page = 1, limit = 10, search = "" } = {}) {
     try {
-        const query = search ? { fullName: { $regex: search, $options: 'i' } } : {};
-        const doc = await users.find(query).toArray(); // Search filter support 
-        return doc;
+        const skip = (page - 1) * limit;
+        const query = search ? { 
+            $or: [
+                { firstName: { $regex: search, $options: 'i' } },
+                { lastName: { $regex: search, $options: 'i' } },
+                { email: { $regex: search, $options: 'i' } }
+            ]
+        } : {};
+
+        const [docs, total] = await Promise.all([
+            users.find(query).skip(skip).limit(limit).toArray(),
+            users.countDocuments(query)
+        ]);
+
+        return {
+            members: docs,
+            pagination: {
+                total,
+                page,
+                limit,
+                totalPages: Math.ceil(total / limit)
+            }
+        };
     } catch (err) {
         logger("DB").error(err);
         throw err;
     }
 }
 
-async function addUser(userData) {
+async function addMember(userData) {
     try {
         const result = await users.insertOne(userData);
-        return { ...userData, _id: result.insertedId }; // Return new staff object 
+        return { ...userData, _id: result.insertedId };
     } catch (err) {
         logger("DB").error(err);
         throw err;
     }
 }
+
+async function addUser(userData) { return await addMember(userData); }
 
 async function getUserByEmail(email) {
     try {
@@ -150,7 +172,7 @@ async function addProject(projectData) {
     }
 }
 
-/** MEDIA & IMAGES LOGIC (Developer 3) [cite: 112] */
+/** MEDIA & IMAGES LOGIC */
 
 async function getImages() {
     try {
@@ -228,6 +250,7 @@ async function updateMediaString(stringId, string) {
 module.exports = {
     initializeDB,
     getAllMembers,
+    addMember,
     addUser,
     getUserByEmail,
     getUserById,
