@@ -23,6 +23,8 @@ async function initializeDB() {
 
     /** Create indexes */
     await users.createIndex({ email: 1 }, { unique: true });
+    await clients.createIndex({ id: 1 }, { unique: true });
+    await clients.createIndex({ status: 1 });
 
     logger("DB").info("MongoDB initialized successfully");
 }
@@ -41,6 +43,15 @@ async function getAllMembers() {
     try {
         const doc = await users.find({}).toArray();
         return doc;
+    } catch (err) {
+        logger("DB").error(err);
+        throw err;
+    }
+}
+
+async function getUsersCount() {
+    try {
+        return await users.countDocuments({});
     } catch (err) {
         logger("DB").error(err);
         throw err;
@@ -104,6 +115,23 @@ async function getClients() {
     try {
         const doc = await clients.find({}).toArray();
         return doc;
+    } catch (err) {
+        logger("DB").error(err);
+        throw err;
+    }
+}
+
+async function getClientsPaginated({ status, page = 1, limit = 10 }) {
+    try {
+        const query = status ? { status } : {};
+        const skip = (page - 1) * limit;
+
+        const [rows, total] = await Promise.all([
+            clients.find(query).skip(skip).limit(limit).toArray(),
+            clients.countDocuments(query)
+        ]);
+
+        return { rows, total };
     } catch (err) {
         logger("DB").error(err);
         throw err;
@@ -210,6 +238,7 @@ module.exports = {
     initializeDB,
 
     getAllMembers,
+    getUsersCount,
     addUser,
     getUserByEmail,
     getUserById,
@@ -220,6 +249,7 @@ module.exports = {
 
     getClientById,
     getClients,
+    getClientsPaginated,
     addClient,
 
     getImages,

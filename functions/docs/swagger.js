@@ -64,8 +64,7 @@ const options = {
             "/api/auth/signup": {
                 post: {
                     tags: ["Auth"],
-                    summary: "Create a user (super admin only)",
-                    security: [{ cookieAuth: [] }],
+                    summary: "Create a user",
                     requestBody: {
                         required: true,
                         content: {
@@ -121,17 +120,35 @@ const options = {
                     }
                 }
             },
-            "/api/clients/all": {
+            "/api/clients": {
                 get: {
                     tags: ["Clients"],
-                    summary: "List all clients",
+                    summary: "List clients with optional status and pagination",
                     security: [{ cookieAuth: [] }],
+                    parameters: [
+                        {
+                            name: "status",
+                            in: "query",
+                            required: false,
+                            schema: { type: "string", enum: ["Lead", "Active", "Inactive", "Archived"] }
+                        },
+                        {
+                            name: "page",
+                            in: "query",
+                            required: false,
+                            schema: { type: "integer", minimum: 1, default: 1 }
+                        },
+                        {
+                            name: "limit",
+                            in: "query",
+                            required: false,
+                            schema: { type: "integer", minimum: 1, maximum: 100, default: 10 }
+                        }
+                    ],
                     responses: {
                         200: { description: "Fetch clients success" }
                     }
-                }
-            },
-            "/api/clients/new": {
+                },
                 post: {
                     tags: ["Clients"],
                     summary: "Create a new client",
@@ -142,16 +159,24 @@ const options = {
                             "application/json": {
                                 schema: {
                                     type: "object",
-                                    required: ["name"],
+                                    required: ["fullName", "companyName", "email", "phone"],
                                     properties: {
-                                        name: { type: "string" }
+                                        fullName: { type: "string" },
+                                        companyName: { type: "string" },
+                                        email: { type: "string", format: "email" },
+                                        phone: { type: "string" },
+                                        status: { type: "string", enum: ["Lead", "Active", "Inactive", "Archived"] },
+                                        tags: { type: "array", items: { type: "string" } },
+                                        assignedStaffId: { type: "string", nullable: true },
+                                        leadSource: { type: "string", nullable: true },
+                                        notes: { type: "string" }
                                     }
                                 }
                             }
                         }
                     },
                     responses: {
-                        200: { description: "Project added successfully" },
+                        201: { description: "Client added successfully" },
                         403: { description: "Admins only" }
                     }
                 }
