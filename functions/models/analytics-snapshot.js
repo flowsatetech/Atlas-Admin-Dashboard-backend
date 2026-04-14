@@ -6,6 +6,8 @@ const analyticsSnapshotSchema = z.object({
     periodEnd: z.number().int().nonnegative(),
     visitors: z.number().int().nonnegative().default(0),
     pageViews: z.number().int().nonnegative().default(0),
+    conversions: z.number().int().nonnegative().default(0),
+    trafficSourceCounts: z.record(z.string(), z.number().int().nonnegative()).default({}),
     trafficSources: z.array(z.object({
         source: z.string().min(1),
         percentage: z.number().min(0).max(100)

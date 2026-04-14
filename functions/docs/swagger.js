@@ -356,6 +356,55 @@ const options = {
                     }
                 }
             },
+            "/api/analytics/track": {
+                post: {
+                    tags: ["Analytics"],
+                    summary: "Track page analytics event",
+                    description: "Public endpoint used on page reload/view. Sets visitor cookie (`aid`) and updates visitors, page views, conversions, and traffic source aggregates.",
+                    requestBody: {
+                        required: false,
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    properties: {
+                                        page: { type: "string", example: "/analytics" },
+                                        referrer: { type: "string", example: "https://www.google.com/search?q=atlas" },
+                                        trafficSource: { type: "string", enum: ["Google", "Social", "Direct", "Referral", "Email"] },
+                                        isConversion: { type: "boolean", default: false },
+                                        conversionCount: { type: "integer", minimum: 1, maximum: 100, default: 1 }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    responses: {
+                        201: {
+                            description: "Analytics event tracked",
+                            content: {
+                                "application/json": {
+                                    example: {
+                                        status: "success",
+                                        code: 201,
+                                        data: {
+                                            page: "/analytics",
+                                            trafficSource: "Google",
+                                            isNewVisitor: true,
+                                            visitors: 1023,
+                                            pageViews: 4460,
+                                            conversions: 128
+                                        },
+                                        message: "Analytics event tracked"
+                                    }
+                                }
+                            }
+                        },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                }
+            },
             "/api/analytics/overview": {
                 get: {
                     tags: ["Analytics"],

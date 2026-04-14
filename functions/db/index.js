@@ -1,5 +1,5 @@
 const { MongoClient } = require("mongodb");
-const { logger } = require("../helpers");
+const { logger, analytics } = require("../helpers");
 
 let client;
 let db;
@@ -12,6 +12,7 @@ let tasks;
 let activityLogs;
 let analyticsSnapshots;
 let campaignStats;
+let analyticsVisitors;
 
 async function initializeDB() {
   try {
@@ -32,6 +33,7 @@ async function initializeDB() {
     activityLogs = db.collection("activityLogs");
     analyticsSnapshots = db.collection("analyticsSnapshots");
     campaignStats = db.collection("campaignStats");
+    analyticsVisitors = db.collection("analyticsVisitors");
 
     await users.createIndex({ email: 1 }, { unique: true });
     await clients.createIndex({ id: 1 }, { unique: true });
@@ -47,6 +49,9 @@ async function initializeDB() {
     await analyticsSnapshots.createIndex({ id: 1 }, { unique: true });
     await analyticsSnapshots.createIndex({ periodStart: 1 });
     await analyticsSnapshots.createIndex({ periodEnd: 1 });
+    await analyticsVisitors.createIndex({ id: 1 }, { unique: true });
+    await analyticsVisitors.createIndex({ periodStart: 1 });
+    await analyticsVisitors.createIndex({ visitorId: 1 });
     await campaignStats.createIndex({ id: 1 }, { unique: true });
     await campaignStats.createIndex({ campaignName: 1 });
     await campaignStats.createIndex({ createdAt: -1 });
@@ -506,6 +511,102 @@ async function upsertAnalyticsSnapshotByPeriod({ id, periodStart, periodEnd, ...
   }
 }
 
+async function registerAnalyticsDailyVisitor({ visitorId, timestamp = Date.now() }) {
+  try {
+    const safeVisitorId = String(visitorId || "").trim();
+    if (!safeVisitorId) return false;
+
+    const { start, end } = analytics.getUtcDayRange(timestamp);
+    const id = `${start}_${safeVisitorId}`;
+
+    const result = await analyticsVisitors.updateOne(
+      { id },
+      {
+        $setOnInsert: {
+          id,
+          visitorId: safeVisitorId,
+          periodStart: start,
+          periodEnd: end,
+          createdAt: Date.now(),
+        },
+      },
+      { upsert: true },
+    );
+
+    return Boolean(result.upsertedCount);
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function incrementAnalyticsSnapshotCounters({
+  timestamp = Date.now(),
+  visitorsDelta = 0,
+  pageViewsDelta = 0,
+  conversionsDelta = 0,
+  trafficSource = "Direct",
+} = {}) {
+  try {
+    const { start, end } = analytics.getUtcDayRange(timestamp);
+    const snapshotId = `daily_${start}_${end}`;
+    const safeVisitorsDelta = Math.max(0, Number(visitorsDelta) || 0);
+    const safePageViewsDelta = Math.max(0, Number(pageViewsDelta) || 0);
+    const safeConversionsDelta = Math.max(0, Number(conversionsDelta) || 0);
+    const safeTrafficSource = String(trafficSource || "Direct").replace(/[.$]/g, "_");
+    const now = Date.now();
+
+    await analyticsSnapshots.updateOne(
+      { id: snapshotId },
+      {
+        $set: {
+          periodStart: start,
+          periodEnd: end,
+          updatedAt: now,
+        },
+        $inc: {
+          visitors: safeVisitorsDelta,
+          pageViews: safePageViewsDelta,
+          conversions: safeConversionsDelta,
+          ...(safePageViewsDelta > 0 ? { [`trafficSourceCounts.${safeTrafficSource}`]: safePageViewsDelta } : {}),
+        },
+        $setOnInsert: {
+          id: snapshotId,
+          createdAt: now,
+          visitors: 0,
+          pageViews: 0,
+          conversions: 0,
+          trafficSourceCounts: {},
+          trafficSources: [],
+        },
+      },
+      { upsert: true },
+    );
+
+    const snapshot = await analyticsSnapshots.findOne({ id: snapshotId });
+    const counts = snapshot?.trafficSourceCounts || {};
+    const totalCount = Object.values(counts).reduce((sum, value) => sum + (Number(value) || 0), 0);
+    const trafficSources = totalCount === 0
+      ? []
+      : Object.entries(counts)
+          .map(([source, count]) => ({
+            source,
+            percentage: Number((((Number(count) || 0) / totalCount) * 100).toFixed(2)),
+          }))
+          .sort((a, b) => b.percentage - a.percentage);
+
+    await analyticsSnapshots.updateOne(
+      { id: snapshotId },
+      { $set: { trafficSources, updatedAt: Date.now() } },
+    );
+
+    return await analyticsSnapshots.findOne({ id: snapshotId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function getAnalyticsSnapshotsByDateRange({ from, to, page = 1, limit = 100, projection } = {}) {
   try {
     const query = {};
@@ -688,6 +789,8 @@ module.exports = {
   getActivityLogs,
 
   upsertAnalyticsSnapshotByPeriod,
+  registerAnalyticsDailyVisitor,
+  incrementAnalyticsSnapshotCounters,
   getAnalyticsSnapshotsByDateRange,
 
   addCampaignStat,

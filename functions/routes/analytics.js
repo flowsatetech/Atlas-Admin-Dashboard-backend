@@ -74,30 +74,18 @@ router.get("/overview", analyticsRateLimiter, async (req, res) => {
 
         const range = analytics.parsePeriod("30d");
 
-        const [currentSnapshots, previousSnapshots, currentCampaigns, previousCampaigns] = await Promise.all([
+        const [currentSnapshots, previousSnapshots] = await Promise.all([
             db.getAnalyticsSnapshotsByDateRange({
                 from: range.currentStart,
                 to: range.currentEnd,
                 limit: 1000,
-                projection: { _id: 0, periodStart: 1, visitors: 1, pageViews: 1, trafficSources: 1 }
+                projection: { _id: 0, periodStart: 1, visitors: 1, pageViews: 1, conversions: 1, trafficSources: 1 }
             }),
             db.getAnalyticsSnapshotsByDateRange({
                 from: range.previousStart,
                 to: range.previousEnd,
                 limit: 1000,
-                projection: { _id: 0, periodStart: 1, visitors: 1, pageViews: 1, trafficSources: 1 }
-            }),
-            db.getCampaignStatsByDateRange({
-                from: range.currentStart,
-                to: range.currentEnd,
-                limit: 1000,
-                projection: { _id: 0, clicks: 1, conversions: 1 }
-            }),
-            db.getCampaignStatsByDateRange({
-                from: range.previousStart,
-                to: range.previousEnd,
-                limit: 1000,
-                projection: { _id: 0, clicks: 1, conversions: 1 }
+                projection: { _id: 0, periodStart: 1, visitors: 1, pageViews: 1, conversions: 1, trafficSources: 1 }
             })
         ]);
 
@@ -106,13 +94,11 @@ router.get("/overview", analyticsRateLimiter, async (req, res) => {
         const currentPageViews = sumSnapshots(currentSnapshots.rows, "pageViews");
         const previousPageViews = sumSnapshots(previousSnapshots.rows, "pageViews");
 
-        const currentClicks = currentCampaigns.rows.reduce((sum, row) => sum + (Number(row.clicks) || 0), 0);
-        const currentConversions = currentCampaigns.rows.reduce((sum, row) => sum + (Number(row.conversions) || 0), 0);
-        const previousClicks = previousCampaigns.rows.reduce((sum, row) => sum + (Number(row.clicks) || 0), 0);
-        const previousConversions = previousCampaigns.rows.reduce((sum, row) => sum + (Number(row.conversions) || 0), 0);
+        const currentConversions = sumSnapshots(currentSnapshots.rows, "conversions");
+        const previousConversions = sumSnapshots(previousSnapshots.rows, "conversions");
 
-        const currentConversionRate = analytics.safeRate(currentConversions, currentClicks);
-        const previousConversionRate = analytics.safeRate(previousConversions, previousClicks);
+        const currentConversionRate = analytics.safeRate(currentConversions, currentPageViews);
+        const previousConversionRate = analytics.safeRate(previousConversions, previousPageViews);
 
         const currentSources = aggregateTrafficSources(currentSnapshots.rows);
         const previousSources = aggregateTrafficSources(previousSnapshots.rows);
@@ -158,20 +144,12 @@ router.get("/traffic", analyticsRateLimiter, async (req, res) => {
         const period = analytics.parsePeriod(range);
         const buckets = analytics.buildDateBuckets({ from: period.currentStart, to: period.currentEnd, unit: period.unit });
 
-        const [snapshots, campaigns] = await Promise.all([
-            db.getAnalyticsSnapshotsByDateRange({
-                from: period.currentStart,
-                to: period.currentEnd,
-                limit: 3000,
-                projection: { _id: 0, periodStart: 1, visitors: 1, pageViews: 1 }
-            }),
-            db.getCampaignStatsByDateRange({
-                from: period.currentStart,
-                to: period.currentEnd,
-                limit: 3000,
-                projection: { _id: 0, createdAt: 1, clicks: 1, conversions: 1 }
-            })
-        ]);
+        const snapshots = await db.getAnalyticsSnapshotsByDateRange({
+            from: period.currentStart,
+            to: period.currentEnd,
+            limit: 3000,
+            projection: { _id: 0, periodStart: 1, visitors: 1, pageViews: 1, conversions: 1 }
+        });
 
         const visitsSeries = buckets.map((bucket) =>
             snapshots.rows.reduce((sum, row) => (
@@ -186,13 +164,13 @@ router.get("/traffic", analyticsRateLimiter, async (req, res) => {
         );
 
         const conversionRateSeries = buckets.map((bucket) => {
-            const clicks = campaigns.rows.reduce((sum, row) => (
-                row.createdAt >= bucket.start && row.createdAt <= bucket.end ? sum + (Number(row.clicks) || 0) : sum
+            const pageViews = snapshots.rows.reduce((sum, row) => (
+                row.periodStart >= bucket.start && row.periodStart <= bucket.end ? sum + (Number(row.pageViews) || 0) : sum
             ), 0);
-            const conversions = campaigns.rows.reduce((sum, row) => (
-                row.createdAt >= bucket.start && row.createdAt <= bucket.end ? sum + (Number(row.conversions) || 0) : sum
+            const conversions = snapshots.rows.reduce((sum, row) => (
+                row.periodStart >= bucket.start && row.periodStart <= bucket.end ? sum + (Number(row.conversions) || 0) : sum
             ), 0);
-            return analytics.safeRate(conversions, clicks);
+            return analytics.safeRate(conversions, pageViews);
         });
 
         const response = {
