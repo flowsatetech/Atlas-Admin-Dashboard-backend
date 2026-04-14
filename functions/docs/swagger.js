@@ -125,8 +125,10 @@ const options = {
                     },
                     responses: {
                         200: { description: "Signed in successfully" },
-                        400: { description: "Validation error" },
-                        401: { description: "Invalid email or password" }
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -154,7 +156,11 @@ const options = {
                     },
                     responses: {
                         201: { description: "Account created successfully" },
-                        403: { description: "Forbidden" }
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        403: { $ref: "#/components/responses/Forbidden" },
+                        409: { description: "Conflict (duplicate resource)" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -164,7 +170,10 @@ const options = {
                     summary: "Logout user",
                     security: [{ cookieAuth: [] }],
                     responses: {
-                        200: { description: "Logged out successfully" }
+                        200: { description: "Logged out successfully" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -175,7 +184,9 @@ const options = {
                     security: [{ cookieAuth: [] }],
                     responses: {
                         200: { description: "Fetch profile success" },
-                        401: { description: "Invalid session" }
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -191,17 +202,23 @@ const options = {
                             content: {
                                 "application/json": {
                                     example: {
-                                        success: true,
+                                        status: "success",
+                                        code: 200,
                                         data: {
                                             totalClients: { value: 2550, changePct: 12.5, direction: "up", compareLabel: "Vs last month" },
                                             activeProjects: { value: 140, changePct: 8.2, direction: "up", compareLabel: "Vs last month" },
                                             pendingTasks: { value: 65, changePct: -3.5, direction: "down", compareLabel: "Vs last month" },
                                             newLeads: { value: 200, changePct: 12.5, direction: "up", compareLabel: "Vs last month" }
-                                        }
+                                        },
+                                        message: "Request successful"
                                     }
                                 }
                             }
-                        }
+                        },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -225,17 +242,23 @@ const options = {
                             content: {
                                 "application/json": {
                                     example: {
-                                        success: true,
+                                        status: "success",
+                                        code: 200,
                                         data: {
                                             period: "6months",
                                             labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
                                             revenueSeries: [20, 36, 54, 50, 72, 56],
                                             newClientSeries: [16, 23, 34, 27, 42, 34]
-                                        }
+                                        },
+                                        message: "Request successful"
                                     }
                                 }
                             }
-                        }
+                        },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -259,18 +282,24 @@ const options = {
                             content: {
                                 "application/json": {
                                     example: {
-                                        success: true,
+                                        status: "success",
+                                        code: 200,
                                         data: {
                                             projects: [
                                                 { id: "p1", name: "Brand Strategy", clientName: "Rivera Group", statusLabel: "Finishing", progress: 92 },
                                                 { id: "p2", name: "Market Analysis", clientName: "Apex Group", statusLabel: "On Track", progress: 60 }
                                             ],
                                             totalActiveProjects: 4
-                                        }
+                                        },
+                                        message: "Request successful"
                                     }
                                 }
                             }
-                        }
+                        },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -300,7 +329,8 @@ const options = {
                             content: {
                                 "application/json": {
                                     example: {
-                                        success: true,
+                                        status: "success",
+                                        code: 200,
                                         data: {
                                             items: [
                                                 {
@@ -313,11 +343,16 @@ const options = {
                                                 }
                                             ],
                                             pagination: { page: 1, limit: 10, total: 24, totalPages: 3 }
-                                        }
+                                        },
+                                        message: "Request successful"
                                     }
                                 }
                             }
-                        }
+                        },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -333,17 +368,22 @@ const options = {
                             content: {
                                 "application/json": {
                                     example: {
-                                        success: true,
+                                        status: "success",
+                                        code: 200,
                                         data: {
                                             websiteVisitors: { value: 35000, changePct: 15, direction: "up" },
                                             pageViews: { value: 78222, changePct: 15, direction: "up" },
                                             conversionRate: { value: 7.6, changePct: -1.2, direction: "down" },
                                             topTrafficSource: { name: "Google", changePct: 8, direction: "up" }
-                                        }
+                                        },
+                                        message: "Request successful"
                                     }
                                 }
                             }
-                        }
+                        },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -362,7 +402,11 @@ const options = {
                         }
                     ],
                     responses: {
-                        200: { description: "Traffic overview returned" }
+                        200: { description: "Traffic overview returned" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -381,7 +425,11 @@ const options = {
                         }
                     ],
                     responses: {
-                        200: { description: "Traffic sources returned" }
+                        200: { description: "Traffic sources returned" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -398,7 +446,11 @@ const options = {
                         { name: "order", in: "query", required: false, schema: { type: "string", enum: ["asc", "desc"], default: "desc" } }
                     ],
                     responses: {
-                        200: { description: "Campaign performance returned" }
+                        200: { description: "Campaign performance returned" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -414,7 +466,8 @@ const options = {
                             content: {
                                 "application/json": {
                                     example: {
-                                        success: true,
+                                        status: "success",
+                                        code: 200,
                                         data: {
                                             distribution: [
                                                 { label: "Page Views", value: 78540 },
@@ -422,11 +475,15 @@ const options = {
                                                 { label: "Leads", value: 4820 },
                                                 { label: "Customers", value: 690 }
                                             ]
-                                        }
+                                        },
+                                        message: "Request successful"
                                     }
                                 }
                             }
-                        }
+                        },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -456,7 +513,11 @@ const options = {
                         }
                     ],
                     responses: {
-                        200: { description: "Fetch clients success" }
+                        200: { description: "Fetch clients success" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 },
                 post: {
@@ -487,7 +548,12 @@ const options = {
                     },
                     responses: {
                         201: { description: "Client added successfully" },
-                        403: { description: "Admins only" }
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { $ref: "#/components/responses/Forbidden" },
+                        409: { description: "Conflict (duplicate resource)" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -497,7 +563,10 @@ const options = {
                     summary: "List all projects",
                     security: [{ cookieAuth: [] }],
                     responses: {
-                        200: { description: "Fetch projects success" }
+                        200: { description: "Fetch projects success" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -528,7 +597,11 @@ const options = {
                     },
                     responses: {
                         200: { description: "Project added successfully" },
-                        403: { description: "Admins only" }
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { $ref: "#/components/responses/Forbidden" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -538,7 +611,10 @@ const options = {
                     summary: "List all members",
                     security: [{ cookieAuth: [] }],
                     responses: {
-                        200: { description: "Fetch members success" }
+                        200: { description: "Fetch members success" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -548,7 +624,10 @@ const options = {
                     summary: "List image resources",
                     security: [{ cookieAuth: [] }],
                     responses: {
-                        200: { description: "Fetch media images success" }
+                        200: { description: "Fetch media images success" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -567,7 +646,10 @@ const options = {
                     ],
                     responses: {
                         302: { description: "Redirect to image URL" },
-                        404: { description: "Image not found" }
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        404: { $ref: "#/components/responses/NotFound" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -594,7 +676,11 @@ const options = {
                         }
                     },
                     responses: {
-                        200: { description: "Image uploaded successfully" }
+                        200: { description: "Image uploaded successfully" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -629,7 +715,12 @@ const options = {
                         }
                     },
                     responses: {
-                        200: { description: "Image replaced successfully" }
+                        200: { description: "Image replaced successfully" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        404: { $ref: "#/components/responses/NotFound" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -639,7 +730,10 @@ const options = {
                     summary: "List all media strings",
                     security: [{ cookieAuth: [] }],
                     responses: {
-                        200: { description: "Fetch media strings success" }
+                        200: { description: "Fetch media strings success" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -663,7 +757,11 @@ const options = {
                         }
                     },
                     responses: {
-                        200: { description: "Add media string success" }
+                        200: { description: "Add media string success" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -695,7 +793,12 @@ const options = {
                         }
                     },
                     responses: {
-                        200: { description: "Replace media string success" }
+                        200: { description: "Replace media string success" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        404: { $ref: "#/components/responses/NotFound" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
@@ -713,7 +816,8 @@ const options = {
                     ],
                     responses: {
                         200: { description: "Raw string content" },
-                        404: { description: "String not found" }
+                        404: { $ref: "#/components/responses/NotFound" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
