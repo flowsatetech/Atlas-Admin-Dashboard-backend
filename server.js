@@ -13,6 +13,7 @@ const path = require('path');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const helmet = require('helmet');
+const swaggerUi = require('swagger-ui-express');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('./functions/middlewares');
@@ -26,6 +27,7 @@ const mediaRoutes = require('./functions/routes/media');
 const tasksApi = require('./functions/routes/tasks');
 const healthApi = require('./functions/routes/health');
 const fourZeroFourApi = require('./functions/routes/404');
+const swaggerSpec = require('./functions/docs/swagger');
 
 const db = require('./functions/db');
 const { logger } = require('./functions/helpers');
@@ -123,6 +125,15 @@ app.use('/api/misc', miscApi);
 app.use('/api/tasks', middlewares.authMiddleware, tasksApi);
 app.use('/api/health', healthApi);
 
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    swaggerOptions: {
+        persistAuthorization: true
+    }
+}));
+app.get('/api/docs.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(swaggerSpec);
+});
 
 app.use('/app', (req, res, next) => {
   if (process.env.NODE_ENV === 'production') {
