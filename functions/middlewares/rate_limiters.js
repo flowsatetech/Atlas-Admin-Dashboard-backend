@@ -1,150 +1,150 @@
-const rateLimit = require('express-rate-limit');
-const { ipKeyGenerator } = require('express-rate-limit');
-const { RedisStore } = require('rate-limit-redis');
-const { logger } = require('../helpers');
+const rateLimit = require("express-rate-limit");
+const { ipKeyGenerator } = require("express-rate-limit");
+const { RedisStore } = require("rate-limit-redis");
+const { logger } = require("../helpers");
 
 const shouldUseRedisStore =
-    process.env.RATE_LIMIT_STORE === 'redis' ||
-    process.env.NODE_ENV === 'production';
+  process.env.RATE_LIMIT_STORE === "redis" || process.env.NODE_ENV === "production";
 
 const createStore = () => {
-    if (!shouldUseRedisStore) return undefined;
+  if (!shouldUseRedisStore) return undefined;
 
-    try {
-        const redisClient = require('./utils/redis_client');
-        return new RedisStore({
-            sendCommand: (...args) => redisClient.sendCommand(args)
-        });
-    } catch (error) {
-        logger('RATE_LIMIT').warn('Redis store unavailable, falling back to in-memory store.');
-        return undefined;
-    }
+  try {
+    const redisClient = require("./utils/redis_client");
+    return new RedisStore({
+      sendCommand: (...args) => redisClient.sendCommand(args),
+    });
+  } catch (error) {
+    logger("RATE_LIMIT").warn("Redis store unavailable, falling back to in-memory store.");
+    return undefined;
+  }
 };
 
 const keyGenerator = (req) => {
-    if (req.user && req.user.userId) {
-        return `user_${req.user.userId}`;
-    }
-    return `ip_${ipKeyGenerator(req.ip)}`;
+  if (req.user && req.user.userId) return `user_${req.user.userId}`;
+  return `ip_${ipKeyGenerator(req.ip)}`;
 };
 
 const signup = rateLimit({
-    windowMs: 60 * 60 * 1000,
-    max: 5, 
-    store: createStore(),
-    message: { success: false, message: 'Too many accounts created from this IP. Please try again later.' }
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  store: createStore(),
+  message: { success: false, message: "Too many accounts created from this IP. Please try again later." },
 });
 
 const authLogin = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 5,
-    store: createStore(),
-    keyGenerator: (req) => {
-        const email = req.body?.email || ''; 
-        return `login_${email}`;
-    },
-    message: { success: false, message: 'Too many login attempts. Please try again later.' }
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  store: createStore(),
+  keyGenerator: (req) => `login_${req.body?.email || ""}`,
+  message: { success: false, message: "Too many login attempts. Please try again later." },
 });
 
 const authLoginIp = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 5,
-    store: createStore(),
-    keyGenerator: (req) => {
-        return `login_${ipKeyGenerator(req.ip)}`;
-    },
-    message: { success: false, message: 'Too many login attempts. Please try again later.' }
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  store: createStore(),
+  keyGenerator: (req) => `login_${ipKeyGenerator(req.ip)}`,
+  message: { success: false, message: "Too many login attempts. Please try again later." },
 });
 
 const profile = rateLimit({
-    windowMs: 30 * 60 * 1000,
-    max: 20,
-    store: createStore(),
-    keyGenerator,
-    message: { success: false, message: 'Too many requests. Please slow down.' }
+  windowMs: 30 * 60 * 1000,
+  max: 20,
+  store: createStore(),
+  keyGenerator,
+  message: { success: false, message: "Too many requests. Please slow down." },
 });
 
 const dashboard = rateLimit({
-    windowMs: 30 * 60 * 1000,
-    max: 20,
-    store: createStore(),
-    keyGenerator,
-    message: { success: false, message: 'Too many requests. Please slow down.' }
+  windowMs: 30 * 60 * 1000,
+  max: 20,
+  store: createStore(),
+  keyGenerator,
+  message: { success: false, message: "Too many requests. Please slow down." },
 });
 
 const projects = rateLimit({
-    windowMs: 30 * 60 * 1000,
-    max: 20,
-    store: createStore(),
-    keyGenerator,
-    message: { success: false, message: 'Too many requests. Please slow down.' }
+  windowMs: 30 * 60 * 1000,
+  max: 20,
+  store: createStore(),
+  keyGenerator,
+  message: { success: false, message: "Too many requests. Please slow down." },
 });
 
 const clients = rateLimit({
-    windowMs: 30 * 60 * 1000,
-    max: 20,
-    store: createStore(),
-    keyGenerator,
-    message: { success: false, message: 'Too many requests. Please slow down.' }
+  windowMs: 30 * 60 * 1000,
+  max: 20,
+  store: createStore(),
+  keyGenerator,
+  message: { success: false, message: "Too many requests. Please slow down." },
 });
 
 const members = rateLimit({
-    windowMs: 30 * 60 * 1000,
-    max: 20,
-    store: createStore(),
-    keyGenerator,
-    message: { success: false, message: 'Too many requests. Please slow down.' }
+  windowMs: 30 * 60 * 1000,
+  max: 20,
+  store: createStore(),
+  keyGenerator,
+  message: { success: false, message: "Too many requests. Please slow down." },
 });
 
 const media = rateLimit({
-    windowMs: 30 * 60 * 1000,
-    max: 20,
-    store: createStore(),
-    keyGenerator,
-    message: { success: false, message: 'Too many requests. Please slow down.' }
+  windowMs: 30 * 60 * 1000,
+  max: 20,
+  store: createStore(),
+  keyGenerator,
+  message: { success: false, message: "Too many requests. Please slow down." },
 });
 
-// Added: Tasks Rate Limiter
+const analytics = rateLimit({
+  windowMs: 30 * 60 * 1000,
+  max: 30,
+  store: createStore(),
+  keyGenerator,
+  message: { success: false, message: "Too many analytics requests. Please slow down." },
+});
+
 const tasks = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 50, // Higher limit for productivity
-    store: createStore(),
-    keyGenerator,
-    message: { success: false, message: 'Too many task requests. Please slow down.' }
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  store: createStore(),
+  keyGenerator,
+  message: { success: false, message: "Too many task requests. Please slow down." },
 });
 
 const logout = rateLimit({
-    windowMs: 60 * 60 * 1000,
-    max: 20,
-    store: createStore(),
-    keyGenerator,
-    message: { success: false, message: 'Too many logout attempts.' }
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  store: createStore(),
+  keyGenerator,
+  message: { success: false, message: "Too many logout attempts." },
 });
 
 const fourzerofour = rateLimit({
-    windowMs: 5 * 60 * 60 * 1000,
-    max: 3,
-    message: { success: false, message: 'Too many failed requests.' }
+  windowMs: 5 * 60 * 60 * 1000,
+  max: 3,
+  message: { success: false, message: "Too many failed requests." },
 });
 
 const health = rateLimit({
-    windowMs: 60 * 1000,
-    max: 10,
-    message: { success: false, message: 'Too many health checks.' }
+  windowMs: 60 * 1000,
+  max: 10,
+  message: { success: false, message: "Too many health checks." },
 });
 
 module.exports = {
-    signup,
-    authLogin,
-    authLoginIp,
-    health,
-    profile,
-    logout,
-    dashboard,
-    projects,
-    clients,
-    members,
-    media,
-    tasks, // EXPORTED: This stops the crash!
-    fourzerofour
+  signup,
+  authLogin,
+  authLoginIp,
+  health,
+  profile,
+  logout,
+  dashboard,
+  projects,
+  clients,
+  members,
+  media,
+  analytics,
+  tasks,
+  fourzerofour,
 };

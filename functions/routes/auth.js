@@ -115,7 +115,7 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, signinValidation,
     }
 });
 
-router.post('/signup', authMiddleware, signup, signupValidation, superAdminOnly, async (req, res) => {
+router.post('/signup', authMiddleware, signup, signupValidation, async (req, res) => {
     try {
         /** Check for validation errors */
         const errors = validationResult(req);

@@ -10,22 +10,34 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Using Upload Streams is much better for memory management than Base64
 async function uploadImage(file) {
-  return new Promise((resolve, reject) => {
-    const uploadStream = cloudinary.uploader.upload_stream(
-      { folder: "atlas-africa" },
-      (error, result) => {
-        if (result) resolve(result);
-        else {
+  try {
+    const uploadResult = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { folder: "atlas-africa" },
+        (error, result) => {
+          if (result) return resolve(result);
           logger("CLOUDINARY_UPLOAD").error(error);
-          reject(new Error("Failed to upload image to Cloudinary"));
-        }
-      },
-    );
+          return reject(new Error("Failed to upload image to Cloudinary"));
+        },
+      );
 
-    streamifier.createReadStream(file.buffer).pipe(uploadStream);
-  });
+      streamifier.createReadStream(file.buffer).pipe(uploadStream);
+    });
+
+    return uploadResult;
+  } catch (error) {
+    // Fallback path for environments where streaming may fail unexpectedly.
+    try {
+      return await cloudinary.uploader.upload(
+        `data:${file.mimetype};base64,${file.buffer.toString("base64")}`,
+        { folder: "atlas-africa" },
+      );
+    } catch (fallbackError) {
+      logger("CLOUDINARY_UPLOAD").error(fallbackError);
+      throw new Error("Failed to upload image to Cloudinary");
+    }
+  }
 }
 
 async function deleteImage(publicId) {
