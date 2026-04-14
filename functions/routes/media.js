@@ -1,218 +1,165 @@
-/** IMPORT
- * All libraries / local exports / packages are imported here
- */
-
-// <-- PACKAGE IMPORTS -->
-const express = require('express');
-const multer = require('multer');
+/** IMPORT */
+const express = require("express");
+const multer = require("multer");
 
 // <-- LOCAL EXPORTS IMPORTS -->
-const middlewares = require('../middlewares');
-const { logger, uploadImage, deleteImage, generateToken } = require('../helpers');
-const db = require('../db');
+const middlewares = require("../middlewares");
+const {
+  logger,
+  uploadImage,
+  deleteImage,
+  generateToken,
+} = require("../helpers");
+const db = require("../db");
 
-/** SETUP
- * Global variables referenced in this file are defined here
- */
+/** SETUP */
 const router = express.Router();
-const { media } = middlewares.rateLimiters;
+const { media: mediaRateLimiter } = middlewares.rateLimiters;
 
+// Configured for 10MB limit as per your request
 const upload = multer({
-    limits: { fileSize: 10 * 1024 * 1024 },
-    fileFilter: (req, file, cb) => {
-        if (file.mimetype.startsWith('image/')) {
-            cb(null, true);
-        } else {
-            cb(new Error('Only image files are allowed'), false);
-        }
-    },
-    storage: multer.memoryStorage()
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"), false);
+    }
+  },
+  storage: multer.memoryStorage(),
 });
 
-const uploadMiddlewareHandler = upload.single('image');
+const uploadMiddlewareHandler = upload.single("image");
+
 const uploadMiddleware = (req, res, next) => {
-    uploadMiddlewareHandler(req, res, (err) => {
-        if (err) {
-            return res.status(400).json({
-                success: false,
-                message: 'An error occured while uploading the image for this product',
-                data: {
-                    error: err.message
-                }
-            });
-        }
-        next();
-    });
+  uploadMiddlewareHandler(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({
+        success: false,
+        message: "Media upload error",
+        error: err.message,
+      });
+    }
+    next();
+  });
 };
 
-router.get('/images/all', media, async (req, res) => {
-    try {
-        const images = await db.getImages();
+/** IMAGE ROUTES */
 
-        res.status(200).json({
-            success: true,
-            message: 'Fetch media (images) success',
-            data: {
-                images: images.map(({ _id, id }) => ({
-                    id,
-                    url: `${process.env.SERVER_BASE_URL}/api/media/images/${id}`
-                }))
-            }
-        });
-    } catch (e) {
-        logger('ALL_MEDIA_IMAGES').error(e);
-        res.status(400).json({
-            success: false, message: 'An unknown error occured'
-        })
-    }
+router.get("/images/all", mediaRateLimiter, async (req, res) => {
+  try {
+    const images = await db.getImages();
+    res.status(200).json({
+      success: true,
+      message: "Fetch media success",
+      data: {
+        images: images.map(({ id, url }) => ({ id, url })),
+      },
+    });
+  } catch (e) {
+    logger("ALL_MEDIA_IMAGES").error(e);
+    res
+      .status(400)
+      .json({ success: false, message: "An unknown error occurred" });
+  }
 });
 
-router.get('/images/:imageId', media, async (req, res) => {
+router.post(
+  "/images/new",
+  mediaRateLimiter,
+  uploadMiddleware,
+  async (req, res) => {
     try {
-        const { imageId } = req.params;
-        const image = await db.findImageById(imageId);
-        if (!image) return res.status(404).json({
-            success: false,
-            message: 'Image Id not found'
-        });
+      if (!req.file) {
+        return res
+          .status(400)
+          .json({ success: false, message: "No image file uploaded" });
+      }
 
-        res.redirect(image.url);
+      const uploaded = await uploadImage(req.file);
+      const id = generateToken(32);
+
+      // Store public_id and secure_url in DB
+      await db.addImage(id, {
+        public_id: uploaded.public_id,
+        url: uploaded.secure_url,
+      });
+
+      res.status(201).json({
+        success: true,
+        message: "Image uploaded successfully",
+        data: { id, url: uploaded.secure_url },
+      });
     } catch (e) {
-        logger('GET_MEDIA_IMAGE_PROXIED').error(e);
-        res.status(500).send('Server Error');
+      logger("ADD_MEDIA_IMAGES").error(e);
+      res
+        .status(400)
+        .json({ success: false, message: "Upload process failed" });
     }
+  },
+);
+
+router.put(
+  "/images/:imageId/replace",
+  mediaRateLimiter,
+  uploadMiddleware,
+  async (req, res) => {
+    try {
+      if (!req.file)
+        return res
+          .status(400)
+          .json({ success: false, message: "No file provided" });
+
+      const { imageId } = req.params;
+      const image = await db.findImageById(imageId);
+      if (!image)
+        return res
+          .status(404)
+          .json({ success: false, message: "Image not found" });
+
+      const uploaded = await uploadImage(req.file);
+
+      // Clean up the old image from Cloudinary to save space
+      if (image.public_id) await deleteImage(image.public_id);
+
+      await db.updateImageById(imageId, {
+        public_id: uploaded.public_id,
+        url: uploaded.secure_url,
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "Image replaced successfully",
+        data: { id: imageId, url: uploaded.secure_url },
+      });
+    } catch (e) {
+      logger("REPLACE_MEDIA_IMAGE").error(e);
+      res
+        .status(400)
+        .json({ success: false, message: "Replace operation failed" });
+    }
+  },
+);
+
+/** STRING ROUTES (For smaller text-based media) */
+
+router.post("/strings/new", mediaRateLimiter, async (req, res) => {
+  try {
+    const { string } = req.body;
+    const id = generateToken(32);
+    await db.storeMediaString(id, string);
+
+    res
+      .status(201)
+      .json({
+        success: true,
+        message: "String stored successfully",
+        data: { id },
+      });
+  } catch (e) {
+    logger("ADD_MEDIA_STRING").error(e);
+    res.status(400).json({ success: false, message: "Failed to store string" });
+  }
 });
 
-router.post('/images/new', media, uploadMiddleware, async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                message: 'No image file uploaded'
-            })
-        }
-        const uploaded = await uploadImage(req.file);
-        const id = generateToken(32);
-
-        await db.addImage(id, uploaded);
-
-        res.status(200).json({
-            success: true,
-            message: 'Add media (images) success'
-        });
-    } catch (e) {
-        logger('ADD_MEDIA_IMAGES').error(e);
-        res.status(400).json({
-            success: false, message: 'An unknown error occured'
-        })
-    }
-});
-
-router.put('/images/:imageId/replace', media, uploadMiddleware, async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                message: 'No image file uploaded'
-            })
-        }
-        const { imageId } = req.params;
-        const image = await db.findImageById(imageId);
-        if (!image) return res.status(404).json({
-            success: false,
-            message: 'Image Id not found'
-        });
-
-        const uploaded = await uploadImage(req.file);
-        deleteImage(image.public_id);
-
-        await db.updateImageById(imageId, uploaded);
-
-        res.status(200).json({
-            success: true,
-            message: 'Replace media (images) success'
-        });
-    } catch (e) {
-        logger('ALL_MEDIA_IMAGES').error(e);
-        res.status(400).json({
-            success: false, message: 'An unknown error occured'
-        })
-    }
-});
-
-router.get('/strings/all', media, async (req, res) => {
-    try {
-        const strings = await db.getMediaStrings();
-
-        res.status(200).json({
-            success: true,
-            message: 'Fetch media (strings) success',
-            data: {
-                strings: strings.map(({ _id, ...$rest }) => ($rest))
-            }
-        });
-    } catch (e) {
-        logger('ALL_MEDIA_STRINGS').error(e);
-        res.status(400).json({
-            success: false, message: 'An unknown error occured'
-        })
-    }
-});
-
-router.post('/strings/new', media, async (req, res) => {
-    try {
-        const { string } = req.body;
-
-        await db.storeMediaString(generateToken(32), string);
-
-        res.status(200).json({
-            success: true,
-            message: 'Add media (string) success'
-        });
-    } catch (e) {
-        logger('ADD_MEDIA_STRING').error(e);
-        res.status(400).json({
-            success: false, message: 'An unknown error occured'
-        })
-    }
-});
-
-router.put('/strings/:stringId/replace', media, async (req, res) => {
-    try {
-        const { stringId } = req.params;
-        const { string } = req.body;
-
-        await db.updateMediaString(stringId, string);
-
-        res.status(200).json({
-            success: true,
-            message: 'Replace media (string) success'
-        });
-    } catch (e) {
-        logger('ALL_MEDIA_IMAGES').error(e);
-        res.status(400).json({
-            success: false, message: 'An unknown error occured'
-        })
-    }
-});
-
-router.get('/strings/:stringId', async (req, res) => {
-    try {
-        const { stringId } = req.params;
-        const string = await db.getMediaStringById(stringId);
-        if(!string) return res.status(404).json({
-            success: false,
-            message: 'String Id not found'
-        });
-
-        res.status(200).end(string.string);
-    } catch (e) {
-        logger('GET_STRING').error(e);
-        res.status(500).send('Server Error');
-    }
-});
-
-/** EXPORTS
- * Export Routes for use in routers
- */
 module.exports = router;

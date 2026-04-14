@@ -24,6 +24,9 @@ const projectRoutes = require('./functions/routes/projects');
 const clientsRoutes = require('./functions/routes/clients');
 const membersRoutes = require('./functions/routes/members');
 const mediaRoutes = require('./functions/routes/media');
+const tasksApi = require('./functions/routes/tasks');
+const healthApi = require('./functions/routes/health');
+const fourZeroFourApi = require('./functions/routes/404');
 const swaggerSpec = require('./functions/docs/swagger');
 
 const db = require('./functions/db');
@@ -34,7 +37,7 @@ const { logger } = require('./functions/helpers');
  */
 const app = express();
 const PORT = process.env.PORT || 3000;
-const allowedOrigins = JSON.parse(process.env.APP_BASE_URL || []);
+const allowedOrigins = JSON.parse(process.env.APP_BASE_URL || "[]");
 
 const corsOpts = {
     origin: (origin, callback) => {
@@ -76,7 +79,17 @@ app.set('trust proxy', 1);
 /** ROUTERS
  * All routers are created here
  */
-const [authApi, userApi, dashboardApi, projectsApi, clientsApi, membersApi, mediaApi, handler404] = Array.from({ length: 8 }, () => express.Router());
+const [
+    authApi, 
+    userApi, 
+    dashboardApi, 
+    projectsApi, 
+    clientsApi, 
+    membersApi, 
+    mediaApi, 
+    miscApi, 
+    handler404
+] = Array.from({ length: 9 }, () => express.Router());
 
 /** ROUTERS -> HANDLER MAPPING
  * All routers are mapped to their handlers
@@ -88,6 +101,12 @@ projectsApi.use(projectRoutes);
 clientsApi.use(clientsRoutes);
 membersApi.use(membersRoutes);
 mediaApi.use(mediaRoutes);
+
+// Developer 3 Task: Health Check Route 
+miscApi.get('/health', (req, res) => {
+    res.status(200).json({ status: 'Server health status' }); // 
+});
+
 handler404.use(require('./functions/routes/404'));
 
 /** CONFIGURE & START THE SERVER
@@ -99,9 +118,13 @@ app.use('/api/auth', authApi);
 app.use('/api/user', middlewares.authMiddleware, userApi);
 app.use('/api/dashboard', middlewares.authMiddleware, dashboardApi);
 app.use('/api/projects', middlewares.authMiddleware, projectsApi);
-app.use('/api/clients', middlewares.authMiddleware, clientsApi);
+app.use('/api/clients', clientsApi);
 app.use('/api/members', middlewares.authMiddleware, membersApi);
 app.use('/api/media', middlewares.authMiddleware, mediaApi);
+app.use('/api/misc', miscApi);
+app.use('/api/tasks', middlewares.authMiddleware, tasksApi);
+app.use('/api/health', healthApi);
+
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
     swaggerOptions: {
         persistAuthorization: true
@@ -119,9 +142,15 @@ app.use('/app', (req, res, next) => {
     next();
   }
 });
-app.use(handler404);
+
+app.use(fourZeroFourApi);
 
 app.listen(PORT, async () => {
-    await db.initializeDB();
-    logger('SERVER').info(`Server is running at http://localhost:${PORT}`);
+    try {
+        await db.initializeDB();
+        console.log(`Server is running at http://localhost:${PORT}`);
+    } catch (err) {
+        console.error("DB Connection failed, but server is still trying to stay up...");
+        logger('SERVER').error("DB Error:", err);
+    }
 });

@@ -104,6 +104,15 @@ const media = rateLimit({
     message: { success: false, message: 'Too many requests. Please slow down.' }
 });
 
+// Added: Tasks Rate Limiter
+const tasks = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 50, // Higher limit for productivity
+    store: createStore(),
+    keyGenerator,
+    message: { success: false, message: 'Too many task requests. Please slow down.' }
+});
+
 const logout = rateLimit({
     windowMs: 60 * 60 * 1000,
     max: 20,
@@ -115,7 +124,7 @@ const logout = rateLimit({
 const fourzerofour = rateLimit({
     windowMs: 5 * 60 * 60 * 1000,
     max: 3,
-    message: { success: false, message: 'Too many health checks.' }
+    message: { success: false, message: 'Too many failed requests.' }
 });
 
 const health = rateLimit({
@@ -131,12 +140,11 @@ module.exports = {
     health,
     profile,
     logout,
-
     dashboard,
     projects,
     clients,
     members,
     media,
-
+    tasks, // EXPORTED: This stops the crash!
     fourzerofour
 };
