@@ -10,6 +10,7 @@ const multer = require('multer');
 const middlewares = require('../middlewares');
 const { logger, uploadImage, deleteImage, generateToken } = require('../helpers');
 const db = require('../db');
+const services = require('../services');
 
 /** SETUP
  * Global variables referenced in this file are defined here
@@ -95,6 +96,21 @@ router.post('/images/new', media, uploadMiddleware, async (req, res) => {
         const id = generateToken(32);
 
         await db.addImage(id, uploaded);
+        await services.logActivity({
+            type: 'media.uploaded',
+            actorId: req.user?.userId || null,
+            entityId: id,
+            entityType: 'media',
+            message: 'New media image uploaded',
+            meta: {
+                mediaType: 'image',
+                publicId: uploaded.public_id
+            }
+        });
+        await services.recordAnalyticsEvent({
+            pageViewsDelta: 1,
+            trafficSource: 'Direct'
+        });
 
         res.status(200).json({
             success: true,
@@ -127,6 +143,21 @@ router.put('/images/:imageId/replace', media, uploadMiddleware, async (req, res)
         deleteImage(image.public_id);
 
         await db.updateImageById(imageId, uploaded);
+        await services.logActivity({
+            type: 'media.uploaded',
+            actorId: req.user?.userId || null,
+            entityId: imageId,
+            entityType: 'media',
+            message: 'Media image replaced',
+            meta: {
+                mediaType: 'image',
+                publicId: uploaded.public_id
+            }
+        });
+        await services.recordAnalyticsEvent({
+            pageViewsDelta: 1,
+            trafficSource: 'Direct'
+        });
 
         res.status(200).json({
             success: true,

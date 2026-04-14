@@ -10,6 +10,8 @@ const projectSchema = z.object({
     description: z.string().default(""),
     deadline: z.number().int().nonnegative(),
     budget: z.number().nonnegative().default(0),
+    recognizedRevenue: z.number().nonnegative().nullable().default(null),
+    recognizedAt: z.number().int().nonnegative().nullable().default(null),
     priority: projectPriorityEnum.default("Medium"),
     status: projectStatusEnum.default("Planned"),
     teamIds: z.array(z.string().min(1)).default([]),

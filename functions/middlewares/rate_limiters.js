@@ -104,6 +104,14 @@ const media = rateLimit({
     message: { success: false, message: 'Too many requests. Please slow down.' }
 });
 
+const analytics = rateLimit({
+    windowMs: 30 * 60 * 1000,
+    max: 30,
+    store: createStore(),
+    keyGenerator,
+    message: { success: false, message: 'Too many analytics requests. Please slow down.' }
+});
+
 const logout = rateLimit({
     windowMs: 60 * 60 * 1000,
     max: 20,
@@ -137,6 +145,7 @@ module.exports = {
     clients,
     members,
     media,
+    analytics,
 
     fourzerofour
 };

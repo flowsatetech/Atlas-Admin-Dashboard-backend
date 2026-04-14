@@ -24,6 +24,8 @@ const projectRoutes = require('./functions/routes/projects');
 const clientsRoutes = require('./functions/routes/clients');
 const membersRoutes = require('./functions/routes/members');
 const mediaRoutes = require('./functions/routes/media');
+const analyticsRoutes = require('./functions/routes/analytics');
+const tasksRoutes = require('./functions/routes/tasks');
 const swaggerSpec = require('./functions/docs/swagger');
 
 const db = require('./functions/db');
@@ -45,6 +47,11 @@ const corsOpts = {
         }
     },
     credentials: true
+};
+
+const apiResponseDefaults = {
+    successMessage: 'Request successful',
+    errorMessage: 'Request failed'
 };
 
 /** CONFIG
@@ -73,10 +80,73 @@ app.use(express.urlencoded({ extended: true }));
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 
+/**
+ * Unified API response envelope for JSON responses.
+ * Enforces: status, code, data, message for both success and error.
+ */
+app.use('/api', (req, res, next) => {
+    const originalJson = res.json.bind(res);
+
+    res.success = (data = null, message = apiResponseDefaults.successMessage, httpStatus = 200) => {
+        return res.status(httpStatus).json({
+            status: 'success',
+            code: httpStatus,
+            data,
+            message,
+            __normalized: true
+        });
+    };
+
+    res.error = (message = apiResponseDefaults.errorMessage, httpStatus = 400, data = null) => {
+        return res.status(httpStatus).json({
+            status: 'error',
+            code: httpStatus,
+            data,
+            message,
+            __normalized: true
+        });
+    };
+
+    res.json = (payload) => {
+        if (req.path === '/docs.json' || req.path.startsWith('/docs')) {
+            return originalJson(payload);
+        }
+
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+            return originalJson(payload);
+        }
+
+        if (
+            Object.prototype.hasOwnProperty.call(payload, 'status') &&
+            Object.prototype.hasOwnProperty.call(payload, 'code') &&
+            Object.prototype.hasOwnProperty.call(payload, 'data') &&
+            Object.prototype.hasOwnProperty.call(payload, 'message')
+        ) {
+            const { __normalized, ...safePayload } = payload;
+            return originalJson(safePayload);
+        }
+
+        const isSuccess = res.statusCode < 400;
+        const resolvedHttpCode = Number.isInteger(res.statusCode) && res.statusCode > 0
+            ? res.statusCode
+            : (isSuccess ? 200 : 400);
+        const normalized = {
+            status: isSuccess ? 'success' : 'error',
+            code: resolvedHttpCode,
+            data: payload.data ?? null,
+            message: payload.message || (isSuccess ? apiResponseDefaults.successMessage : apiResponseDefaults.errorMessage)
+        };
+
+        return originalJson(normalized);
+    };
+
+    next();
+});
+
 /** ROUTERS
  * All routers are created here
  */
-const [authApi, userApi, dashboardApi, projectsApi, clientsApi, membersApi, mediaApi, handler404] = Array.from({ length: 8 }, () => express.Router());
+const [authApi, userApi, dashboardApi, projectsApi, clientsApi, membersApi, mediaApi, analyticsApi, tasksApi, handler404] = Array.from({ length: 10 }, () => express.Router());
 
 /** ROUTERS -> HANDLER MAPPING
  * All routers are mapped to their handlers
@@ -88,6 +158,8 @@ projectsApi.use(projectRoutes);
 clientsApi.use(clientsRoutes);
 membersApi.use(membersRoutes);
 mediaApi.use(mediaRoutes);
+analyticsApi.use(analyticsRoutes);
+tasksApi.use(tasksRoutes);
 handler404.use(require('./functions/routes/404'));
 
 /** CONFIGURE & START THE SERVER
@@ -102,6 +174,8 @@ app.use('/api/projects', middlewares.authMiddleware, projectsApi);
 app.use('/api/clients', middlewares.authMiddleware, clientsApi);
 app.use('/api/members', middlewares.authMiddleware, membersApi);
 app.use('/api/media', middlewares.authMiddleware, mediaApi);
+app.use('/api/analytics', middlewares.authMiddleware, analyticsApi);
+app.use('/api/tasks', middlewares.authMiddleware, tasksApi);
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
     swaggerOptions: {
         persistAuthorization: true

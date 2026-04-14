@@ -11,6 +11,7 @@ const middlewares = require('../middlewares');
 const { logger, generateToken } = require('../helpers');
 const db = require('../db');
 const { clientStatusEnum } = require('../models/client');
+const services = require('../services');
 
 
 /** SETUP
@@ -133,6 +134,22 @@ router.post('/', middlewares.adminOnly, clients, async (req, res) => {
         };
 
         await db.addClient(newClient);
+        await services.logActivity({
+            type: 'client.created',
+            actorId: req.user?.userId || null,
+            entityId: newClient.id,
+            entityType: 'client',
+            message: `${newClient.fullName} was added as a new client`,
+            meta: {
+                companyName: newClient.companyName,
+                status: newClient.status
+            }
+        });
+        await services.recordAnalyticsEvent({
+            visitorsDelta: 1,
+            pageViewsDelta: 1,
+            trafficSource: newClient.leadSource || 'Direct'
+        });
 
         res.status(201).json({
             success: true,
