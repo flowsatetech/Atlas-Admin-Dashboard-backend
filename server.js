@@ -23,6 +23,7 @@ const projectRoutes = require('./functions/routes/projects');
 const clientsRoutes = require('./functions/routes/clients');
 const membersRoutes = require('./functions/routes/members');
 const mediaRoutes = require('./functions/routes/media');
+const tasksApi = require('./functions/routes/tasks');
 
 const db = require('./functions/db');
 const { logger } = require('./functions/helpers');
@@ -116,7 +117,8 @@ app.use('/api/projects', middlewares.authMiddleware, projectsApi);
 app.use('/api/clients', clientsApi);
 app.use('/api/members', middlewares.authMiddleware, membersApi);
 app.use('/api/media', middlewares.authMiddleware, mediaApi);
-app.use('/api/misc', miscApi); // 
+app.use('/api/misc', miscApi);
+app.use('/api/tasks', middlewares.authMiddleware, tasksApi);
 
 app.use('/app', (req, res, next) => {
   if (process.env.NODE_ENV === 'production') {
