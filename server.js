@@ -24,6 +24,8 @@ const clientsRoutes = require('./functions/routes/clients');
 const membersRoutes = require('./functions/routes/members');
 const mediaRoutes = require('./functions/routes/media');
 const tasksApi = require('./functions/routes/tasks');
+const healthApi = require('./functions/routes/health');
+const fourZeroFourApi = require('./functions/routes/404');
 
 const db = require('./functions/db');
 const { logger } = require('./functions/helpers');
@@ -119,6 +121,8 @@ app.use('/api/members', middlewares.authMiddleware, membersApi);
 app.use('/api/media', middlewares.authMiddleware, mediaApi);
 app.use('/api/misc', miscApi);
 app.use('/api/tasks', middlewares.authMiddleware, tasksApi);
+app.use('/api/health', healthApi);
+
 
 app.use('/app', (req, res, next) => {
   if (process.env.NODE_ENV === 'production') {
@@ -128,7 +132,7 @@ app.use('/app', (req, res, next) => {
   }
 });
 
-app.use(handler404);
+app.use(fourZeroFourApi);
 
 app.listen(PORT, async () => {
     try {
