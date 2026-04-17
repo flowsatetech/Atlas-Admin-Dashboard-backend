@@ -199,12 +199,17 @@ app.use('/app', (req, res, next) => {
 
 app.use(fourZeroFourApi);
 
-app.listen(PORT, async () => {
+async function startServer() {
     try {
         await db.initializeDB();
-        console.log(`Server is running at http://localhost:${PORT}`);
+        app.listen(PORT, () => {
+            console.log(`Server is running on Port ${PORT}`);
+        });
     } catch (err) {
-        console.error("DB Connection failed, but server is still trying to stay up...");
+        console.error("Failed to start server — DB connection failed.");
         logger('SERVER').error("DB Error:", err);
+        process.exit(1);
     }
-});
+}
+
+startServer();

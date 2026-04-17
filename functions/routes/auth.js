@@ -4,7 +4,6 @@
 
 // <-- PACKAGE IMPORTS -->
 const express = require('express');
-const { validationResult } = require('express-validator');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
@@ -22,23 +21,11 @@ const db = require('../db');
  */
 const router = express.Router();
 const { authLoginIp, authLogin, signup, logout } = middlewares.rateLimiters;
-const { userAlreadyAuth, authMiddleware, signinValidation, signupValidation, superAdminOnly } = middlewares;
+const { userAlreadyAuth, authMiddleware, adminOnly } = middlewares;
 
 /** MAIN AUTH ROUTES */
-router.post('/login', authLoginIp, authLogin, userAlreadyAuth, signinValidation, async (req, res) => {
+router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) => {
     try {
-        /** Check for validation errors */
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({
-                success: false,
-                message: 'Couldn\'t Complete Login Request',
-                data: {
-                    errors: errors.array().map(x => x.msg)
-                }
-            });
-        }
-
         const validData = z.object({
             email: z.email(),
             password: z.string().min(8),
@@ -115,20 +102,8 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, signinValidation,
     }
 });
 
-router.post('/signup', authMiddleware, signup, signupValidation, async (req, res) => {
+router.post('/signup', authMiddleware, signup, adminOnly, async (req, res) => {
     try {
-        /** Check for validation errors */
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({
-                success: false,
-                message: 'Couldn\'t Complete Signup Request',
-                data: {
-                    errors: errors.array().map(x => x.msg)
-                }
-            });
-        }
-        
         const validData = z.object({
             firstName: z.string().min(1),
             lastName: z.string().min(1),
@@ -143,7 +118,7 @@ router.post('/signup', authMiddleware, signup, signupValidation, async (req, res
                 message: 'Couldn\'t complete signup request'
             })
         }
-        const { firstName, lastName, email, password, rememberMe } = validData.data;
+        const { firstName, lastName, email, password } = validData.data;
 
         /** Extra precaution to validate fields */
         const empty = helpers.isEmpty({ email, password, firstName, lastName });
@@ -178,24 +153,7 @@ router.post('/signup', authMiddleware, signup, signupValidation, async (req, res
             stamp
         };
 
-        /** Prepare auth cookie */
-        const ms = (days) => days * 24 * 60 * 60 * 1000;
-        const duration = rememberMe ? ms(30) : 60 * 60 * 1000;
-        const token = jwt.sign(
-            { userId: user.userId, email: user.email, firstName: user.firstName, lastName: user.lastName, stamp },
-            process.env.JWT_SECRET,
-            { expiresIn: Math.floor(duration / 1000) }
-        );
-
         await db.addUser(user);
-
-        res.cookie("auth_token", token, {
-            httpOnly: true,
-            secure: true,
-            sameSite: "strict",
-            path: "/",
-            maxAge: duration
-        });
 
         res.status(201).json({
             success: true,
