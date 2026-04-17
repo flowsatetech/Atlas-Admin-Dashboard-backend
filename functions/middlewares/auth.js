@@ -6,7 +6,6 @@
  * Import all third Party Libraries and variables here
  */
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = process.env.JWT_SECRET;
 const { handleAuthFailure, logger } = require('../helpers')
 const db = require('../db');
 
@@ -35,7 +34,7 @@ const authMiddleware = async (req, res, next) => {
         const user = await db.getUserById(decoded.userId);
 
         if (!user || !user.stamp || user.stamp !== decoded.stamp) {
-            res.clearCookie("auth_token");
+            res.clearCookie("auth_token", { httpOnly: true, secure: true, sameSite: "strict", path: "/" });
             return handleAuthFailure(req, res, isApiRequest, 'Session expired or invalid. Please sign in again.');
         }
 
@@ -48,7 +47,7 @@ const authMiddleware = async (req, res, next) => {
         logger('AUTH_MIDDLEWARE').error(error);
 
         /** Handle expired or malformed tokens */
-        res.clearCookie("auth_token");
+        res.clearCookie("auth_token", { httpOnly: true, secure: true, sameSite: "strict", path: "/" });
         return handleAuthFailure(req, res, isApiRequest, 'Invalid session.');
     }
 };
@@ -71,7 +70,7 @@ const userAlreadyAuth = async (req, res, next) => {
             }
         } catch (err) {
             // Token is expired or invalid? Let them stay on the signin page
-            res.clearCookie("auth_token");
+            res.clearCookie("auth_token", { httpOnly: true, secure: true, sameSite: "strict", path: "/" });
         }
     }
     next();
