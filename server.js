@@ -61,6 +61,10 @@ const apiResponseDefaults = {
  */
 app.use(cors(corsOpts));
 app.use(cookieParser());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
 
 /*app.use(
     helmet({
@@ -77,10 +81,6 @@ app.use(cookieParser());
         },
     })
 );*/
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.disable('x-powered-by');
-app.set('trust proxy', 1);
 
 /**
  * Unified API response envelope for JSON responses.
@@ -179,11 +179,13 @@ app.use('/api/analytics', middlewares.authMiddleware, analyticsApi);
 app.use('/api/tasks', middlewares.authMiddleware, tasksApi);
 app.use('/api/health', healthApi);
 
+/** SWAGGER DOCUMENTATION */
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
     swaggerOptions: {
         persistAuthorization: true
     }
 }));
+// Ensure the JSON spec is always fresh
 app.get('/api/docs.json', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.send(swaggerSpec);
@@ -199,6 +201,7 @@ app.use('/app', (req, res, next) => {
 
 app.use(fourZeroFourApi);
 
+/** SERVER START */
 app.listen(PORT, async () => {
     try {
         await db.initializeDB();
