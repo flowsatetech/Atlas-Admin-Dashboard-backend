@@ -86,14 +86,4 @@ const adminOnly = async (req, res, next) => {
     next();
 }
 
-const superAdminOnly = async (req, res, next) => {
-    if (!req.db_user || req.db_user.role !== 'superAdmin') {
-        return res.status(403).json({
-            success: false,
-            message: 'Access denied. Super Admin only.'
-        })
-    }
-    next();
-}
-
-module.exports = { authMiddleware, userAlreadyAuth, adminOnly, superAdminOnly }
+module.exports = { authMiddleware, userAlreadyAuth, adminOnly }

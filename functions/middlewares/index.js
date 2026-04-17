@@ -7,14 +7,13 @@
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const rateLimiters = require('./rate_limiters');
-const { authMiddleware, userAlreadyAuth, adminOnly, superAdminOnly } = require('./auth');
+const { authMiddleware, userAlreadyAuth, adminOnly } = require('./auth');
 const { signinValidation, signupValidation } = require('./validations');
 
 module.exports = {
     authMiddleware,
     userAlreadyAuth,
     adminOnly,
-    superAdminOnly,
     signinValidation,
     signupValidation,
     rateLimiters

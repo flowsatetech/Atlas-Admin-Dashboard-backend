@@ -22,7 +22,7 @@ const db = require('../db');
  */
 const router = express.Router();
 const { authLoginIp, authLogin, signup, logout } = middlewares.rateLimiters;
-const { userAlreadyAuth, authMiddleware, signinValidation, signupValidation, superAdminOnly } = middlewares;
+const { userAlreadyAuth, authMiddleware, signinValidation, signupValidation, adminOnly } = middlewares;
 
 /** MAIN AUTH ROUTES */
 router.post('/login', authLoginIp, authLogin, userAlreadyAuth, signinValidation, async (req, res) => {
@@ -115,7 +115,7 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, signinValidation,
     }
 });
 
-router.post('/signup', authMiddleware, signup, signupValidation, superAdminOnly, async (req, res) => {
+router.post('/signup', authMiddleware, signup, signupValidation, adminOnly, async (req, res) => {
     try {
         /** Check for validation errors */
         const errors = validationResult(req);
