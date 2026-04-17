@@ -4,7 +4,6 @@
 
 // <-- PACKAGE IMPORTS -->
 const express = require('express');
-const { validationResult } = require('express-validator');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
@@ -22,23 +21,11 @@ const db = require('../db');
  */
 const router = express.Router();
 const { authLoginIp, authLogin, signup, logout } = middlewares.rateLimiters;
-const { userAlreadyAuth, authMiddleware, signinValidation, signupValidation, adminOnly } = middlewares;
+const { userAlreadyAuth, authMiddleware, adminOnly } = middlewares;
 
 /** MAIN AUTH ROUTES */
-router.post('/login', authLoginIp, authLogin, userAlreadyAuth, signinValidation, async (req, res) => {
+router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) => {
     try {
-        /** Check for validation errors */
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({
-                success: false,
-                message: 'Couldn\'t Complete Login Request',
-                data: {
-                    errors: errors.array().map(x => x.msg)
-                }
-            });
-        }
-
         const validData = z.object({
             email: z.email(),
             password: z.string().min(8),
@@ -115,20 +102,8 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, signinValidation,
     }
 });
 
-router.post('/signup', authMiddleware, signup, signupValidation, adminOnly, async (req, res) => {
+router.post('/signup', authMiddleware, signup, adminOnly, async (req, res) => {
     try {
-        /** Check for validation errors */
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({
-                success: false,
-                message: 'Couldn\'t Complete Signup Request',
-                data: {
-                    errors: errors.array().map(x => x.msg)
-                }
-            });
-        }
-        
         const validData = z.object({
             firstName: z.string().min(1),
             lastName: z.string().min(1),
