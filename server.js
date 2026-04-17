@@ -118,7 +118,7 @@ app.use('/api/auth', authApi);
 app.use('/api/user', middlewares.authMiddleware, userApi);
 app.use('/api/dashboard', middlewares.authMiddleware, dashboardApi);
 app.use('/api/projects', middlewares.authMiddleware, projectsApi);
-app.use('/api/clients', clientsApi);
+app.use('/api/clients', middlewares.authMiddleware, clientsApi);
 app.use('/api/members', middlewares.authMiddleware, membersApi);
 app.use('/api/media', middlewares.authMiddleware, mediaApi);
 app.use('/api/misc', miscApi);
@@ -145,12 +145,17 @@ app.use('/app', (req, res, next) => {
 
 app.use(fourZeroFourApi);
 
-app.listen(PORT, async () => {
+async function startServer() {
     try {
         await db.initializeDB();
-        console.log(`Server is running at http://localhost:${PORT}`);
+        app.listen(PORT, () => {
+            console.log(`Server is running on Port ${PORT}`);
+        });
     } catch (err) {
-        console.error("DB Connection failed, but server is still trying to stay up...");
+        console.error("Failed to start server — DB connection failed.");
         logger('SERVER').error("DB Error:", err);
+        process.exit(1);
     }
-});
+}
+
+startServer();

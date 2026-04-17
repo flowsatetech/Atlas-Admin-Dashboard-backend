@@ -22,7 +22,7 @@ const createProjectSchema = projectSchema.omit({
     updatedAt: true
 });
 
-const updateProjectSchema = createProjectSchema.partial();
+const updateProjectSchema = createProjectSchema.omit({ id: true }).partial();
 
 module.exports = {
     projectStatusEnum,

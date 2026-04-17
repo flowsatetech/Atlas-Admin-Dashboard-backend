@@ -143,7 +143,7 @@ router.post('/signup', authMiddleware, signup, signupValidation, adminOnly, asyn
                 message: 'Couldn\'t complete signup request'
             })
         }
-        const { firstName, lastName, email, password, rememberMe } = validData.data;
+        const { firstName, lastName, email, password } = validData.data;
 
         /** Extra precaution to validate fields */
         const empty = helpers.isEmpty({ email, password, firstName, lastName });
@@ -178,24 +178,7 @@ router.post('/signup', authMiddleware, signup, signupValidation, adminOnly, asyn
             stamp
         };
 
-        /** Prepare auth cookie */
-        const ms = (days) => days * 24 * 60 * 60 * 1000;
-        const duration = rememberMe ? ms(30) : 60 * 60 * 1000;
-        const token = jwt.sign(
-            { userId: user.userId, email: user.email, firstName: user.firstName, lastName: user.lastName, stamp },
-            process.env.JWT_SECRET,
-            { expiresIn: Math.floor(duration / 1000) }
-        );
-
         await db.addUser(user);
-
-        res.cookie("auth_token", token, {
-            httpOnly: true,
-            secure: true,
-            sameSite: "strict",
-            path: "/",
-            maxAge: duration
-        });
 
         res.status(201).json({
             success: true,
