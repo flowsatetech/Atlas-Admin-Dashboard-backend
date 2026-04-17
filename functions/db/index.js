@@ -9,6 +9,7 @@ let clients;
 let images;
 let mediaStrings;
 let tasks; // New Task collection variable
+let comments;
 
 async function initializeDB() {
   try {
@@ -27,6 +28,7 @@ async function initializeDB() {
     images = db.collection("images");
     mediaStrings = db.collection("mediaStrings");
     tasks = db.collection("tasks"); // Initializing tasks collection
+    comments = db.collection("comments");
 
     logger("DB").info("MongoDB initialized successfully");
   } catch (err) {
@@ -202,9 +204,45 @@ async function getTasks({ page = 1, limit = 10, assignedTo = null } = {}) {
 
 /** PROJECTS LOGIC */
 
-async function getProjects() {
+async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) {
   try {
-    return await projects.find({}).toArray();
+    const skip = (page - 1) * limit;
+    const query = status
+      ? { status }
+      : {};
+
+    const [docs, total, inProgress, inReview, completed] = await Promise.all([
+      projects.find(query).skip(skip).limit(limit).sort({ createdAt: -1 }).toArray(),
+      projects.countDocuments({}),
+      projects.countDocuments({ status: "InProgress" }),
+      projects.countDocuments({ status: "OnHold" }),
+      projects.countDocuments({ status: "Completed" }),
+    ]);
+
+    return {
+      projects: docs,
+      pagination: {
+        total: await projects.countDocuments(query),
+        page,
+        limit,
+        totalPages: Math.ceil((await projects.countDocuments(query)) / limit),
+      },
+      infoData: {
+        totalProjects: total,
+        totalInProgress: inProgress,
+        totalInReview: inReview,
+        totalCompleted: completed,
+      },
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getProjectById(projectId) {
+  try {
+    return await projects.findOne({ id: projectId });
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -215,6 +253,46 @@ async function addProject(projectData) {
   try {
     const result = await projects.insertOne(projectData);
     return { ...projectData, _id: result.insertedId };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function updateProject(projectId, updateData) {
+  try {
+    await projects.updateOne({ id: projectId }, { $set: updateData });
+    return await projects.findOne({ id: projectId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function deleteProject(projectId) {
+  try {
+    return await projects.deleteOne({ id: projectId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+/** COMMENTS LOGIC */
+
+async function addComment(commentData) {
+  try {
+    const result = await comments.insertOne(commentData);
+    return { ...commentData, _id: result.insertedId };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getCommentsByProjectId(projectId) {
+  try {
+    return await comments.find({ projectId }).sort({ createdAt: -1 }).toArray();
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -307,8 +385,11 @@ module.exports = {
   getUserByEmail,
   getUserById,
   updateUser,
-  getProjects,
+  getProjectsPaginated,
+  getProjectById,
   addProject,
+  updateProject,
+  deleteProject,
   getClientById,
   getClients,
   addClient,
@@ -320,6 +401,8 @@ module.exports = {
   getMediaStringById,
   storeMediaString,
   updateMediaString,
-  addTask, // Exporting new task function
-  getTasks, // Exporting new task function
+  addTask,
+  getTasks,
+  addComment,
+  getCommentsByProjectId,
 };

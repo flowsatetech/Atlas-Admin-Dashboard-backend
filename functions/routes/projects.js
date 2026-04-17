@@ -8,9 +8,9 @@ const { z } = require('zod');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const { logger } = require('../helpers');
+const { logger, generateToken } = require('../helpers');
 const db = require('../db');
-
+const models = require('../models');
 
 /** SETUP
  * Global variables referenced in this file are defined here
@@ -18,75 +18,223 @@ const db = require('../db');
 const router = express.Router();
 const { projects } = middlewares.rateLimiters;
 
-/** MAIN USER ROUTES */
-router.get('/all', projects, async (req, res) => {
-    try {
-        const projects = await db.getProjects();
-        const formattedProjects = await Promise.all(projects.map(async (project) => {
-            const assigneesList = await Promise.all(
-                project.assignees.map(async (userId) => {
-                    const user = await db.getUserById(userId);
-                    return {
-                        id: userId,
-                        name: user ? user.firstName : "Unknown User"
-                    };
-                })
-            );
-            const { _id, ...client } = await db.getClientById(project.client);
+/** MAIN PROJECT ROUTES */
 
-            return {
-                id: project.id,
-                name: project.name,
-                client,
-                dueTime: project.dueTime,
-                assignees: assigneesList
-            };
-        }));
+router.get('/', projects, async (req, res) => {
+    try {
+        const querySchema = models.common.paginationQuerySchema.extend({
+            status: z.string().optional().default("")
+        });
+        const parsed = querySchema.safeParse(req.query);
+
+        if (!parsed.success) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid query parameters.',
+            });
+        }
+
+        const { page, limit, status } = parsed.data;
+        const result = await db.getProjectsPaginated({ page, limit, status });
 
         res.status(200).json({
             success: true,
             message: 'Fetch projects success',
             data: {
-                projects: formattedProjects
+                projects: result.projects,
+                pagination: result.pagination,
+                infoData: result.infoData,
             }
         });
     } catch (e) {
-        logger('ALL_PROJECTS').error(e);
-        res.status(400).json({
-            success: false, message: 'An unknown error occured'
-        })
+        logger('GET_PROJECTS').error(e);
+        res.status(500).json({
+            success: false, message: 'An unknown error occurred'
+        });
     }
 });
 
-router.post('/new', middlewares.adminOnly, projects, async (req, res) => {
+router.get('/:projectId', projects, async (req, res) => {
     try {
-        const validData = z.object({
-            name: z.string().min(1),
-            client: z.string(),
-            dueTime: z.number(),
-            assignees: z.array(z.string()),
-        }).safeParse(req.body);
+        const project = await db.getProjectById(req.params.projectId);
+
+        if (!project) {
+            return res.status(404).json({
+                success: false,
+                message: 'Project not found',
+            });
+        }
+
+        const comments = await db.getCommentsByProjectId(project.id);
+
+        res.status(200).json({
+            success: true,
+            message: 'Fetch project success',
+            data: {
+                project: {
+                    id: project.id,
+                    projectName: project.name,
+                    clientId: project.clientId,
+                    description: project.description,
+                    deadline: project.deadline,
+                    comments,
+                    budget: project.budget,
+                    priority: project.priority,
+                    teamIds: project.teamIds,
+                    files: project.files,
+                    status: project.status,
+                    progress: project.progress,
+                    createdAt: project.createdAt,
+                    updatedAt: project.updatedAt,
+                }
+            }
+        });
+    } catch (e) {
+        logger('GET_PROJECT').error(e);
+        res.status(500).json({
+            success: false, message: 'An unknown error occurred'
+        });
+    }
+});
+
+router.post('/', middlewares.adminOnly, projects, async (req, res) => {
+    try {
+        const validData = models.project.createProjectSchema.safeParse({
+            id: generateToken(),
+            ...req.body,
+        });
 
         if (!validData.success) {
             return res.status(400).json({
                 success: false,
-                message: 'Couldn\'t complete signup request'
-            })
+                message: 'Couldn\'t create project. Some fields are missing or invalid.',
+            });
         }
 
-        const { name, client, dueTime, assignees } = validData.data;
+        const now = Date.now();
+        const projectData = {
+            ...validData.data,
+            createdAt: now,
+            updatedAt: now,
+        };
 
-        await db.addProject({ name, client, dueTime, assignees })
+        const newProject = await db.addProject(projectData);
 
-        res.status(200).json({
+        res.status(201).json({
             success: true,
-            message: 'Project added successfully'
+            message: 'Project created successfully',
+            data: { project: newProject }
         });
     } catch (e) {
         logger('NEW_PROJECT').error(e);
-        res.status(400).json({
-            success: false, message: 'An unknown error occured'
-        })
+        res.status(500).json({
+            success: false, message: 'An unknown error occurred'
+        });
+    }
+});
+
+router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
+    try {
+        const existing = await db.getProjectById(req.params.projectId);
+
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                message: 'Project not found',
+            });
+        }
+
+        const validData = models.project.updateProjectSchema.safeParse(req.body);
+
+        if (!validData.success) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid update data.',
+            });
+        }
+
+        const updateData = {
+            ...validData.data,
+            updatedAt: Date.now(),
+        };
+
+        const updatedProject = await db.updateProject(req.params.projectId, updateData);
+
+        res.status(200).json({
+            success: true,
+            message: 'Project updated successfully',
+            data: { project: updatedProject }
+        });
+    } catch (e) {
+        logger('UPDATE_PROJECT').error(e);
+        res.status(500).json({
+            success: false, message: 'An unknown error occurred'
+        });
+    }
+});
+
+router.delete('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
+    try {
+        const existing = await db.getProjectById(req.params.projectId);
+
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                message: 'Project not found',
+            });
+        }
+
+        await db.deleteProject(req.params.projectId);
+        res.status(204).send();
+    } catch (e) {
+        logger('DELETE_PROJECT').error(e);
+        res.status(500).json({
+            success: false, message: 'An unknown error occurred'
+        });
+    }
+});
+
+router.post('/:projectId/comments', projects, async (req, res) => {
+    try {
+        const existing = await db.getProjectById(req.params.projectId);
+
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                message: 'Project not found',
+            });
+        }
+
+        const commentSchema = z.object({
+            comment: z.string().min(1),
+        });
+
+        const validData = commentSchema.safeParse(req.body);
+
+        if (!validData.success) {
+            return res.status(400).json({
+                success: false,
+                message: 'Comment content is required.',
+            });
+        }
+
+        const now = Date.now();
+        const commentData = {
+            id: generateToken(),
+            projectId: req.params.projectId,
+            authorId: req.user.userId,
+            content: validData.data.comment,
+            createdAt: now,
+            updatedAt: now,
+        };
+
+        await db.addComment(commentData);
+        res.status(204).send();
+    } catch (e) {
+        logger('ADD_COMMENT').error(e);
+        res.status(500).json({
+            success: false, message: 'An unknown error occurred'
+        });
     }
 });
 
