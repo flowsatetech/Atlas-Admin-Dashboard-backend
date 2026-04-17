@@ -211,8 +211,9 @@ async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) 
       ? { status }
       : {};
 
-    const [docs, total, inProgress, inReview, completed] = await Promise.all([
+    const [docs, filteredTotal, total, inProgress, onHold, completed] = await Promise.all([
       projects.find(query).skip(skip).limit(limit).sort({ createdAt: -1 }).toArray(),
+      projects.countDocuments(query),
       projects.countDocuments({}),
       projects.countDocuments({ status: "InProgress" }),
       projects.countDocuments({ status: "OnHold" }),
@@ -222,15 +223,15 @@ async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) 
     return {
       projects: docs,
       pagination: {
-        total: await projects.countDocuments(query),
+        total: filteredTotal,
         page,
         limit,
-        totalPages: Math.ceil((await projects.countDocuments(query)) / limit),
+        totalPages: Math.ceil(filteredTotal / limit),
       },
       infoData: {
         totalProjects: total,
         totalInProgress: inProgress,
-        totalInReview: inReview,
+        totalInReview: onHold,
         totalCompleted: completed,
       },
     };

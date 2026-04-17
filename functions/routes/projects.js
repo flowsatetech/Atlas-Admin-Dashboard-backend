@@ -73,7 +73,7 @@ router.get('/:projectId', projects, async (req, res) => {
             data: {
                 project: {
                     id: project.id,
-                    projectName: project.name,
+                    name: project.name,
                     clientId: project.clientId,
                     description: project.description,
                     deadline: project.deadline,

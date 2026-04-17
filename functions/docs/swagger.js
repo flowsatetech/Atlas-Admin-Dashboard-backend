@@ -88,7 +88,6 @@ const options = {
                         {
                             type: "object",
                             properties: {
-                                projectName: { type: "string" },
                                 comments: {
                                     type: "array",
                                     items: { "$ref": "#/components/schemas/Comment" }
