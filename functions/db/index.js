@@ -8,8 +8,11 @@ let projects;
 let clients;
 let images;
 let mediaStrings;
-let tasks; // New Task collection variable
+let tasks;
 let comments;
+let activityLogs;
+let analyticsSnapshots;
+let campaignStats;
 
 async function initializeDB() {
   try {
@@ -21,71 +24,66 @@ async function initializeDB() {
     await client.connect();
     db = client.db("atlas-db");
 
-    // Ensure all collections are assigned correctly
     users = db.collection("users");
-    clients = db.collection("clients");
     projects = db.collection("projects");
+    clients = db.collection("clients");
     images = db.collection("images");
     mediaStrings = db.collection("mediaStrings");
-    tasks = db.collection("tasks"); // Initializing tasks collection
+    tasks = db.collection("tasks");
     comments = db.collection("comments");
+    activityLogs = db.collection("activityLogs");
+    analyticsSnapshots = db.collection("analyticsSnapshots");
+    campaignStats = db.collection("campaignStats");
+
+    await users.createIndex({ email: 1 }, { unique: true });
+    await clients.createIndex({ id: 1 }, { unique: true });
+    await clients.createIndex({ status: 1 });
+    await tasks.createIndex({ id: 1 }, { unique: true });
+    await tasks.createIndex({ status: 1 });
+    await tasks.createIndex({ dueDate: 1 });
+    await tasks.createIndex({ assigneeId: 1 });
+    await tasks.createIndex({ projectId: 1 });
+    await activityLogs.createIndex({ createdAt: -1 });
+    await activityLogs.createIndex({ type: 1 });
+    await activityLogs.createIndex({ actorId: 1 });
+    await analyticsSnapshots.createIndex({ id: 1 }, { unique: true });
+    await analyticsSnapshots.createIndex({ periodStart: 1 });
+    await analyticsSnapshots.createIndex({ periodEnd: 1 });
+    await campaignStats.createIndex({ id: 1 }, { unique: true });
+    await campaignStats.createIndex({ campaignName: 1 });
+    await campaignStats.createIndex({ createdAt: -1 });
 
     logger("DB").info("MongoDB initialized successfully");
   } catch (err) {
-    logger("DB").error("Failed to initialize database", err);
+    logger("DB").error("Failed to initialize database");
+    logger("DB").error(err);
     throw err;
   }
 }
 
-/** * CLIENTS LOGIC (Developer 3) */
-
-async function getClients({ page = 1, limit = 10 } = {}) {
+async function addUser(userData) {
   try {
-    const skip = (page - 1) * limit;
-    const [docs, total] = await Promise.all([
-      clients.find({}).skip(skip).limit(limit).toArray(),
-      clients.countDocuments({}),
-    ]);
-
-    return {
-      clients: docs,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
+    const result = await users.insertOne(userData);
+    return { ...userData, _id: result.insertedId };
   } catch (err) {
     logger("DB").error(err);
     throw err;
   }
 }
 
-async function getClientById(clientId) {
-  try {
-    return await clients.findOne({ id: clientId });
-  } catch (err) {
-    logger("DB").error(err);
-    throw err;
-  }
+async function addMember(userData) {
+  return addUser(userData);
 }
 
-async function addClient(clientData) {
+async function getAllMembers({ page, limit, search } = {}) {
   try {
-    const result = await clients.insertOne(clientData);
-    return { ...clientData, _id: result.insertedId };
-  } catch (err) {
-    logger("DB").error(err);
-    throw err;
-  }
-}
+    const hasPagination = Number.isFinite(page) || Number.isFinite(limit) || typeof search === "string";
+    if (!hasPagination) return await users.find({}).toArray();
 
-/** * STAFF / USERS LOGIC (Developer 3) */
+    const safePage = Number.isFinite(page) ? Math.max(1, Number(page)) : 1;
+    const safeLimit = Number.isFinite(limit) ? Math.max(1, Number(limit)) : 10;
+    const skip = (safePage - 1) * safeLimit;
 
-async function getAllMembers({ page = 1, limit = 10, search = "" } = {}) {
-  try {
-    const skip = (page - 1) * limit;
     const query = search
       ? {
           $or: [
@@ -96,18 +94,18 @@ async function getAllMembers({ page = 1, limit = 10, search = "" } = {}) {
         }
       : {};
 
-    const [docs, total] = await Promise.all([
-      users.find(query).skip(skip).limit(limit).toArray(),
+    const [members, total] = await Promise.all([
+      users.find(query).skip(skip).limit(safeLimit).toArray(),
       users.countDocuments(query),
     ]);
 
     return {
-      members: docs,
+      members,
       pagination: {
         total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
       },
     };
   } catch (err) {
@@ -116,18 +114,13 @@ async function getAllMembers({ page = 1, limit = 10, search = "" } = {}) {
   }
 }
 
-async function addMember(userData) {
+async function getUsersCount() {
   try {
-    const result = await users.insertOne(userData);
-    return { ...userData, _id: result.insertedId };
+    return await users.countDocuments({});
   } catch (err) {
     logger("DB").error(err);
     throw err;
   }
-}
-
-async function addUser(userData) {
-  return await addMember(userData);
 }
 
 async function getUserByEmail(email) {
@@ -148,6 +141,21 @@ async function getUserById(userId) {
   }
 }
 
+async function getUsersByIds(userIds = []) {
+  try {
+    if (!Array.isArray(userIds) || userIds.length === 0) return [];
+    return await users
+      .find(
+        { userId: { $in: userIds } },
+        { projection: { _id: 0, userId: 1, firstName: 1, lastName: 1, email: 1 } },
+      )
+      .toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function updateUser(userId, updateData) {
   try {
     const result = await users.updateOne({ userId }, { $set: updateData });
@@ -158,9 +166,200 @@ async function updateUser(userId, updateData) {
   }
 }
 
-/** * TASKS LOGIC (Developer 3)
- * Added for linking Staff IDs to work items
- */
+async function getProjects() {
+  try {
+    return await projects.find({}).toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getProjectById(projectId) {
+  try {
+    return await projects.findOne({ id: projectId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function addProject(projectData) {
+  try {
+    const result = await projects.insertOne(projectData);
+    return { ...projectData, _id: result.insertedId, changes: result.modifiedCount };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function updateProjectById(projectId, updateData) {
+  try {
+    const result = await projects.updateOne({ id: projectId }, { $set: updateData });
+    return { changes: result.modifiedCount };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function countProjectsByFilter(filter = {}) {
+  try {
+    return await projects.countDocuments(filter);
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getProjectsCreatedBetween(from, to) {
+  try {
+    return await projects
+      .find(
+        { createdAt: { $gte: from, $lte: to } },
+        {
+          projection: {
+            _id: 0,
+            id: 1,
+            name: 1,
+            createdAt: 1,
+            client: 1,
+            clientId: 1,
+            budget: 1,
+            progress: 1,
+            status: 1,
+            deadline: 1,
+            dueTime: 1,
+          },
+        },
+      )
+      .toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getRecognizedRevenueProjectsBetween(from, to) {
+  try {
+    return await projects
+      .find(
+        {
+          status: "Completed",
+          recognizedAt: { $gte: from, $lte: to },
+          recognizedRevenue: { $type: "number", $gt: 0 },
+        },
+        {
+          projection: {
+            _id: 0,
+            id: 1,
+            name: 1,
+            status: 1,
+            recognizedAt: 1,
+            recognizedRevenue: 1,
+          },
+        },
+      )
+      .toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getInProgressProjects(limit = 4) {
+  try {
+    return await projects
+      .find(
+        {
+          $or: [{ status: { $in: ["InProgress", "OnHold", "Planned"] } }, { status: { $exists: false } }],
+        },
+        {
+          projection: {
+            _id: 0,
+            id: 1,
+            name: 1,
+            status: 1,
+            progress: 1,
+            client: 1,
+            clientId: 1,
+            deadline: 1,
+            dueTime: 1,
+          },
+        },
+      )
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .limit(limit)
+      .toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getClientById(clientId) {
+  try {
+    return await clients.findOne({ id: clientId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getClients() {
+  try {
+    return await clients.find({}).toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getClientsPaginated({ status, page = 1, limit = 10 }) {
+  try {
+    const query = status ? { status } : {};
+    const skip = (page - 1) * limit;
+    const [rows, total] = await Promise.all([
+      clients.find(query).skip(skip).limit(limit).toArray(),
+      clients.countDocuments(query),
+    ]);
+    return { rows, total };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function countClientsByFilter(filter = {}) {
+  try {
+    return await clients.countDocuments(filter);
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getClientsCreatedBetween(from, to) {
+  try {
+    return await clients
+      .find({ createdAt: { $gte: from, $lte: to } }, { projection: { _id: 0, id: 1, createdAt: 1, status: 1 } })
+      .toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function addClient(clientData) {
+  try {
+    const result = await clients.insertOne(clientData);
+    return { ...clientData, _id: result.insertedId, changes: result.modifiedCount };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
 
 async function addTask(taskData) {
   try {
@@ -172,30 +371,137 @@ async function addTask(taskData) {
   }
 }
 
-async function getTasks({ page = 1, limit = 10, assignedTo = null } = {}) {
+async function getTaskById(taskId) {
   try {
-    const skip = (page - 1) * limit;
-    const query = assignedTo ? { assignedTo } : {};
+    return await tasks.findOne({ id: taskId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
 
-    const [docs, total] = await Promise.all([
-      tasks
-        .find(query)
-        .skip(skip)
-        .limit(limit)
-        .sort({ createdAt: -1 })
-        .toArray(),
+async function getTasks({ status, assigneeId, projectId, assignedTo, page = 1, limit = 20, projection } = {}) {
+  try {
+    const query = {};
+    if (status) query.status = status;
+    if (assigneeId) query.assigneeId = assigneeId;
+    if (assignedTo) query.assigneeId = assignedTo;
+    if (projectId) query.projectId = projectId;
+
+    const skip = (page - 1) * limit;
+    const [rows, total] = await Promise.all([
+      tasks.find(query, projection ? { projection } : undefined).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray(),
       tasks.countDocuments(query),
     ]);
+    return { rows, total };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
 
-    return {
-      tasks: docs,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
+async function updateTaskById(taskId, updateData) {
+  try {
+    const result = await tasks.updateOne({ id: taskId }, { $set: updateData });
+    return { changes: result.modifiedCount };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function countPendingTasks() {
+  try {
+    return await tasks.countDocuments({ status: { $in: ["Todo", "InProgress", "Review", "Blocked"] } });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function countOverdueTasks(nowTs = Date.now()) {
+  try {
+    return await tasks.countDocuments({
+      dueDate: { $lt: nowTs },
+      status: { $in: ["Todo", "InProgress", "Review", "Blocked"] },
+    });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function countTasksByFilter(filter = {}) {
+  try {
+    return await tasks.countDocuments(filter);
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getTasksCreatedBetween(from, to) {
+  try {
+    return await tasks
+      .find({ createdAt: { $gte: from, $lte: to } }, { projection: { _id: 0, id: 1, createdAt: 1, status: 1, dueDate: 1 } })
+      .toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function addActivityLog(activityData) {
+  try {
+    const result = await activityLogs.insertOne(activityData);
+    return { ...activityData, _id: result.insertedId };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getActivityLogs({ page = 1, limit = 20, type, actorId, projection } = {}) {
+  try {
+    const query = {};
+    if (type) query.type = type;
+    if (actorId) query.actorId = actorId;
+
+    const skip = (page - 1) * limit;
+    const [rows, total] = await Promise.all([
+      activityLogs.find(query, projection ? { projection } : undefined).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray(),
+      activityLogs.countDocuments(query),
+    ]);
+    return { rows, total };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function upsertAnalyticsSnapshotByPeriod({ id, periodStart, periodEnd, ...rest }) {
+  try {
+    const timestamp = Date.now();
+    const filter = id ? { id } : { periodStart, periodEnd };
+
+    await analyticsSnapshots.updateOne(
+      filter,
+      {
+        $set: {
+          ...rest,
+          periodStart,
+          periodEnd,
+          updatedAt: timestamp,
+        },
+        $setOnInsert: {
+          id: id || `${periodStart}_${periodEnd}`,
+          createdAt: timestamp,
+        },
       },
-    };
+      { upsert: true },
+    );
+
+    return await analyticsSnapshots.findOne(filter);
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -250,10 +556,31 @@ async function getProjectById(projectId) {
   }
 }
 
-async function addProject(projectData) {
+async function getAnalyticsSnapshotsByDateRange({ from, to, page = 1, limit = 100, projection } = {}) {
   try {
-    const result = await projects.insertOne(projectData);
-    return { ...projectData, _id: result.insertedId };
+    const query = {};
+    if (from || to) {
+      query.periodStart = {};
+      if (from) query.periodStart.$gte = from;
+      if (to) query.periodStart.$lte = to;
+    }
+
+    const skip = (page - 1) * limit;
+    const [rows, total] = await Promise.all([
+      analyticsSnapshots.find(query, projection ? { projection } : undefined).sort({ periodStart: 1 }).skip(skip).limit(limit).toArray(),
+      analyticsSnapshots.countDocuments(query),
+    ]);
+    return { rows, total };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function addCampaignStat(campaignData) {
+  try {
+    const result = await campaignStats.insertOne(campaignData);
+    return { ...campaignData, _id: result.insertedId };
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -270,9 +597,46 @@ async function updateProject(projectId, updateData) {
   }
 }
 
+async function getCampaignStats({ page = 1, limit = 20, sortBy = "createdAt", order = "desc", projection } = {}) {
+  try {
+    const skip = (page - 1) * limit;
+    const direction = order === "asc" ? 1 : -1;
+
+    const [rows, total] = await Promise.all([
+      campaignStats.find({}, projection ? { projection } : undefined).sort({ [sortBy]: direction }).skip(skip).limit(limit).toArray(),
+      campaignStats.countDocuments({}),
+    ]);
+    return { rows, total };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function deleteProject(projectId) {
   try {
     return await projects.deleteOne({ id: projectId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getCampaignStatsByDateRange({ from, to, page = 1, limit = 100, projection } = {}) {
+  try {
+    const query = {};
+    if (from || to) {
+      query.createdAt = {};
+      if (from) query.createdAt.$gte = from;
+      if (to) query.createdAt.$lte = to;
+    }
+
+    const skip = (page - 1) * limit;
+    const [rows, total] = await Promise.all([
+      campaignStats.find(query, projection ? { projection } : undefined).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray(),
+      campaignStats.countDocuments(query),
+    ]);
+    return { rows, total };
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -322,10 +686,7 @@ async function addImage(id, link) {
 
 async function updateImageById(id, link) {
   try {
-    await images.updateOne(
-      { id },
-      { $set: { public_id: link.public_id, url: link.url } },
-    );
+    await images.updateOne({ id }, { $set: { public_id: link.public_id, url: link.url } });
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -380,30 +741,62 @@ async function updateMediaString(stringId, string) {
 
 module.exports = {
   initializeDB,
+
   getAllMembers,
   addMember,
+  getUsersCount,
   addUser,
   getUserByEmail,
   getUserById,
+  getUsersByIds,
   updateUser,
   getProjectsPaginated,
   getProjectById,
   addProject,
   updateProject,
   deleteProject,
+
+  getProjects,
+  updateProjectById,
+  countProjectsByFilter,
+  getProjectsCreatedBetween,
+  getRecognizedRevenueProjectsBetween,
+  getInProgressProjects,
   getClientById,
   getClients,
+  getClientsPaginated,
+  countClientsByFilter,
+  getClientsCreatedBetween,
   addClient,
+
+  addTask,
+  getTaskById,
+  getTasks,
+  updateTaskById,
+  countPendingTasks,
+  countOverdueTasks,
+  countTasksByFilter,
+  getTasksCreatedBetween,
+
+  addActivityLog,
+  getActivityLogs,
+
+  upsertAnalyticsSnapshotByPeriod,
+  getAnalyticsSnapshotsByDateRange,
+
+  addCampaignStat,
+  getCampaignStats,
+  getCampaignStatsByDateRange,
+
   getImages,
   findImageById,
   addImage,
   updateImageById,
+
   getMediaStrings,
   getMediaStringById,
   storeMediaString,
   updateMediaString,
-  addTask,
-  getTasks,
   addComment,
   getCommentsByProjectId,
 };
