@@ -77,7 +77,7 @@ const userAlreadyAuth = async (req, res, next) => {
 };
 
 const adminOnly = async (req, res, next) => {
-    if (!req.db_user || ( req.db_user.role !== 'superAdmin' && req.db_user.role !== 'admin' )) {
+    if (!req.db_user || req.db_user.role !== 'admin') {
         return res.status(403).json({
             success: false,
             message: 'Access denied. Admins only.'

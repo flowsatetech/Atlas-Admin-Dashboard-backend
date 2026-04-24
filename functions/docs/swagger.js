@@ -14,8 +14,7 @@ const options = {
 
 **Authorization Levels:**
 - **Authenticated** — any logged-in user.
-- **Admin** — users with \`admin\` or \`superAdmin\` role (create/update/delete operations).
-- **Super Admin** — \`superAdmin\` role only.
+- **Admin** — users with \`admin\` role (create/update/delete operations).
 
 **Pagination:** List endpoints accept \`page\` (default 1) and \`limit\` (default 10, max 100) query params. Responses include a \`pagination\` object.
 
@@ -153,7 +152,7 @@ const options = {
                 post: {
                     tags: ["Auth"],
                     summary: "Create a new user account (admin only)",
-                    description: "Requires an active admin/superAdmin session (cookieAuth). Creates the user but does NOT set a cookie for the new user — the admin's session is preserved.",
+                    description: "Requires an active admin session (cookieAuth). Creates the user but does NOT set a cookie for the new user — the admin's session is preserved.",
                     security: [{ cookieAuth: [] }],
                     requestBody: {
                         required: true,
