@@ -1,6 +1,6 @@
 const { z, baseEntityFields } = require("./common");
 
-const userRoleEnum = z.enum(["superAdmin", "admin", "manager", "staff", "viewer"]);
+const userRoleEnum = z.enum(["admin", "manager", "staff", "viewer"]);
 
 const userSchema = z.object({
     ...baseEntityFields,
