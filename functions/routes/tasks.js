@@ -69,6 +69,14 @@ router.post("/", middlewares.adminOnly, tasksRateLimiter, async (req, res) => {
     const resolvedAssigneeId = parsed.data.assigneeId || parsed.data.assignedTo;
     if (!resolvedAssigneeId) return res.status(400).json({ success: false, message: "assigneeId is required" });
 
+    const assigneeExists = await db.getUserById(resolvedAssigneeId);
+    if (!assigneeExists) return res.status(404).json({ success: false, message: "Assignee not found" });
+
+    if (parsed.data.projectId) {
+      const projectExists = await db.getProjectById(parsed.data.projectId);
+      if (!projectExists) return res.status(404).json({ success: false, message: "Project not found" });
+    }
+
     const now = Date.now();
     const task = {
       id: generateToken(),
@@ -109,6 +117,17 @@ router.put("/:taskId", middlewares.adminOnly, tasksRateLimiter, async (req, res)
 
     const existing = await db.getTaskById(taskId);
     if (!existing) return res.status(404).json({ success: false, message: "Task not found" });
+
+    const resolvedAssigneeId = parsed.data.assigneeId || parsed.data.assignedTo;
+    if (resolvedAssigneeId) {
+      const assigneeExists = await db.getUserById(resolvedAssigneeId);
+      if (!assigneeExists) return res.status(404).json({ success: false, message: "Assignee not found" });
+    }
+
+    if (parsed.data.projectId) {
+      const projectExists = await db.getProjectById(parsed.data.projectId);
+      if (!projectExists) return res.status(404).json({ success: false, message: "Project not found" });
+    }
 
     const updateData = { ...parsed.data, updatedAt: Date.now() };
     if (updateData.assignedTo && !updateData.assigneeId) updateData.assigneeId = updateData.assignedTo;

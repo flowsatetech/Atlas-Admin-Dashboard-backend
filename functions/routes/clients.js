@@ -137,6 +137,16 @@ router.post("/", middlewares.adminOnly, rateLimiter, async (req, res) => {
       updatedAt: now,
     };
 
+    if (newClient.assignedStaffId) {
+      const staffExists = await db.getUserById(newClient.assignedStaffId);
+      if (!staffExists) {
+        return res.status(404).json({
+          success: false,
+          message: "Assigned staff member not found",
+        });
+      }
+    }
+
     await db.addClient(newClient);
     await services.logActivity({
       type: "client.created",
