@@ -141,7 +141,7 @@ const options = {
                         }
                     },
                     responses: {
-                        200: { description: "Signed in successfully. auth_token cookie is set." },
+                        200: { description: "Signed in successfully. auth_token cookie is set. Response includes user object with userId, firstName, lastName, email, and role (admin|staff)." },
                         400: { description: "Validation error" },
                         401: { description: "Invalid email or password" },
                         429: { description: "Rate limited (per-email and per-IP)" }
@@ -165,14 +165,15 @@ const options = {
                                         firstName: { type: "string" },
                                         lastName: { type: "string" },
                                         email: { type: "string", format: "email" },
-                                        password: { type: "string", minLength: 8 }
+                                        password: { type: "string", minLength: 8 },
+                                        isAdmin: { type: "boolean", description: "If true, the account is created with admin role. Defaults to false (staff)." }
                                     }
                                 }
                             }
                         }
                     },
                     responses: {
-                        201: { description: "Account created successfully" },
+                        201: { description: "Account created successfully. Response includes user object with userId, firstName, lastName, email, and role (admin|staff)." },
                         400: { description: "Validation error or email already registered" },
                         403: { description: "Admins only" },
                         409: { description: "Email already registered" },
@@ -198,7 +199,7 @@ const options = {
                     summary: "Get current user profile",
                     security: [{ cookieAuth: [] }],
                     responses: {
-                        200: { description: "Fetch profile success" },
+                        200: { description: "Fetch profile success. Response includes userId, firstName, lastName, email, and role (admin|staff)." },
                         401: { $ref: "#/components/responses/Unauthorized" },
                         429: { $ref: "#/components/responses/TooManyRequests" },
                         500: { $ref: "#/components/responses/ServerError" }
@@ -760,6 +761,44 @@ const options = {
                         403: { description: "Admins only" },
                         404: { description: "Project not found" }
                     }
+                },
+                put: {
+                    tags: ["Projects"],
+                    summary: "Update project status and financial fields (admin only)",
+                    description: "Used to update revenue recognition, assignees, and status. recognizedRevenue and recognizedAt must be provided together and are only allowed when status is Completed.",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "projectId", in: "path", required: true, schema: { type: "string" } }
+                    ],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    properties: {
+                                        name: { type: "string" },
+                                        client: { type: "string" },
+                                        dueTime: { type: "integer" },
+                                        assignees: { type: "array", items: { type: "string" }, description: "Array of user IDs" },
+                                        budget: { type: "number", minimum: 0 },
+                                        status: { type: "string", enum: ["Planned", "InProgress", "OnHold", "Completed", "Cancelled"] },
+                                        progress: { type: "integer", minimum: 0, maximum: 100 },
+                                        recognizedRevenue: { type: "number", minimum: 0, nullable: true },
+                                        recognizedAt: { type: "integer", minimum: 0, nullable: true }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    responses: {
+                        200: { description: "Project updated successfully" },
+                        400: { description: "Validation error or business rule violation" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { $ref: "#/components/responses/Forbidden" },
+                        404: { description: "Project not found" },
+                        429: { $ref: "#/components/responses/TooManyRequests" }
+                    }
                 }
             },
             "/api/projects/{projectId}/comments": {
@@ -791,14 +830,86 @@ const options = {
                     }
                 }
             },
-            "/api/members/all": {
+            "/api/members": {
                 get: {
                     tags: ["Members"],
-                    summary: "List all members",
+                    summary: "List all staff members (paginated)",
                     security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "page", in: "query", required: false, schema: { type: "integer", minimum: 1, default: 1 } },
+                        { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 10 } },
+                        { name: "search", in: "query", required: false, schema: { type: "string" } }
+                    ],
                     responses: {
-                        200: { description: "Fetch members success" },
+                        200: { description: "Staff members fetched successfully" },
                         401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                },
+                post: {
+                    tags: ["Members"],
+                    summary: "Add a new staff member",
+                    security: [{ cookieAuth: [] }],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    required: ["firstName", "lastName", "email", "role"],
+                                    properties: {
+                                        firstName: { type: "string" },
+                                        lastName: { type: "string" },
+                                        email: { type: "string", format: "email" },
+                                        role: { type: "string", enum: ["admin", "staff"] },
+                                        job: { type: "string" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    responses: {
+                        201: { description: "Member added successfully" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        409: { description: "A member with this email already exists" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                }
+            },
+            "/api/members/{memberId}": {
+                put: {
+                    tags: ["Members"],
+                    summary: "Update a staff member (admin only)",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "memberId", in: "path", required: true, schema: { type: "string" } }
+                    ],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    properties: {
+                                        firstName: { type: "string" },
+                                        lastName: { type: "string" },
+                                        role: { type: "string", enum: ["admin", "staff"], description: "Assign or remove admin privileges" },
+                                        job: { type: "string" },
+                                        status: { type: "string" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    responses: {
+                        200: { description: "Member updated successfully" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { $ref: "#/components/responses/Forbidden" },
+                        404: { description: "Member not found or no changes made" },
                         429: { $ref: "#/components/responses/TooManyRequests" },
                         500: { $ref: "#/components/responses/ServerError" }
                     }
@@ -1004,6 +1115,96 @@ const options = {
                         200: { description: "Raw string content" },
                         404: { $ref: "#/components/responses/NotFound" },
                         500: { $ref: "#/components/responses/ServerError" }
+                    }
+                }
+            },
+            "/api/tasks": {
+                get: {
+                    tags: ["Tasks"],
+                    summary: "List tasks (paginated)",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "status", in: "query", required: false, schema: { type: "string", enum: ["Todo", "InProgress", "Review", "Done", "Blocked"] } },
+                        { name: "assigneeId", in: "query", required: false, schema: { type: "string" } },
+                        { name: "projectId", in: "query", required: false, schema: { type: "string" } },
+                        { name: "page", in: "query", required: false, schema: { type: "integer", minimum: 1, default: 1 } },
+                        { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } }
+                    ],
+                    responses: {
+                        200: { description: "Tasks fetched successfully" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" }
+                    }
+                },
+                post: {
+                    tags: ["Tasks"],
+                    summary: "Create a new task (admin only)",
+                    security: [{ cookieAuth: [] }],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    required: ["title", "assigneeId"],
+                                    properties: {
+                                        title: { type: "string" },
+                                        description: { type: "string" },
+                                        assigneeId: { type: "string" },
+                                        dueDate: { type: "integer" },
+                                        status: { type: "string", enum: ["Todo", "InProgress", "Review", "Done", "Blocked"], default: "Todo" },
+                                        projectId: { type: "string" },
+                                        priority: { type: "string", enum: ["low", "medium", "high"] }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    responses: {
+                        201: { description: "Task created successfully" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { $ref: "#/components/responses/Forbidden" },
+                        404: { description: "Assignee or project not found" },
+                        429: { $ref: "#/components/responses/TooManyRequests" }
+                    }
+                }
+            },
+            "/api/tasks/{taskId}": {
+                put: {
+                    tags: ["Tasks"],
+                    summary: "Update a task (admin only)",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "taskId", in: "path", required: true, schema: { type: "string" } }
+                    ],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    properties: {
+                                        title: { type: "string" },
+                                        description: { type: "string" },
+                                        assigneeId: { type: "string" },
+                                        dueDate: { type: "integer" },
+                                        status: { type: "string", enum: ["Todo", "InProgress", "Review", "Done", "Blocked"] },
+                                        projectId: { type: "string" },
+                                        priority: { type: "string", enum: ["low", "medium", "high"] }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    responses: {
+                        200: { description: "Task updated successfully" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { $ref: "#/components/responses/Forbidden" },
+                        404: { description: "Task, assignee, or project not found" },
+                        429: { $ref: "#/components/responses/TooManyRequests" }
                     }
                 }
             },
