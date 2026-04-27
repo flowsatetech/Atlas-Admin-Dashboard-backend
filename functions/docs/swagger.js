@@ -791,7 +791,7 @@ const options = {
                     }
                 }
             },
-            "/api/members/all": {
+            "/api/members": {
                 get: {
                     tags: ["Members"],
                     summary: "List all members",
