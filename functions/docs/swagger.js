@@ -1218,7 +1218,56 @@ const options = {
                         200: { description: "Service is healthy" }
                     }
                 }
-            }
+            },
+            "/api/tasks": {
+                "get": {
+                    "tags": ["Tasks"],
+                    "summary": "Get all tasks with filtering and pagination",
+                    "parameters": [
+                        { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["Todo", "InProgress", "Review", "Done", "Blocked"] } },
+                        { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+                        { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } }
+                    ],
+                    "responses": {
+                        "200": { "description": "Successfully fetched tasks" }
+                    }
+                },
+                "post": {
+                    "tags": ["Tasks"],
+                    "summary": "Create a new task (Admin Only)",
+                    "security": [{ "bearerAuth": [] }],
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["title", "assigneeId"],
+                                    "properties": {
+                                        "title": { "type": "string" },
+                                        "assigneeId": { "type": "string" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "responses": {
+                        "201": { "description": "Task created successfully" }
+                    }
+                }
+            },
+            "/api/tasks/{taskId}": {
+                "put": {
+                    "tags": ["Tasks"],
+                    "summary": "Update an existing task (Admin Only)",
+                    "parameters": [
+                        { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string" } }
+                    ],
+                    "responses": {
+                        "200": { "description": "Task updated successfully" }
+                    }
+                }
+            },
         }
     },
     apis: []

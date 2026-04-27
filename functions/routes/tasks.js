@@ -9,8 +9,17 @@ const services = require("../services");
 const router = express.Router();
 const { tasks: tasksRateLimiter } = middlewares.rateLimiters;
 
+/**
+ * @swagger
+ * tags:
+ * name: Tasks
+ * description: Task management and assignment API
+ */
+
 const listTasksQuerySchema = z.object({
-  status: z.enum(["Todo", "InProgress", "Review", "Done", "Blocked"]).optional(),
+  status: z
+    .enum(["Todo", "InProgress", "Review", "Done", "Blocked"])
+    .optional(),
   assigneeId: z.string().min(1).optional(),
   assignedTo: z.string().min(1).optional(),
   projectId: z.string().min(1).optional(),
@@ -24,20 +33,69 @@ const createTaskSchema = z.object({
   assigneeId: z.string().min(1).optional(),
   assignedTo: z.string().min(1).optional(),
   dueDate: z.number().int().nonnegative().optional(),
-  status: z.enum(["Todo", "InProgress", "Review", "Done", "Blocked"]).default("Todo"),
+  status: z
+    .enum(["Todo", "InProgress", "Review", "Done", "Blocked"])
+    .default("Todo"),
   projectId: z.string().min(1).optional(),
   priority: z.enum(["low", "medium", "high"]).optional(),
 });
 
 const updateTaskSchema = createTaskSchema.partial();
 
+/**
+ * @swagger
+ * /api/tasks:
+ * get:
+ * summary: Get all tasks with filtering and pagination
+ * tags: [Tasks]
+ * parameters:
+ * - in: query
+ * name: status
+ * schema:
+ * type: string
+ * enum: [Todo, InProgress, Review, Done, Blocked]
+ * - in: query
+ * name: assigneeId
+ * schema:
+ * type: string
+ * - in: query
+ * name: projectId
+ * schema:
+ * type: string
+ * - in: query
+ * name: page
+ * schema:
+ * type: integer
+ * default: 1
+ * - in: query
+ * name: limit
+ * schema:
+ * type: integer
+ * default: 20
+ * responses:
+ * 200:
+ * description: Successfully fetched tasks
+ * 400:
+ * description: Invalid query parameters
+ */
 router.get("/", tasksRateLimiter, async (req, res) => {
   try {
     const parsed = listTasksQuerySchema.safeParse(req.query);
-    if (!parsed.success) return res.status(400).json({ success: false, message: "Invalid query parameters" });
+    if (!parsed.success)
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid query parameters" });
 
-    const { status, assigneeId, assignedTo, projectId, page, limit } = parsed.data;
-    const { rows, total } = await db.getTasks({ status, assigneeId, assignedTo, projectId, page, limit });
+    const { status, assigneeId, assignedTo, projectId, page, limit } =
+      parsed.data;
+    const { rows, total } = await db.getTasks({
+      status,
+      assigneeId,
+      assignedTo,
+      projectId,
+      page,
+      limit,
+    });
 
     const now = Date.now();
     const tasks = rows.map((task) => ({
@@ -47,27 +105,82 @@ router.get("/", tasksRateLimiter, async (req, res) => {
       status: task.status,
       assigneeId: task.assigneeId || task.assignedTo,
       dueDate: task.dueDate,
-      isOverdue: task.dueDate ? task.dueDate < now && task.status !== "Done" : false,
+      isOverdue: task.dueDate
+        ? task.dueDate < now && task.status !== "Done"
+        : false,
     }));
 
     return res.status(200).json({
       success: true,
-      data: { tasks, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } },
+      data: {
+        tasks,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      },
       message: "Tasks fetched successfully",
     });
   } catch (error) {
     logger("ALL_TASKS").error(error);
-    return res.status(400).json({ success: false, message: "An unknown error occured" });
+    return res
+      .status(400)
+      .json({ success: false, message: "An unknown error occured" });
   }
 });
 
+/**
+ * @swagger
+ * /api/tasks:
+ * post:
+ * summary: Create a new task (Admin Only)
+ * tags: [Tasks]
+ * security:
+ * - bearerAuth: []
+ * requestBody:
+ * required: true
+ * content:
+ * application/json:
+ * schema:
+ * type: object
+ * required: [title, assigneeId]
+ * properties:
+ * title:
+ * type: string
+ * description:
+ * type: string
+ * assigneeId:
+ * type: string
+ * status:
+ * type: string
+ * enum: [Todo, InProgress, Review, Done, Blocked]
+ * priority:
+ * type: string
+ * enum: [low, medium, high]
+ * dueDate:
+ * type: integer
+ * responses:
+ * 201:
+ * description: Task created successfully
+ * 400:
+ * description: Validation error
+ */
 router.post("/", middlewares.adminOnly, tasksRateLimiter, async (req, res) => {
   try {
     const parsed = createTaskSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ success: false, message: "Couldn't complete create task request" });
+    if (!parsed.success)
+      return res.status(400).json({
+        success: false,
+        message: "Couldn't complete create task request",
+      });
 
     const resolvedAssigneeId = parsed.data.assigneeId || parsed.data.assignedTo;
-    if (!resolvedAssigneeId) return res.status(400).json({ success: false, message: "assigneeId is required" });
+    if (!resolvedAssigneeId)
+      return res
+        .status(400)
+        .json({ success: false, message: "assigneeId is required" });
 
     const assigneeExists = await db.getUserById(resolvedAssigneeId);
     if (!assigneeExists) return res.status(404).json({ success: false, message: "Assignee not found" });
@@ -100,55 +213,117 @@ router.post("/", middlewares.adminOnly, tasksRateLimiter, async (req, res) => {
       message: `${task.title} task was created`,
       meta: { assigneeId: task.assigneeId, status: task.status },
     });
-    await services.recordAnalyticsEvent({ pageViewsDelta: 1, trafficSource: "Direct" });
+    await services.recordAnalyticsEvent({
+      pageViewsDelta: 1,
+      trafficSource: "Direct",
+    });
 
-    return res.status(201).json({ success: true, message: "Task created successfully", data: { task } });
+    return res.status(201).json({
+      success: true,
+      message: "Task created successfully",
+      data: { task },
+    });
   } catch (error) {
     logger("NEW_TASK").error(error);
-    return res.status(400).json({ success: false, message: "An unknown error occured" });
+    return res
+      .status(400)
+      .json({ success: false, message: "An unknown error occured" });
   }
 });
 
-router.put("/:taskId", middlewares.adminOnly, tasksRateLimiter, async (req, res) => {
-  try {
-    const { taskId } = req.params;
-    const parsed = updateTaskSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ success: false, message: "Couldn't complete update task request" });
+/**
+ * @swagger
+ * /api/tasks/{taskId}:
+ * put:
+ * summary: Update an existing task (Admin Only)
+ * tags: [Tasks]
+ * security:
+ * - bearerAuth: []
+ * parameters:
+ * - in: path
+ * name: taskId
+ * required: true
+ * schema:
+ * type: string
+ * requestBody:
+ * required: true
+ * content:
+ * application/json:
+ * schema:
+ * type: object
+ * description: All fields are optional for updates
+ * responses:
+ * 200:
+ * description: Task updated successfully
+ * 404:
+ * description: Task not found
+ */
+router.put(
+  "/:taskId",
+  middlewares.adminOnly,
+  tasksRateLimiter,
+  async (req, res) => {
+    try {
+      const { taskId } = req.params;
+      const parsed = updateTaskSchema.safeParse(req.body);
+      if (!parsed.success)
+        return res.status(400).json({
+          success: false,
+          message: "Couldn't complete update task request",
+        });
 
-    const existing = await db.getTaskById(taskId);
-    if (!existing) return res.status(404).json({ success: false, message: "Task not found" });
+      const existing = await db.getTaskById(taskId);
+      if (!existing)
+        return res
+          .status(404)
+          .json({ success: false, message: "Task not found" });
 
-    const resolvedAssigneeId = parsed.data.assigneeId || parsed.data.assignedTo;
-    if (resolvedAssigneeId) {
-      const assigneeExists = await db.getUserById(resolvedAssigneeId);
-      if (!assigneeExists) return res.status(404).json({ success: false, message: "Assignee not found" });
+      const resolvedAssigneeId = parsed.data.assigneeId || parsed.data.assignedTo;
+      if (resolvedAssigneeId) {
+        const assigneeExists = await db.getUserById(resolvedAssigneeId);
+        if (!assigneeExists)
+          return res
+            .status(404)
+            .json({ success: false, message: "Assignee not found" });
+      }
+
+      if (parsed.data.projectId) {
+        const projectExists = await db.getProjectById(parsed.data.projectId);
+        if (!projectExists)
+          return res
+            .status(404)
+            .json({ success: false, message: "Project not found" });
+      }
+
+      const updateData = { ...parsed.data, updatedAt: Date.now() };
+      if (updateData.assignedTo && !updateData.assigneeId)
+        updateData.assigneeId = updateData.assignedTo;
+      delete updateData.assignedTo;
+
+      await db.updateTaskById(taskId, updateData);
+      await services.logActivity({
+        type: "task.updated",
+        actorId: req.user?.userId || null,
+        entityId: taskId,
+        entityType: "task",
+        message: `${existing.title || "Task"} was updated`,
+        meta: { fields: Object.keys(parsed.data) },
+      });
+      await services.recordAnalyticsEvent({
+        pageViewsDelta: 1,
+        trafficSource: "Direct",
+      });
+
+      return res
+        .status(200)
+        .json({ success: true, message: "Task updated successfully" });
+    } catch (error) {
+      logger("UPDATE_TASK").error(error);
+      return res
+        .status(400)
+        .json({ success: false, message: "An unknown error occured" });
     }
-
-    if (parsed.data.projectId) {
-      const projectExists = await db.getProjectById(parsed.data.projectId);
-      if (!projectExists) return res.status(404).json({ success: false, message: "Project not found" });
-    }
-
-    const updateData = { ...parsed.data, updatedAt: Date.now() };
-    if (updateData.assignedTo && !updateData.assigneeId) updateData.assigneeId = updateData.assignedTo;
-    delete updateData.assignedTo;
-
-    await db.updateTaskById(taskId, updateData);
-    await services.logActivity({
-      type: "task.updated",
-      actorId: req.user?.userId || null,
-      entityId: taskId,
-      entityType: "task",
-      message: `${existing.title || "Task"} was updated`,
-      meta: { fields: Object.keys(parsed.data) },
-    });
-    await services.recordAnalyticsEvent({ pageViewsDelta: 1, trafficSource: "Direct" });
-
-    return res.status(200).json({ success: true, message: "Task updated successfully" });
-  } catch (error) {
-    logger("UPDATE_TASK").error(error);
-    return res.status(400).json({ success: false, message: "An unknown error occured" });
-  }
-});
+  },
+);
 
 module.exports = router;
