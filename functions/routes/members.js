@@ -2,11 +2,12 @@
  * All libraries / local exports / packages are imported here
  */
 const express = require('express');
+const bcrypt = require('bcrypt');
 const { z } = require('zod');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const { logger } = require('../helpers');
+const { logger, generateToken, isEmpty } = require('../helpers');
 const db = require('../db');
 
 /** SETUP */
@@ -38,51 +39,77 @@ router.get('/', membersRateLimiter, async (req, res) => {
     }
 });
 
-// 2. POST /api/members - Add new staff member
-router.post('/', membersRateLimiter, async (req, res) => {
+// 2. POST /api/members - Add new staff member (admin only)
+router.post('/', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
     try {
         const schema = z.object({
-            firstName: z.string().min(1, "First name is required"),
-            lastName: z.string().min(1, "Last name is required"),
-            email: z.string().email("Invalid email address"),
+            firstName: z.string().min(1, 'First name is required'),
+            lastName: z.string().min(1, 'Last name is required'),
+            email: z.string().email('Invalid email address'),
+            password: z.string().min(8, 'Password must be at least 8 characters'),
             role: z.enum(['admin', 'staff']),
             job: z.string().optional()
         });
 
-        const validatedData = schema.parse(req.body);
-        
-        // Check if member already exists
-        const existing = await db.getUserByEmail(validatedData.email);
-        if (existing) {
-            return res.status(409).json({ 
-                success: false, 
-                message: 'A member with this email already exists' 
+        const validData = schema.safeParse(req.body);
+        if (!validData.success) {
+            return res.status(400).json({
+                success: false,
+                message: 'Couldn\'t create member. Some fields are missing or invalid.',
             });
         }
 
-        const newMember = await db.addMember({
-            ...validatedData,
-            userId: `staff_${Date.now()}`, // Unique ID generation
-            createdAt: new Date().toISOString(),
-            status: 'active'
-        });
+        const { firstName, lastName, email, password, role, job } = validData.data;
+
+        const empty = isEmpty({ firstName, lastName, email, password });
+        if (empty) {
+            return res.status(400).json({
+                success: false,
+                message: `${empty} is required but is empty`
+            });
+        }
+
+        const existing = await db.getUserByEmail(email);
+        if (existing) {
+            return res.status(409).json({
+                success: false,
+                message: 'A member with this email already exists'
+            });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const userId = generateToken();
+        const stamp = `${generateToken()}_stamp_${Date.now()}`;
+
+        const newMember = {
+            userId,
+            firstName,
+            lastName,
+            email,
+            password: hashedPassword,
+            role,
+            job: job || null,
+            status: 'active',
+            authProvider: 'atlas',
+            createdAt: Date.now(),
+            lastLogin: null,
+            stamp
+        };
+
+        await db.addMember(newMember);
 
         res.status(201).json({
             success: true,
             message: 'Member added successfully',
-            data: newMember
+            data: {
+                user: { userId, firstName, lastName, email, role, job: newMember.job }
+            }
         });
     } catch (e) {
-        if (e instanceof z.ZodError) {
-            return res.status(400).json({ 
-                success: false, 
-                errors: e.errors.map(err => err.message) 
-            });
-        }
         logger('MEMBERS_POST').error(e);
-        res.status(400).json({ 
-            success: false, 
-            message: 'An unknown error occurred' 
+        res.status(500).json({
+            success: false,
+            message: 'An unknown error occurred'
         });
     }
 });

@@ -20,8 +20,8 @@ const db = require('../db');
  * Global variables referenced in this file are defined here
  */
 const router = express.Router();
-const { authLoginIp, authLogin, signup, logout } = middlewares.rateLimiters;
-const { userAlreadyAuth, authMiddleware, adminOnly } = middlewares;
+const { authLoginIp, authLogin, logout } = middlewares.rateLimiters;
+const { userAlreadyAuth, authMiddleware } = middlewares;
 
 /** MAIN AUTH ROUTES */
 router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) => {
@@ -97,76 +97,6 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) 
         });
     } catch (e) {
         logger('SIGNIN').error(e);
-        res.status(400).json({
-            success: false, message: 'An unknown error occured'
-        })
-    }
-});
-
-router.post('/signup', authMiddleware, signup, adminOnly, async (req, res) => {
-    try {
-        const validData = z.object({
-            firstName: z.string().min(1),
-            lastName: z.string().min(1),
-            email: z.email(),
-            password: z.string().min(8),
-            isAdmin: z.boolean().optional(),
-            rememberMe: z.boolean().optional()
-        }).safeParse(req.body);
-
-        if(!validData.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Couldn\'t complete signup request'
-            })
-        }
-        const { firstName, lastName, email, password, isAdmin } = validData.data;
-
-        /** Extra precaution to validate fields */
-        const empty = helpers.isEmpty({ email, password, firstName, lastName });
-        if (empty) return res.status(400).json({
-            success: false,
-            message: `${empty} is required but is empty`
-        })
-
-        /** Check if user exists in the db */
-        const existingUser = await db.getUserByEmail(email);
-        if (existingUser) {
-            return res.status(409).json({
-                success: false,
-                message: 'Email already registered'
-            });
-        }
-
-        /** Generate new user data and hash password */
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const userId = helpers.generateToken();
-        const stamp = `${helpers.generateToken()}_stamp_${Date.now()}`; // <- This is neccessary to invalidate cookies
-
-        const user = {
-            userId,
-            firstName,
-            lastName,
-            email,
-            password: hashedPassword,
-            role: isAdmin ? 'admin' : 'staff',
-            createdAt: Date.now(),
-            authProvider: 'atlas',
-            lastLogin: Date.now(),
-            stamp
-        };
-
-        await db.addUser(user);
-
-        res.status(201).json({
-            success: true,
-            message: 'Account created successfully',
-            data: {
-                user: { userId, firstName, lastName, email, role: user.role }
-            }
-        });
-    } catch (e) {
-        logger('SIGNUP').error(e);
         res.status(400).json({
             success: false, message: 'An unknown error occured'
         })

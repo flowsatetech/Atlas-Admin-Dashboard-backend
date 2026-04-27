@@ -849,7 +849,8 @@ const options = {
                 },
                 post: {
                     tags: ["Members"],
-                    summary: "Add a new staff member",
+                    summary: "Add a new staff member (admin only)",
+                    description: "Creates a new user account with a hashed password. The admin's session is preserved — no cookie is set for the new member.",
                     security: [{ cookieAuth: [] }],
                     requestBody: {
                         required: true,
@@ -857,11 +858,12 @@ const options = {
                             "application/json": {
                                 schema: {
                                     type: "object",
-                                    required: ["firstName", "lastName", "email", "role"],
+                                    required: ["firstName", "lastName", "email", "password", "role"],
                                     properties: {
                                         firstName: { type: "string" },
                                         lastName: { type: "string" },
                                         email: { type: "string", format: "email" },
+                                        password: { type: "string", minLength: 8 },
                                         role: { type: "string", enum: ["admin", "staff"] },
                                         job: { type: "string" }
                                     }
