@@ -9,6 +9,7 @@ let clients;
 let images;
 let mediaStrings;
 let tasks;
+let comments;
 let activityLogs;
 let analyticsSnapshots;
 let campaignStats;
@@ -29,6 +30,7 @@ async function initializeDB() {
     images = db.collection("images");
     mediaStrings = db.collection("mediaStrings");
     tasks = db.collection("tasks");
+    comments = db.collection("comments");
     activityLogs = db.collection("activityLogs");
     analyticsSnapshots = db.collection("analyticsSnapshots");
     campaignStats = db.collection("campaignStats");
@@ -506,6 +508,54 @@ async function upsertAnalyticsSnapshotByPeriod({ id, periodStart, periodEnd, ...
   }
 }
 
+/** PROJECTS LOGIC */
+
+async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) {
+  try {
+    const skip = (page - 1) * limit;
+    const query = status
+      ? { status }
+      : {};
+
+    const [docs, filteredTotal, total, inProgress, onHold, completed] = await Promise.all([
+      projects.find(query).skip(skip).limit(limit).sort({ createdAt: -1 }).toArray(),
+      projects.countDocuments(query),
+      projects.countDocuments({}),
+      projects.countDocuments({ status: "InProgress" }),
+      projects.countDocuments({ status: "OnHold" }),
+      projects.countDocuments({ status: "Completed" }),
+    ]);
+
+    return {
+      projects: docs,
+      pagination: {
+        total: filteredTotal,
+        page,
+        limit,
+        totalPages: Math.ceil(filteredTotal / limit),
+      },
+      infoData: {
+        totalProjects: total,
+        totalInProgress: inProgress,
+        totalInReview: onHold,
+        totalCompleted: completed,
+      },
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getProjectById(projectId) {
+  try {
+    return await projects.findOne({ id: projectId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function getAnalyticsSnapshotsByDateRange({ from, to, page = 1, limit = 100, projection } = {}) {
   try {
     const query = {};
@@ -537,6 +587,16 @@ async function addCampaignStat(campaignData) {
   }
 }
 
+async function updateProject(projectId, updateData) {
+  try {
+    await projects.updateOne({ id: projectId }, { $set: updateData });
+    return await projects.findOne({ id: projectId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function getCampaignStats({ page = 1, limit = 20, sortBy = "createdAt", order = "desc", projection } = {}) {
   try {
     const skip = (page - 1) * limit;
@@ -547,6 +607,15 @@ async function getCampaignStats({ page = 1, limit = 20, sortBy = "createdAt", or
       campaignStats.countDocuments({}),
     ]);
     return { rows, total };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function deleteProject(projectId) {
+  try {
+    return await projects.deleteOne({ id: projectId });
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -573,6 +642,29 @@ async function getCampaignStatsByDateRange({ from, to, page = 1, limit = 100, pr
     throw err;
   }
 }
+
+/** COMMENTS LOGIC */
+
+async function addComment(commentData) {
+  try {
+    const result = await comments.insertOne(commentData);
+    return { ...commentData, _id: result.insertedId };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getCommentsByProjectId(projectId) {
+  try {
+    return await comments.find({ projectId }).sort({ createdAt: -1 }).toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+/** MEDIA & IMAGES LOGIC */
 
 async function getImages() {
   try {
@@ -658,16 +750,18 @@ module.exports = {
   getUserById,
   getUsersByIds,
   updateUser,
+  getProjectsPaginated,
+  getProjectById,
+  addProject,
+  updateProject,
+  deleteProject,
 
   getProjects,
-  getProjectById,
   updateProjectById,
   countProjectsByFilter,
   getProjectsCreatedBetween,
   getRecognizedRevenueProjectsBetween,
   getInProgressProjects,
-  addProject,
-
   getClientById,
   getClients,
   getClientsPaginated,
@@ -703,4 +797,6 @@ module.exports = {
   getMediaStringById,
   storeMediaString,
   updateMediaString,
+  addComment,
+  getCommentsByProjectId,
 };
