@@ -12,12 +12,12 @@ const db = require('../db');
 
 /** SETUP */
 const router = express.Router();
-const { members: membersRateLimiter } = middlewares.rateLimiters;
+const { members: membersRateLimiter, createMember: createMemberRateLimiter } = middlewares.rateLimiters;
 
 /** MAIN USER ROUTES */
 
 // 1. GET /api/members - Paginated list of staff
-router.get('/', membersRateLimiter, async (req, res) => {
+router.get('/', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
@@ -40,7 +40,7 @@ router.get('/', membersRateLimiter, async (req, res) => {
 });
 
 // 2. POST /api/members - Add new staff member (admin only)
-router.post('/', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
+router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res) => {
     try {
         const schema = z.object({
             firstName: z.string().min(1, 'First name is required'),
@@ -125,10 +125,16 @@ router.put('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) =
             status: z.string().optional()
         });
 
-        const validatedData = schema.parse(req.body);
-        const userId = req.params.id;
+        const validData = schema.safeParse(req.body);
+        if (!validData.success) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid update data.',
+            });
+        }
 
-        const result = await db.updateUser(userId, validatedData);
+        const userId = req.params.id;
+        const result = await db.updateUser(userId, validData.data);
 
         if (result.changes === 0) {
             return res.status(404).json({ 
@@ -142,14 +148,8 @@ router.put('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) =
             message: 'Member updated successfully'
         });
     } catch (e) {
-        if (e instanceof z.ZodError) {
-            return res.status(400).json({ 
-                success: false, 
-                errors: e.errors.map(err => err.message) 
-            });
-        }
         logger('MEMBERS_PUT').error(e);
-        res.status(400).json({ 
+        res.status(500).json({ 
             success: false, 
             message: 'An unknown error occurred' 
         });

@@ -62,7 +62,7 @@ const userAlreadyAuth = async (req, res, next) => {
             const user = await db.getUserById(decoded.userId);
 
             // If user is valid and session stamp matches, redirect them
-            if (user && user.stamp === decoded.stamp && req.url !== '/signup') {
+            if (user && user.stamp === decoded.stamp) {
                 return res.status(200).json({
                     success: false,
                     message: 'You\'re already signed in'

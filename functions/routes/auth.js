@@ -11,8 +11,7 @@ const { z } = require('zod');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const helpers = require('../helpers');
-const { logger } = require('../helpers');
+const { logger, generateToken } = require('../helpers');
 const db = require('../db');
 
 
@@ -58,7 +57,7 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) 
         }
 
         /** Prepare new auth cookie and reload stamp to invalidate all old cookies */
-        const stamp = `${helpers.generateToken()}_stamp_${Date.now()}`;
+        const stamp = `${generateToken()}_stamp_${Date.now()}`;
 
         const ms = (days) => days * 24 * 60 * 60 * 1000;
         const duration = rememberMe ? ms(30) : 60 * 60 * 1000;
@@ -97,7 +96,7 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) 
         });
     } catch (e) {
         logger('SIGNIN').error(e);
-        res.status(400).json({
+        res.status(500).json({
             success: false, message: 'An unknown error occured'
         })
     }

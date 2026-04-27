@@ -25,11 +25,12 @@ const keyGenerator = (req) => {
   return `ip_${ipKeyGenerator(req.ip)}`;
 };
 
-const signup = rateLimit({
+const createMember = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
   store: createStore(),
-  message: { success: false, message: "Too many accounts created from this IP. Please try again later." },
+  keyGenerator,
+  message: { success: false, message: "Too many accounts created. Please try again later." },
 });
 
 const authLogin = rateLimit({
@@ -133,7 +134,7 @@ const health = rateLimit({
 });
 
 module.exports = {
-  signup,
+  createMember,
   authLogin,
   authLoginIp,
   health,
