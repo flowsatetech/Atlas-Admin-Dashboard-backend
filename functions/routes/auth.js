@@ -90,7 +90,8 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) 
                     userId: user.userId,
                     firstName: user.firstName,
                     lastName: user.lastName,
-                    email: user.email
+                    email: user.email,
+                    role: user.role || 'staff'
                 }
             }
         });
@@ -109,6 +110,7 @@ router.post('/signup', authMiddleware, signup, adminOnly, async (req, res) => {
             lastName: z.string().min(1),
             email: z.email(),
             password: z.string().min(8),
+            isAdmin: z.boolean().optional(),
             rememberMe: z.boolean().optional()
         }).safeParse(req.body);
 
@@ -118,7 +120,7 @@ router.post('/signup', authMiddleware, signup, adminOnly, async (req, res) => {
                 message: 'Couldn\'t complete signup request'
             })
         }
-        const { firstName, lastName, email, password } = validData.data;
+        const { firstName, lastName, email, password, isAdmin } = validData.data;
 
         /** Extra precaution to validate fields */
         const empty = helpers.isEmpty({ email, password, firstName, lastName });
@@ -147,6 +149,7 @@ router.post('/signup', authMiddleware, signup, adminOnly, async (req, res) => {
             lastName,
             email,
             password: hashedPassword,
+            role: isAdmin ? 'admin' : 'staff',
             createdAt: Date.now(),
             authProvider: 'atlas',
             lastLogin: Date.now(),
@@ -159,7 +162,7 @@ router.post('/signup', authMiddleware, signup, adminOnly, async (req, res) => {
             success: true,
             message: 'Account created successfully',
             data: {
-                user: { userId, firstName, lastName, email }
+                user: { userId, firstName, lastName, email, role: user.role }
             }
         });
     } catch (e) {

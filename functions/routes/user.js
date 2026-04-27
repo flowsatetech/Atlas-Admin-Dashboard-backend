@@ -39,7 +39,8 @@ router.get('/profile', profile, async (req, res) => {
                     userId: user.userId,
                     firstName: user.firstName,
                     lastName: user.lastName,
-                    email: user.email
+                    email: user.email,
+                    role: user.role || 'staff'
                 }
             }
         });

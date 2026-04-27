@@ -88,7 +88,7 @@ router.post('/', membersRateLimiter, async (req, res) => {
 });
 
 // 3. PUT /api/members/:id - Update staff member
-router.put('/:id', membersRateLimiter, async (req, res) => {
+router.put('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
     try {
         const schema = z.object({
             firstName: z.string().optional(),
