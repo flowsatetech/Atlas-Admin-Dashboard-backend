@@ -112,6 +112,24 @@ router.post('/', middlewares.adminOnly, projects, async (req, res) => {
             });
         }
 
+        const clientExists = await db.getClientById(validData.data.clientId);
+        if (!clientExists) {
+            return res.status(404).json({
+                success: false,
+                message: 'Client not found',
+            });
+        }
+
+        if (validData.data.teamIds && validData.data.teamIds.length > 0) {
+            const foundUsers = await db.getUsersByIds(validData.data.teamIds);
+            if (foundUsers.length !== validData.data.teamIds.length) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'One or more team members not found',
+                });
+            }
+        }
+
         const now = Date.now();
         const projectData = {
             ...validData.data,
@@ -152,6 +170,26 @@ router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) =>
                 success: false,
                 message: 'Invalid update data.',
             });
+        }
+
+        if (validData.data.clientId) {
+            const clientExists = await db.getClientById(validData.data.clientId);
+            if (!clientExists) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Client not found',
+                });
+            }
+        }
+
+        if (validData.data.teamIds && validData.data.teamIds.length > 0) {
+            const foundUsers = await db.getUsersByIds(validData.data.teamIds);
+            if (foundUsers.length !== validData.data.teamIds.length) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'One or more team members not found',
+                });
+            }
         }
 
         const updateData = {
@@ -270,6 +308,17 @@ router.put('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
         }
 
         const incoming = validData.data;
+
+        if (incoming.assignees && incoming.assignees.length > 0) {
+            const foundUsers = await db.getUsersByIds(incoming.assignees);
+            if (foundUsers.length !== incoming.assignees.length) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'One or more assignees not found'
+                });
+            }
+        }
+
         if ((Object.prototype.hasOwnProperty.call(incoming, 'recognizedRevenue') ||
             Object.prototype.hasOwnProperty.call(incoming, 'recognizedAt')) &&
             !(Object.prototype.hasOwnProperty.call(incoming, 'recognizedRevenue') &&

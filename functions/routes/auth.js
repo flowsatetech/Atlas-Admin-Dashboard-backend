@@ -11,8 +11,7 @@ const { z } = require('zod');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const helpers = require('../helpers');
-const { logger } = require('../helpers');
+const { logger, generateToken } = require('../helpers');
 const db = require('../db');
 
 
@@ -20,8 +19,8 @@ const db = require('../db');
  * Global variables referenced in this file are defined here
  */
 const router = express.Router();
-const { authLoginIp, authLogin, signup, logout } = middlewares.rateLimiters;
-const { userAlreadyAuth, authMiddleware, adminOnly } = middlewares;
+const { authLoginIp, authLogin, logout } = middlewares.rateLimiters;
+const { userAlreadyAuth, authMiddleware } = middlewares;
 
 /** MAIN AUTH ROUTES */
 router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) => {
@@ -58,7 +57,7 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) 
         }
 
         /** Prepare new auth cookie and reload stamp to invalidate all old cookies */
-        const stamp = `${helpers.generateToken()}_stamp_${Date.now()}`;
+        const stamp = `${generateToken()}_stamp_${Date.now()}`;
 
         const ms = (days) => days * 24 * 60 * 60 * 1000;
         const duration = rememberMe ? ms(30) : 60 * 60 * 1000;
@@ -90,81 +89,14 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) 
                     userId: user.userId,
                     firstName: user.firstName,
                     lastName: user.lastName,
-                    email: user.email
+                    email: user.email,
+                    role: user.role || 'staff'
                 }
             }
         });
     } catch (e) {
         logger('SIGNIN').error(e);
-        res.status(400).json({
-            success: false, message: 'An unknown error occured'
-        })
-    }
-});
-
-router.post('/signup', authMiddleware, signup, adminOnly, async (req, res) => {
-    try {
-        const validData = z.object({
-            firstName: z.string().min(1),
-            lastName: z.string().min(1),
-            email: z.email(),
-            password: z.string().min(8),
-            rememberMe: z.boolean().optional()
-        }).safeParse(req.body);
-
-        if(!validData.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Couldn\'t complete signup request'
-            })
-        }
-        const { firstName, lastName, email, password } = validData.data;
-
-        /** Extra precaution to validate fields */
-        const empty = helpers.isEmpty({ email, password, firstName, lastName });
-        if (empty) return res.status(400).json({
-            success: false,
-            message: `${empty} is required but is empty`
-        })
-
-        /** Check if user exists in the db */
-        const existingUser = await db.getUserByEmail(email);
-        if (existingUser) {
-            return res.status(409).json({
-                success: false,
-                message: 'Email already registered'
-            });
-        }
-
-        /** Generate new user data and hash password */
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const userId = helpers.generateToken();
-        const stamp = `${helpers.generateToken()}_stamp_${Date.now()}`; // <- This is neccessary to invalidate cookies
-
-        const user = {
-            userId,
-            firstName,
-            lastName,
-            email,
-            password: hashedPassword,
-            createdAt: Date.now(),
-            authProvider: 'atlas',
-            lastLogin: Date.now(),
-            stamp
-        };
-
-        await db.addUser(user);
-
-        res.status(201).json({
-            success: true,
-            message: 'Account created successfully',
-            data: {
-                user: { userId, firstName, lastName, email }
-            }
-        });
-    } catch (e) {
-        logger('SIGNUP').error(e);
-        res.status(400).json({
+        res.status(500).json({
             success: false, message: 'An unknown error occured'
         })
     }
