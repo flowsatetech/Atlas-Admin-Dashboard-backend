@@ -13,6 +13,7 @@ let comments;
 let activityLogs;
 let analyticsSnapshots;
 let campaignStats;
+let leads;
 
 async function initializeDB() {
   try {
@@ -34,6 +35,7 @@ async function initializeDB() {
     activityLogs = db.collection("activityLogs");
     analyticsSnapshots = db.collection("analyticsSnapshots");
     campaignStats = db.collection("campaignStats");
+    leads = db.collection("leads"); // Initialize leads collection
 
     await users.createIndex({ email: 1 }, { unique: true });
     await clients.createIndex({ id: 1 }, { unique: true });
@@ -53,6 +55,12 @@ async function initializeDB() {
     await campaignStats.createIndex({ campaignName: 1 });
     await campaignStats.createIndex({ createdAt: -1 });
 
+    // New Indexes for Leads
+    await leads.createIndex({ id: 1 }, { unique: true });
+    await leads.createIndex({ email: 1 });
+    await leads.createIndex({ status: 1 });
+    await leads.createIndex({ createdAt: -1 });
+
     logger("DB").info("MongoDB initialized successfully");
   } catch (err) {
     logger("DB").error("Failed to initialize database");
@@ -60,6 +68,57 @@ async function initializeDB() {
     throw err;
   }
 }
+
+/** LEADS LOGIC */
+
+async function addLead(leadData) {
+  try {
+    const result = await leads.insertOne(leadData);
+    return { ...leadData, _id: result.insertedId };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getAllLeads({ page = 1, limit = 10, search = "", status = "" } = {}) {
+  try {
+    const safePage = Math.max(1, Number(page));
+    const safeLimit = Math.max(1, Number(limit));
+    const skip = (safePage - 1) * safeLimit;
+
+    const query = {};
+    if (status) query.status = status;
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: "i" } },
+        { lastName: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { company: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const [docs, total] = await Promise.all([
+      leads.find(query).sort({ createdAt: -1 }).skip(skip).limit(safeLimit).toArray(),
+      leads.countDocuments(query),
+    ]);
+
+    return {
+      leads: docs,
+      pagination: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+/** REST OF YOUR FUNCTIONS (UNCHANGED) */
 
 async function addUser(userData) {
   try {
@@ -799,4 +858,8 @@ module.exports = {
   updateMediaString,
   addComment,
   getCommentsByProjectId,
+
+  // New Exports for Leads
+  getAllLeads,
+  addLead
 };
