@@ -6,11 +6,15 @@ const { z } = require('zod');
 const middlewares = require('../middlewares');
 const { logger } = require('../helpers');
 const db = require('../db');
+const { LeadSchema } = require('../models/lead');
 
 /** SETUP */
 const router = express.Router();
-// Use the members rate limiter or create a new one in rate_limiters.js later
-const { members: leadsRateLimiter } = middlewares.rateLimiters;
+
+/** * RATE LIMITER 
+ * Now using the specific leads rate limiter as requested 
+ */
+const { leads: leadsRateLimiter } = middlewares.rateLimiters;
 
 /** MAIN LEADS ROUTES */
 
@@ -43,21 +47,14 @@ router.get('/', leadsRateLimiter, async (req, res) => {
 // 2. POST /api/leads - Add a new lead
 router.post('/', leadsRateLimiter, async (req, res) => {
     try {
-        const schema = z.object({
-            firstName: z.string().min(1, "First name is required"),
-            lastName: z.string().min(1, "Last name is required"),
-            email: z.string().email("Invalid email address"),
-            phone: z.string().optional(),
-            company: z.string().optional(),
-            source: z.string().optional(),
-        });
-
-        const validatedData = schema.parse(req.body);
+        /** * REUSABLE VALIDATION 
+         * Using LeadSchema from functions/models/lead.js 
+         */
+        const validatedData = LeadSchema.parse(req.body);
         
         const newLead = await db.addLead({
             ...validatedData,
             id: `lead_${Date.now()}`,
-            status: 'new',
             createdAt: new Date().toISOString()
         });
 

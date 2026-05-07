@@ -89,6 +89,15 @@ const members = rateLimit({
   message: { success: false, message: "Too many requests. Please slow down." },
 });
 
+// Added Leads Rate Limiter
+const leads = rateLimit({
+  windowMs: 30 * 60 * 1000,
+  max: 30,
+  store: createStore(),
+  keyGenerator,
+  message: { success: false, message: "Too many lead requests. Please slow down." },
+});
+
 const media = rateLimit({
   windowMs: 30 * 60 * 1000,
   max: 20,
@@ -144,6 +153,7 @@ module.exports = {
   projects,
   clients,
   members,
+  leads,
   media,
   analytics,
   tasks,
