@@ -151,7 +151,7 @@ router.put('/:postId', blogLimiter, middlewares.authMiddleware, middlewares.admi
 
         const updates = { ...validData.data, updatedAt: Date.now() };
 
-        if (updates.title && !validData.data.slug) {
+        if (updates.title && !req.body.slug) {
             updates.slug = slugify(updates.title);
         }
 

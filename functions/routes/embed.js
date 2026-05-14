@@ -11,6 +11,7 @@ const path = require('path');
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
 const { createTrackingToken } = require('../helpers/blog-tracking');
+const { logger } = require('../helpers');
 const db = require('../db');
 
 /** SETUP
@@ -23,6 +24,10 @@ const markdown = new MarkdownIt({
     linkify: true,
     typographer: true,
 });
+
+// Whitelist only safe URL schemes — blocks javascript:, data:, vbscript:, etc.
+const SAFE_LINK_RE = /^(https?:|mailto:|ftp:|\/|#)/i;
+markdown.validateLink = (url) => SAFE_LINK_RE.test(String(url).trim());
 
 function escapeHtml(value = '') {
   return String(value)
@@ -150,16 +155,17 @@ router.get('/:slug', middlewares.rateLimiters.blogEmbedPage, async (req, res) =>
             '$_track_token_': escapeHtml(trackToken),
         });
 
-        res.setHeader('X-Frame-Options', 'ALLOWALL');
         res.setHeader('Content-Security-Policy', "frame-ancestors *");
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.setHeader('Access-Control-Allow-Origin', '*');
         return res.status(200).send(html);
     } catch (e) {
         if (e.code === 'ENOENT') {
-            return res.status(500).send('<p>Embed template not found.</p>');
+            logger('EMBED_TEMPLATE').error('Blog embed template file missing — check BLOG_EMBED_TEMPLATE_PATH or the default template path.');
+            return res.status(503).send('<p>Service temporarily unavailable.</p>');
         }
 
+        logger('GET_EMBED').error(e);
         return res.status(500).send('<p>An error occurred.</p>');
     }
 });
