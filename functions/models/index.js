@@ -9,6 +9,7 @@ const cmsPage = require("./cms-page");
 const analyticsSnapshot = require("./analytics-snapshot");
 const campaignStat = require("./campaign-stat");
 const activityLog = require("./activity-log");
+const blogPost = require("./blog-post");
 
 module.exports = {
     common,
@@ -21,5 +22,6 @@ module.exports = {
     cmsPage,
     analyticsSnapshot,
     campaignStat,
-    activityLog
+    activityLog,
+    blogPost
 };

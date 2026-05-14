@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>$_title_</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; font-size: 16px; line-height: 1.7; color: #1a1a1a; padding: 1.5rem; background: #fff; }
+    h1 { font-size: 1.75rem; line-height: 1.2; margin-bottom: 0.5rem; }
+    .meta { font-size: 0.85rem; color: #666; margin-bottom: 1.5rem; }
+    .meta span + span::before { content: ' · '; }
+    .excerpt { font-size: 1.05rem; color: #444; margin-bottom: 1.5rem; font-style: italic; border-left: 3px solid #e0a800; padding-left: 0.75rem; }
+    .content { line-height: 1.8; }
+    .content h2, .content h3 { margin: 1.25rem 0 0.5rem; }
+    .content p { margin-bottom: 1rem; }
+    .content img { max-width: 100%; height: auto; border-radius: 4px; }
+    .content a { color: #e0a800; }
+    .tags { margin-top: 1.5rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .tag { background: #f3f3f3; border-radius: 999px; padding: 0.2rem 0.65rem; font-size: 0.78rem; color: #555; }
+  </style>
+</head>
+<body>
+  <h1>$_title_</h1>
+  <div class="meta">$_meta_html_</div>
+  $_excerpt_html_
+  <div class="content">$_content_html_</div>
+  $_tags_html_
+
+  <script>
+    (function () {
+      try {
+        fetch("$_track_url_", { method: "POST", keepalive: true });
+      } catch (_) {}
+    })();
+  </script>
+</body>
+</html>

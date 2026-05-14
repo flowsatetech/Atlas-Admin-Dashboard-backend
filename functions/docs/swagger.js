@@ -115,6 +115,52 @@ const options = {
                         createdAt: { type: "integer" },
                         updatedAt: { type: "integer" }
                     }
+                },
+                BlogPost: {
+                    type: "object",
+                    properties: {
+                        id: { type: "string" },
+                        title: { type: "string" },
+                        slug: { type: "string" },
+                        excerpt: { type: "string" },
+                        content: { type: "string", description: "HTML content of the post" },
+                        category: { type: "string", enum: ["Marketing", "SEO", "Branding", "Social Media", "Content Marketing", "Email Marketing", "Other"] },
+                        authorId: { type: "string" },
+                        tags: { type: "array", items: { type: "string" } },
+                        status: { type: "string", enum: ["draft", "published", "scheduled"] },
+                        isFeatured: { type: "boolean" },
+                        views: { type: "integer", minimum: 0 },
+                        publishedAt: { type: "integer", nullable: true },
+                        scheduledAt: { type: "integer", nullable: true },
+                        createdAt: { type: "integer" },
+                        updatedAt: { type: "integer" }
+                    }
+                },
+                CreateBlogPostBody: {
+                    type: "object",
+                    required: ["title", "excerpt", "category", "authorId", "status"],
+                    properties: {
+                        title: { type: "string", example: "10 SEO Tips for 2026" },
+                        slug: { type: "string", description: "Optional — auto-generated from title if omitted", example: "10-seo-tips-for-2026" },
+                        excerpt: { type: "string", example: "A concise summary of the post." },
+                        content: { type: "string", description: "HTML body of the post" },
+                        category: { type: "string", enum: ["Marketing", "SEO", "Branding", "Social Media", "Content Marketing", "Email Marketing", "Other"] },
+                        authorId: { type: "string" },
+                        tags: { type: "array", items: { type: "string" }, example: ["SEO", "Marketing"] },
+                        status: { type: "string", enum: ["draft", "published", "scheduled"] },
+                        isFeatured: { type: "boolean", default: false },
+                        scheduledAt: { type: "integer", nullable: true, description: "Unix ms timestamp for scheduled publish" }
+                    }
+                },
+                BlogStats: {
+                    type: "object",
+                    properties: {
+                        total: { type: "integer" },
+                        published: { type: "integer" },
+                        draft: { type: "integer" },
+                        scheduled: { type: "integer" },
+                        totalViews: { type: "integer" }
+                    }
                 }
             }
         },
@@ -1265,6 +1311,173 @@ const options = {
                     ],
                     "responses": {
                         "200": { "description": "Task updated successfully" }
+                    }
+                }
+            },
+
+            // ─── Blog ─────────────────────────────────────────────────────────
+            "/api/blog": {
+                "get": {
+                    "tags": ["Blog"],
+                    "summary": "List blog posts with pagination and optional filters",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+                        { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 10, "maximum": 100 } },
+                        { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["draft", "published", "scheduled"] } },
+                        { "name": "category", "in": "query", "schema": { "type": "string" } },
+                        { "name": "search", "in": "query", "schema": { "type": "string" } }
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Paginated list of blog posts",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "posts": { "type": "array", "items": { "$ref": "#/components/schemas/BlogPost" } },
+                                            "pagination": { "$ref": "#/components/schemas/Pagination" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "post": {
+                    "tags": ["Blog"],
+                    "summary": "Create a new blog post (Admin Only)",
+                    "security": [{ "cookieAuth": [] }],
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "application/json": {
+                                "schema": { "$ref": "#/components/schemas/CreateBlogPostBody" }
+                            }
+                        }
+                    },
+                    "responses": {
+                        "201": { "description": "Blog post created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BlogPost" } } } },
+                        "400": { "description": "Validation error" },
+                        "404": { "description": "Author not found" }
+                    }
+                }
+            },
+            "/api/blog/stats": {
+                "get": {
+                    "tags": ["Blog"],
+                    "summary": "Get aggregate blog stats (total, published, draft, scheduled, totalViews)",
+                    "security": [{ "cookieAuth": [] }],
+                    "responses": {
+                        "200": {
+                            "description": "Blog statistics",
+                            "content": {
+                                "application/json": {
+                                    "schema": { "$ref": "#/components/schemas/BlogStats" }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/api/blog/{postId}": {
+                "get": {
+                    "tags": ["Blog"],
+                    "summary": "Get a single blog post by ID",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "postId", "in": "path", "required": true, "schema": { "type": "string" } }
+                    ],
+                    "responses": {
+                        "200": { "description": "Blog post detail", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BlogPost" } } } },
+                        "404": { "description": "Not found" }
+                    }
+                },
+                "put": {
+                    "tags": ["Blog"],
+                    "summary": "Update a blog post (Admin Only)",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "postId", "in": "path", "required": true, "schema": { "type": "string" } }
+                    ],
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "application/json": {
+                                "schema": { "$ref": "#/components/schemas/CreateBlogPostBody" }
+                            }
+                        }
+                    },
+                    "responses": {
+                        "200": { "description": "Blog post updated" },
+                        "404": { "description": "Not found" }
+                    }
+                },
+                "delete": {
+                    "tags": ["Blog"],
+                    "summary": "Delete a blog post (Admin Only)",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "postId", "in": "path", "required": true, "schema": { "type": "string" } }
+                    ],
+                    "responses": {
+                        "200": { "description": "Deleted" },
+                        "404": { "description": "Not found" }
+                    }
+                }
+            },
+            "/api/blog/{postId}/publish": {
+                "post": {
+                    "tags": ["Blog"],
+                    "summary": "Publish a blog post (Admin Only)",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "postId", "in": "path", "required": true, "schema": { "type": "string" } }
+                    ],
+                    "responses": {
+                        "200": { "description": "Post published" },
+                        "404": { "description": "Not found" }
+                    }
+                }
+            },
+            "/api/blog/{postId}/feature": {
+                "post": {
+                    "tags": ["Blog"],
+                    "summary": "Toggle featured flag on a post (Admin Only)",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "postId", "in": "path", "required": true, "schema": { "type": "string" } }
+                    ],
+                    "responses": {
+                        "200": { "description": "Featured toggled" },
+                        "404": { "description": "Not found" }
+                    }
+                }
+            },
+            "/api/blog/track/{slug}": {
+                "post": {
+                    "tags": ["Blog"],
+                    "summary": "Increment view count for an embedded post (public, called by embed tracking script)",
+                    "parameters": [
+                        { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }
+                    ],
+                    "responses": {
+                        "200": { "description": "View recorded" }
+                    }
+                }
+            },
+            "/embed/{slug}": {
+                "get": {
+                    "tags": ["Blog"],
+                    "summary": "Serve a rendered HTML embed page for a published blog post",
+                    "description": "Returns a full standalone HTML page suitable for embedding via an `<iframe>`. The page contains a tracking script that POSTs to `/api/blog/track/{slug}` to increment views. CORS and frame-ancestor headers allow embedding on any origin.",
+                    "parameters": [
+                        { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }
+                    ],
+                    "responses": {
+                        "200": { "description": "HTML embed page", "content": { "text/html": {} } },
+                        "404": { "description": "Post not found or not published" }
                     }
                 }
             },

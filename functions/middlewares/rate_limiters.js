@@ -133,6 +133,21 @@ const health = rateLimit({
   message: { success: false, message: "Too many health checks." },
 });
 
+const blog = rateLimit({
+  windowMs: 30 * 60 * 1000,
+  max: 30,
+  store: createStore(),
+  keyGenerator,
+  message: { success: false, message: "Too many requests. Please slow down." },
+});
+
+const blogEmbedTrack = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  keyGenerator: (req) => `embed_${ipKeyGenerator(req.ip)}_${req.params?.slug || ""}`,
+  message: { success: false, message: "Too many view track requests." },
+});
+
 module.exports = {
   createMember,
   authLogin,
@@ -148,4 +163,6 @@ module.exports = {
   analytics,
   tasks,
   fourzerofour,
+  blog,
+  blogEmbedTrack,
 };

@@ -26,6 +26,8 @@ const membersRoutes = require('./functions/routes/members');
 const mediaRoutes = require('./functions/routes/media');
 const analyticsRoutes = require('./functions/routes/analytics');
 const tasksRoutes = require('./functions/routes/tasks');
+const blogRoutes = require('./functions/routes/blog');
+const embedRoutes = require('./functions/routes/embed');
 const healthApi = require('./functions/routes/health');
 const fourZeroFourApi = require('./functions/routes/404');
 const swaggerSpec = require('./functions/docs/swagger');
@@ -148,7 +150,7 @@ app.use('/api', (req, res, next) => {
 /** ROUTERS
  * All routers are created here
  */
-const [authApi, userApi, dashboardApi, projectsApi, clientsApi, membersApi, mediaApi, analyticsApi, tasksApi] = Array.from({ length: 9 }, () => express.Router());
+const [authApi, userApi, dashboardApi, projectsApi, clientsApi, membersApi, mediaApi, analyticsApi, tasksApi, blogApi] = Array.from({ length: 10 }, () => express.Router());
 
 /** ROUTERS -> HANDLER MAPPING
  * All routers are mapped to their handlers
@@ -162,6 +164,7 @@ membersApi.use(membersRoutes);
 mediaApi.use(mediaRoutes);
 analyticsApi.use(analyticsRoutes);
 tasksApi.use(tasksRoutes);
+blogApi.use(blogRoutes);
 
 /** CONFIGURE & START THE SERVER
  * Mount all routers
@@ -177,7 +180,9 @@ app.use('/api/members', middlewares.authMiddleware, membersApi);
 app.use('/api/media', middlewares.authMiddleware, mediaApi);
 app.use('/api/analytics', middlewares.authMiddleware, analyticsApi);
 app.use('/api/tasks', middlewares.authMiddleware, tasksApi);
+app.use('/api/blog', blogApi);
 app.use('/api/health', healthApi);
+app.use('/embed', embedRoutes);
 
 /** SWAGGER DOCUMENTATION */
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {

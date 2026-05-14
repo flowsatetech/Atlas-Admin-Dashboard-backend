@@ -13,6 +13,7 @@ let comments;
 let activityLogs;
 let analyticsSnapshots;
 let campaignStats;
+let blogPosts;
 
 async function initializeDB() {
   try {
@@ -34,6 +35,7 @@ async function initializeDB() {
     activityLogs = db.collection("activityLogs");
     analyticsSnapshots = db.collection("analyticsSnapshots");
     campaignStats = db.collection("campaignStats");
+    blogPosts = db.collection("blogPosts");
 
     await users.createIndex({ email: 1 }, { unique: true });
     await clients.createIndex({ id: 1 }, { unique: true });
@@ -52,6 +54,11 @@ async function initializeDB() {
     await campaignStats.createIndex({ id: 1 }, { unique: true });
     await campaignStats.createIndex({ campaignName: 1 });
     await campaignStats.createIndex({ createdAt: -1 });
+    await blogPosts.createIndex({ id: 1 }, { unique: true });
+    await blogPosts.createIndex({ slug: 1 }, { unique: true });
+    await blogPosts.createIndex({ status: 1 });
+    await blogPosts.createIndex({ category: 1 });
+    await blogPosts.createIndex({ createdAt: -1 });
 
     logger("DB").info("MongoDB initialized successfully");
   } catch (err) {
@@ -739,6 +746,114 @@ async function updateMediaString(stringId, string) {
   }
 }
 
+
+async function getBlogPostsPaginated({ page = 1, limit = 10, status = "", category = "", search = "" } = {}) {
+  try {
+    const skip = (page - 1) * limit;
+    const query = {};
+    if (status) query.status = status;
+    if (category) query.category = category;
+    if (search) query.title = { $regex: search, $options: "i" };
+
+    const [docs, filteredTotal] = await Promise.all([
+      blogPosts.find(query).skip(skip).limit(limit).sort({ createdAt: -1 }).toArray(),
+      blogPosts.countDocuments(query),
+    ]);
+
+    return {
+      posts: docs,
+      pagination: {
+        total: filteredTotal,
+        page,
+        limit,
+        totalPages: Math.ceil(filteredTotal / limit),
+      },
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getBlogStats() {
+  try {
+    const [total, published, draft, scheduled, viewsAgg] = await Promise.all([
+      blogPosts.countDocuments({}),
+      blogPosts.countDocuments({ status: "published" }),
+      blogPosts.countDocuments({ status: "draft" }),
+      blogPosts.countDocuments({ status: "scheduled" }),
+      blogPosts.aggregate([{ $group: { _id: null, totalViews: { $sum: "$views" } } }]).toArray(),
+    ]);
+    return {
+      total,
+      published,
+      draft,
+      scheduled,
+      totalViews: viewsAgg[0]?.totalViews ?? 0,
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getBlogPostById(postId) {
+  try {
+    return await blogPosts.findOne({ id: postId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getBlogPostBySlug(slug) {
+  try {
+    return await blogPosts.findOne({ slug });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function addBlogPost(postData) {
+  try {
+    const result = await blogPosts.insertOne(postData);
+    return { ...postData, _id: result.insertedId };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function updateBlogPost(postId, updateData) {
+  try {
+    await blogPosts.updateOne({ id: postId }, { $set: updateData });
+    return await blogPosts.findOne({ id: postId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function deleteBlogPost(postId) {
+  try {
+    const result = await blogPosts.deleteOne({ id: postId });
+    return result.deletedCount > 0;
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function incrementBlogPostViews(slug) {
+  try {
+    await blogPosts.updateOne({ slug }, { $inc: { views: 1 } });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 module.exports = {
   initializeDB,
 
@@ -799,4 +914,13 @@ module.exports = {
   updateMediaString,
   addComment,
   getCommentsByProjectId,
+
+  getBlogPostsPaginated,
+  getBlogPostById,
+  getBlogPostBySlug,
+  addBlogPost,
+  updateBlogPost,
+  deleteBlogPost,
+  incrementBlogPostViews,
+  getBlogStats,
 };
