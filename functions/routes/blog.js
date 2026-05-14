@@ -18,6 +18,19 @@ const models = require('../models');
 const router = express.Router();
 const { blog: blogLimiter } = middlewares.rateLimiters;
 
+const stripMongoId = (value) => {
+    if (Array.isArray(value)) {
+        return value.map(stripMongoId);
+    }
+
+    if (value && typeof value === 'object') {
+        const { _id, ...rest } = value;
+        return rest;
+    }
+
+    return value;
+};
+
 router.get('/', blogLimiter, middlewares.authMiddleware, async (req, res) => {
     try {
         const querySchema = models.common.paginationQuerySchema.extend({
@@ -38,7 +51,7 @@ router.get('/', blogLimiter, middlewares.authMiddleware, async (req, res) => {
             success: true,
             message: 'Fetch blog posts success',
             data: {
-                posts: result.posts,
+                posts: stripMongoId(result.posts),
                 pagination: result.pagination,
             }
         });
@@ -71,7 +84,7 @@ router.get('/:postId', blogLimiter, middlewares.authMiddleware, async (req, res)
         return res.status(200).json({
             success: true,
             message: 'Fetch blog post success',
-            data: { post },
+            data: { post: stripMongoId(post) },
         });
     } catch (e) {
         logger('GET_BLOG_POST').error(e);
@@ -114,7 +127,7 @@ router.post('/', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly,
         return res.status(201).json({
             success: true,
             message: 'Blog post created',
-            data: { post },
+            data: { post: stripMongoId(post) },
         });
     } catch (e) {
         logger('CREATE_BLOG_POST').error(e);
@@ -148,57 +161,10 @@ router.put('/:postId', blogLimiter, middlewares.authMiddleware, middlewares.admi
         return res.status(200).json({
             success: true,
             message: 'Blog post updated',
-            data: { post: updated },
+            data: { post: stripMongoId(updated) },
         });
     } catch (e) {
         logger('UPDATE_BLOG_POST').error(e);
-        return res.status(500).json({ success: false, message: 'An unknown error occurred' });
-    }
-});
-
-router.post('/:postId/publish', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly, async (req, res) => {
-    try {
-        const post = await db.getBlogPostById(req.params.postId);
-        if (!post) {
-            return res.status(404).json({ success: false, message: 'Blog post not found' });
-        }
-
-        const updated = await db.updateBlogPost(req.params.postId, {
-            status: 'published',
-            publishedAt: post.publishedAt ?? Date.now(),
-            updatedAt: Date.now(),
-        });
-
-        return res.status(200).json({
-            success: true,
-            message: 'Blog post published',
-            data: { post: updated },
-        });
-    } catch (e) {
-        logger('PUBLISH_BLOG_POST').error(e);
-        return res.status(500).json({ success: false, message: 'An unknown error occurred' });
-    }
-});
-
-router.post('/:postId/feature', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly, async (req, res) => {
-    try {
-        const post = await db.getBlogPostById(req.params.postId);
-        if (!post) {
-            return res.status(404).json({ success: false, message: 'Blog post not found' });
-        }
-
-        const updated = await db.updateBlogPost(req.params.postId, {
-            isFeatured: !post.isFeatured,
-            updatedAt: Date.now(),
-        });
-
-        return res.status(200).json({
-            success: true,
-            message: `Blog post ${updated.isFeatured ? 'marked as featured' : 'unfeatured'}`,
-            data: { post: updated },
-        });
-    } catch (e) {
-        logger('FEATURE_BLOG_POST').error(e);
         return res.status(500).json({ success: false, message: 'An unknown error occurred' });
     }
 });

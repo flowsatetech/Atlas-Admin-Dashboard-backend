@@ -20,6 +20,8 @@ const options = {
 
 **ID-only references:** Related entities are stored and returned as IDs (e.g. \`clientId\`, \`teamIds\`, \`authorId\`). Resolve via their respective endpoints.
 
+**Blog responses:** Blog endpoints omit MongoDB internal \`_id\` fields from response payloads.
+
 **Rate Limiting:** All endpoints are rate-limited per-user (authenticated) or per-IP (anonymous). Auth endpoints have stricter limits per-email and per-IP.`
         },
         servers: [
@@ -149,6 +151,21 @@ const options = {
                         tags: { type: "array", items: { type: "string" }, example: ["SEO", "Marketing"] },
                         status: { type: "string", enum: ["draft", "published", "scheduled"] },
                         isFeatured: { type: "boolean", default: false },
+                        scheduledAt: { type: "integer", nullable: true, description: "Unix ms timestamp for scheduled publish" }
+                    }
+                },
+                UpdateBlogPostBody: {
+                    type: "object",
+                    properties: {
+                        title: { type: "string", example: "10 SEO Tips for 2026" },
+                        slug: { type: "string", description: "Optional — auto-generated from title if omitted", example: "10-seo-tips-for-2026" },
+                        excerpt: { type: "string", example: "A concise summary of the post." },
+                        content: { type: "string", description: "HTML body of the post" },
+                        category: { type: "string", enum: ["Marketing", "SEO", "Branding", "Social Media", "Content Marketing", "Email Marketing", "Other"] },
+                        authorId: { type: "string" },
+                        tags: { type: "array", items: { type: "string" }, example: ["SEO", "Marketing"] },
+                        status: { type: "string", enum: ["draft", "published", "scheduled"] },
+                        isFeatured: { type: "boolean" },
                         scheduledAt: { type: "integer", nullable: true, description: "Unix ms timestamp for scheduled publish" }
                     }
                 },
@@ -1397,6 +1414,7 @@ const options = {
                 "put": {
                     "tags": ["Blog"],
                     "summary": "Update a blog post (Admin Only)",
+                    "description": "Use this endpoint to update content, set `status` to `published`, or toggle `isFeatured`. It replaces the separate publish/feature routes.",
                     "security": [{ "cookieAuth": [] }],
                     "parameters": [
                         { "name": "postId", "in": "path", "required": true, "schema": { "type": "string" } }
@@ -1405,7 +1423,7 @@ const options = {
                         "required": true,
                         "content": {
                             "application/json": {
-                                "schema": { "$ref": "#/components/schemas/CreateBlogPostBody" }
+                                "schema": { "$ref": "#/components/schemas/UpdateBlogPostBody" }
                             }
                         }
                     },
@@ -1423,34 +1441,6 @@ const options = {
                     ],
                     "responses": {
                         "200": { "description": "Deleted" },
-                        "404": { "description": "Not found" }
-                    }
-                }
-            },
-            "/api/blog/{postId}/publish": {
-                "post": {
-                    "tags": ["Blog"],
-                    "summary": "Publish a blog post (Admin Only)",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "postId", "in": "path", "required": true, "schema": { "type": "string" } }
-                    ],
-                    "responses": {
-                        "200": { "description": "Post published" },
-                        "404": { "description": "Not found" }
-                    }
-                }
-            },
-            "/api/blog/{postId}/feature": {
-                "post": {
-                    "tags": ["Blog"],
-                    "summary": "Toggle featured flag on a post (Admin Only)",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "postId", "in": "path", "required": true, "schema": { "type": "string" } }
-                    ],
-                    "responses": {
-                        "200": { "description": "Featured toggled" },
                         "404": { "description": "Not found" }
                     }
                 }
