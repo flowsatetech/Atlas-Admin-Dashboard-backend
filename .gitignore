@@ -44,3 +44,4 @@ Thumbs.db
 # OTHERS
 pnpm-lock.yaml
 frontend/
+*-openapi.json

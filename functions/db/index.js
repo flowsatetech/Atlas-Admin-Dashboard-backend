@@ -13,6 +13,7 @@ let comments;
 let activityLogs;
 let analyticsSnapshots;
 let campaignStats;
+let blogPosts;
 let leads;
 
 async function initializeDB() {
@@ -35,7 +36,8 @@ async function initializeDB() {
     activityLogs = db.collection("activityLogs");
     analyticsSnapshots = db.collection("analyticsSnapshots");
     campaignStats = db.collection("campaignStats");
-    leads = db.collection("leads"); // Initialize leads collection
+    blogPosts = db.collection("blogPosts");
+    leads = db.collection("leads");
 
     await users.createIndex({ email: 1 }, { unique: true });
     await clients.createIndex({ id: 1 }, { unique: true });
@@ -54,8 +56,11 @@ async function initializeDB() {
     await campaignStats.createIndex({ id: 1 }, { unique: true });
     await campaignStats.createIndex({ campaignName: 1 });
     await campaignStats.createIndex({ createdAt: -1 });
-
-    // New Indexes for Leads
+    await blogPosts.createIndex({ id: 1 }, { unique: true });
+    await blogPosts.createIndex({ slug: 1 }, { unique: true });
+    await blogPosts.createIndex({ status: 1 });
+    await blogPosts.createIndex({ category: 1 });
+    await blogPosts.createIndex({ createdAt: -1 });
     await leads.createIndex({ id: 1 }, { unique: true });
     await leads.createIndex({ email: 1 });
     await leads.createIndex({ status: 1 });
@@ -68,57 +73,6 @@ async function initializeDB() {
     throw err;
   }
 }
-
-/** LEADS LOGIC */
-
-async function addLead(leadData) {
-  try {
-    const result = await leads.insertOne(leadData);
-    return { ...leadData, _id: result.insertedId };
-  } catch (err) {
-    logger("DB").error(err);
-    throw err;
-  }
-}
-
-async function getAllLeads({ page = 1, limit = 10, search = "", status = "" } = {}) {
-  try {
-    const safePage = Math.max(1, Number(page));
-    const safeLimit = Math.max(1, Number(limit));
-    const skip = (safePage - 1) * safeLimit;
-
-    const query = {};
-    if (status) query.status = status;
-    if (search) {
-      query.$or = [
-        { firstName: { $regex: search, $options: "i" } },
-        { lastName: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-        { company: { $regex: search, $options: "i" } },
-      ];
-    }
-
-    const [docs, total] = await Promise.all([
-      leads.find(query).sort({ createdAt: -1 }).skip(skip).limit(safeLimit).toArray(),
-      leads.countDocuments(query),
-    ]);
-
-    return {
-      leads: docs,
-      pagination: {
-        total,
-        page: safePage,
-        limit: safeLimit,
-        totalPages: Math.ceil(total / safeLimit),
-      },
-    };
-  } catch (err) {
-    logger("DB").error(err);
-    throw err;
-  }
-}
-
-/** REST OF YOUR FUNCTIONS (UNCHANGED) */
 
 async function addUser(userData) {
   try {
@@ -798,6 +752,161 @@ async function updateMediaString(stringId, string) {
   }
 }
 
+
+async function getBlogPostsPaginated({ page = 1, limit = 10, status = "", category = "", search = "" } = {}) {
+  try {
+    const skip = (page - 1) * limit;
+    const query = {};
+    if (status) query.status = status;
+    if (category) query.category = category;
+    if (search) query.title = { $regex: search, $options: "i" };
+
+    const [docs, filteredTotal] = await Promise.all([
+      blogPosts.find(query).skip(skip).limit(limit).sort({ createdAt: -1 }).toArray(),
+      blogPosts.countDocuments(query),
+    ]);
+
+    return {
+      posts: docs,
+      pagination: {
+        total: filteredTotal,
+        page,
+        limit,
+        totalPages: Math.ceil(filteredTotal / limit),
+      },
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getBlogStats() {
+  try {
+    const [total, published, draft, scheduled, viewsAgg] = await Promise.all([
+      blogPosts.countDocuments({}),
+      blogPosts.countDocuments({ status: "published" }),
+      blogPosts.countDocuments({ status: "draft" }),
+      blogPosts.countDocuments({ status: "scheduled" }),
+      blogPosts.aggregate([{ $group: { _id: null, totalViews: { $sum: "$views" } } }]).toArray(),
+    ]);
+    return {
+      total,
+      published,
+      draft,
+      scheduled,
+      totalViews: viewsAgg[0]?.totalViews ?? 0,
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getBlogPostById(postId) {
+  try {
+    return await blogPosts.findOne({ id: postId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getBlogPostBySlug(slug) {
+  try {
+    return await blogPosts.findOne({ slug });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function addBlogPost(postData) {
+  try {
+    const result = await blogPosts.insertOne(postData);
+    return { ...postData, _id: result.insertedId };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function updateBlogPost(postId, updateData) {
+  try {
+    await blogPosts.updateOne({ id: postId }, { $set: updateData });
+    return await blogPosts.findOne({ id: postId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function deleteBlogPost(postId) {
+  try {
+    const result = await blogPosts.deleteOne({ id: postId });
+    return result.deletedCount > 0;
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function incrementBlogPostViews(slug) {
+  try {
+    await blogPosts.updateOne({ slug }, { $inc: { views: 1 } });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function addLead(leadData) {
+  try {
+    const result = await leads.insertOne(leadData);
+    return { ...leadData, _id: result.insertedId };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getAllLeads({ page = 1, limit = 10, search = "", status = "" } = {}) {
+  try {
+    const safePage = Math.max(1, Number(page));
+    const safeLimit = Math.max(1, Number(limit));
+    const skip = (safePage - 1) * safeLimit;
+
+    const query = {};
+    if (status) query.status = status;
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: "i" } },
+        { lastName: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { company: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const [docs, total] = await Promise.all([
+      leads.find(query).sort({ createdAt: -1 }).skip(skip).limit(safeLimit).toArray(),
+      leads.countDocuments(query),
+    ]);
+
+    return {
+      leads: docs,
+      pagination: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 module.exports = {
   initializeDB,
 
@@ -859,7 +968,15 @@ module.exports = {
   addComment,
   getCommentsByProjectId,
 
-  // New Exports for Leads
+  getBlogPostsPaginated,
+  getBlogPostById,
+  getBlogPostBySlug,
+  addBlogPost,
+  updateBlogPost,
+  deleteBlogPost,
+  incrementBlogPostViews,
+  getBlogStats,
+
   getAllLeads,
-  addLead
+  addLead,
 };
