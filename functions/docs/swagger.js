@@ -1489,6 +1489,51 @@ const options = {
                     }
                 }
             },
+            "/api/leads": {
+                "get": {
+                    "tags": ["Leads"],
+                    "summary": "List all leads (paginated)",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+                        { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 10 } },
+                        { "name": "search", "in": "query", "schema": { "type": "string" }, "description": "Search by name, email, or company" },
+                        { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["new", "contacted", "qualified", "lost"] } }
+                    ],
+                    "responses": {
+                        "200": { "description": "Leads fetched successfully" },
+                        "401": { "description": "Unauthorized" }
+                    }
+                },
+                "post": {
+                    "tags": ["Leads"],
+                    "summary": "Add a new lead",
+                    "security": [{ "cookieAuth": [] }],
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["firstName", "lastName", "email"],
+                                    "properties": {
+                                        "firstName": { "type": "string" },
+                                        "lastName": { "type": "string" },
+                                        "email": { "type": "string", "format": "email" },
+                                        "phone": { "type": "string" },
+                                        "company": { "type": "string" },
+                                        "source": { "type": "string" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "responses": {
+                        "201": { "description": "Lead added successfully" },
+                        "400": { "description": "Invalid request parameters" }
+                    }
+                }
+            },
         }
     },
     apis: []

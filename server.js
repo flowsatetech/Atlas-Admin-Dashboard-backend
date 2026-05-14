@@ -150,7 +150,7 @@ app.use('/api', (req, res, next) => {
 /** ROUTERS
  * All routers are created here
  */
-const [authApi, userApi, dashboardApi, projectsApi, clientsApi, membersApi, mediaApi, analyticsApi, tasksApi, blogApi] = Array.from({ length: 10 }, () => express.Router());
+const [authApi, userApi, dashboardApi, projectsApi, clientsApi, membersApi, mediaApi, analyticsApi, tasksApi, blogApi, leadsApi] = Array.from({ length: 11 }, () => express.Router());
 
 /** ROUTERS -> HANDLER MAPPING
  * All routers are mapped to their handlers
@@ -165,6 +165,7 @@ mediaApi.use(mediaRoutes);
 analyticsApi.use(analyticsRoutes);
 tasksApi.use(tasksRoutes);
 blogApi.use(blogRoutes);
+leadsApi.use(leadsRoutes);
 
 /** CONFIGURE & START THE SERVER
  * Mount all routers
@@ -181,6 +182,7 @@ app.use('/api/media', middlewares.authMiddleware, mediaApi);
 app.use('/api/analytics', middlewares.authMiddleware, analyticsApi);
 app.use('/api/tasks', middlewares.authMiddleware, tasksApi);
 app.use('/api/blog', blogApi);
+app.use('/api/leads', middlewares.authMiddleware, leadsApi);
 app.use('/api/health', healthApi);
 app.use('/embed', embedRoutes);
 
