@@ -27,6 +27,7 @@ const mediaRoutes = require('./functions/routes/media');
 const analyticsRoutes = require('./functions/routes/analytics');
 const tasksRoutes = require('./functions/routes/tasks');
 const blogRoutes = require('./functions/routes/blog');
+const leadsRoutes = require('./functions/routes/leads');
 const embedRoutes = require('./functions/routes/embed');
 const healthApi = require('./functions/routes/health');
 const fourZeroFourApi = require('./functions/routes/404');
