@@ -5,6 +5,7 @@
 // <-- PACKAGE IMPORTS -->
 const express = require('express');
 const fs = require('fs');
+const MarkdownIt = require('markdown-it');
 const path = require('path');
 
 // <-- LOCAL EXPORTS IMPORTS -->
@@ -16,6 +17,11 @@ const db = require('../db');
  */
 const router = express.Router();
 const defaultTemplatePath = path.join(__dirname, '../templates/blog-embed.html');
+const markdown = new MarkdownIt({
+    html: false,
+    linkify: true,
+    typographer: true,
+});
 
 function escapeHtml(value = '') {
   return String(value)
@@ -81,12 +87,13 @@ router.get('/:slug', middlewares.rateLimiters.blogEmbedTrack, async (req, res) =
         const tagsHtml = post.tags && post.tags.length
             ? `<div class="tags">${post.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>`
             : '';
+        const contentHtml = markdown.render(post.content || '');
 
         const html = renderTemplate(loadTemplate(), {
             '$_title_': escapeHtml(post.title),
             '$_meta_html_': metaHtml,
             '$_excerpt_html_': excerptHtml,
-            '$_content_html_': post.content || '',
+            '$_content_html_': contentHtml,
             '$_tags_html_': tagsHtml,
             '$_track_url_': escapeHtml(trackUrl),
         });

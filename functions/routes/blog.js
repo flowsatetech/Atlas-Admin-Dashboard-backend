@@ -114,6 +114,7 @@ router.post('/', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly,
         }
         
         const data = validData.data;
+
         if (data.status === 'published' && !data.publishedAt) {
             data.publishedAt = now;
         }
