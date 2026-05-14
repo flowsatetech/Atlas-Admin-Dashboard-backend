@@ -8,6 +8,7 @@ const { z } = require('zod');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
+const { verifyAndConsumeTrackingToken } = require('../helpers/blog-tracking');
 const { logger, generateToken, slugify } = require('../helpers');
 const db = require('../db');
 const models = require('../models');
@@ -185,11 +186,28 @@ router.delete('/:postId', blogLimiter, middlewares.authMiddleware, middlewares.a
     }
 });
 
-router.post('/track/:slug', middlewares.rateLimiters.blogEmbedTrack, async (req, res) => {
+router.post(
+    '/track/:slug',
+    middlewares.rateLimiters.blogEmbedTrack,
+    middlewares.rateLimiters.blogEmbedTrackHourly,
+    async (req, res) => {
     const { slug } = req.params;
     if (!slug || typeof slug !== 'string' || !/^[a-z0-9-]+$/.test(slug)) {
         return res.status(400).json({ success: false, message: 'Invalid slug' });
     }
+
+    const token = req.body?.token;
+        const isValidToken = await verifyAndConsumeTrackingToken({
+        token,
+        slug,
+        ip: req.ip,
+        userAgent: req.get('user-agent') || '',
+    });
+
+    if (!isValidToken) {
+        return res.status(200).json({ success: true });
+    }
+
     try {
         const post = await db.getBlogPostBySlug(slug);
         if (post && post.status === 'published') {

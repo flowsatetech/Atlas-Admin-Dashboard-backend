@@ -143,9 +143,26 @@ const blog = rateLimit({
 
 const blogEmbedTrack = rateLimit({
   windowMs: 60 * 1000,
-  max: 30,
-  keyGenerator: (req) => `embed_${ipKeyGenerator(req.ip)}_${req.params?.slug || ""}`,
+  max: 8,
+  store: createStore(),
+  keyGenerator: (req) => `embed_track_${ipKeyGenerator(req.ip)}_${req.params?.slug || ""}`,
   message: { success: false, message: "Too many view track requests." },
+});
+
+const blogEmbedTrackHourly = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 120,
+  store: createStore(),
+  keyGenerator: (req) => `embed_track_hour_${ipKeyGenerator(req.ip)}_${req.params?.slug || ""}`,
+  message: { success: false, message: "Too many view track requests." },
+});
+
+const blogEmbedPage = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  store: createStore(),
+  keyGenerator: (req) => `embed_page_${ipKeyGenerator(req.ip)}_${req.params?.slug || ""}`,
+  message: { success: false, message: "Too many embed page requests." },
 });
 
 module.exports = {
@@ -164,5 +181,7 @@ module.exports = {
   tasks,
   fourzerofour,
   blog,
+  blogEmbedPage,
   blogEmbedTrack,
+  blogEmbedTrackHourly,
 };

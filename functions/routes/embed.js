@@ -10,6 +10,7 @@ const path = require('path');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
+const { createTrackingToken } = require('../helpers/blog-tracking');
 const db = require('../db');
 
 /** SETUP
@@ -53,7 +54,37 @@ function renderTemplate(template, replacements) {
   }, template);
 }
 
-router.get('/:slug', middlewares.rateLimiters.blogEmbedTrack, async (req, res) => {
+function getAuthorDisplayName(author) {
+    if (!author) return 'Unknown Author';
+
+    if (author.fullName && String(author.fullName).trim()) {
+        return String(author.fullName).trim();
+    }
+
+    const parts = [author.firstName, author.lastName].filter(Boolean).map((part) => String(part).trim());
+    if (parts.length > 0) {
+        return parts.join(' ');
+    }
+
+    return author.email || 'Unknown Author';
+}
+
+function getAuthorInitials(authorName = '') {
+    const cleaned = String(authorName).trim();
+    if (!cleaned) return 'AU';
+
+    const initials = cleaned
+        .split(/\s+/)
+        .slice(0, 2)
+        .map((part) => part[0])
+        .filter(Boolean)
+        .join('')
+        .toUpperCase();
+
+    return initials || 'AU';
+}
+
+router.get('/:slug', middlewares.rateLimiters.blogEmbedPage, async (req, res) => {
     const { slug } = req.params;
 
     if (!/^[a-z0-9-]+$/.test(slug)) {
@@ -67,8 +98,23 @@ router.get('/:slug', middlewares.rateLimiters.blogEmbedTrack, async (req, res) =
             return res.status(404).send('<p>Post not found.</p>');
         }
 
+        const author = await db.getUserById(post.authorId);
+        const authorName = getAuthorDisplayName(author);
+        const authorInitials = getAuthorInitials(authorName);
+        const authorRole = author?.role ? `${String(author.role).charAt(0).toUpperCase()}${String(author.role).slice(1)}` : 'Author';
+        const authorAvatarUrl = author?.avatarUrl || '';
+        const authorAvatarStyle = authorAvatarUrl
+            ? `background-image: url('${escapeHtml(authorAvatarUrl)}'); background-size: cover; background-position: center; color: transparent;`
+            : '';
+
         const serverBase = process.env.SERVER_BASE_URL || '';
+        const pageUrl = `${serverBase}/embed/${encodeURIComponent(slug)}`;
         const trackUrl = `${serverBase}/api/blog/track/${encodeURIComponent(slug)}`;
+        const trackToken = await createTrackingToken({
+            slug,
+            ip: req.ip,
+            userAgent: req.get('user-agent') || '',
+        });
 
         const publishedDate = post.publishedAt
             ? new Date(post.publishedAt).toLocaleDateString('en-US', {
@@ -82,7 +128,7 @@ router.get('/:slug', middlewares.rateLimiters.blogEmbedTrack, async (req, res) =
             publishedDate ? `<span>${escapeHtml(publishedDate)}</span>` : ''
         ].filter(Boolean).join('');
         const excerptHtml = post.excerpt
-            ? `<div class="excerpt">${escapeHtml(post.excerpt)}</div>`
+            ? escapeHtml(post.excerpt)
             : '';
         const tagsHtml = post.tags && post.tags.length
             ? `<div class="tags">${post.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>`
@@ -95,7 +141,13 @@ router.get('/:slug', middlewares.rateLimiters.blogEmbedTrack, async (req, res) =
             '$_excerpt_html_': excerptHtml,
             '$_content_html_': contentHtml,
             '$_tags_html_': tagsHtml,
+            '$_author_name_': escapeHtml(authorName),
+            '$_author_role_': escapeHtml(authorRole),
+            '$_author_initials_': escapeHtml(authorInitials),
+            '$_author_avatar_style_': authorAvatarStyle,
+            '$_page_url_': escapeHtml(pageUrl),
             '$_track_url_': escapeHtml(trackUrl),
+            '$_track_token_': escapeHtml(trackToken),
         });
 
         res.setHeader('X-Frame-Options', 'ALLOWALL');
