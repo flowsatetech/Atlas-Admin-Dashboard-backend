@@ -18,11 +18,12 @@ let leads;
 
 async function initializeDB() {
   try {
-    client = new MongoClient(
-      process.env.NODE_ENV === "production"
-        ? process.env.MONGO_URI_PROD
-        : process.env.MONGO_URI,
-    );
+    const { MongoMemoryServer } = require('mongodb-memory-server');
+    const mongod = await MongoMemoryServer.create();
+    const mongoUri = mongod.getUri();
+    logger("DB").info("MongoDB Memory Server started for staging");
+
+    client = new MongoClient(mongoUri);
     await client.connect();
     db = client.db("atlas-db");
 

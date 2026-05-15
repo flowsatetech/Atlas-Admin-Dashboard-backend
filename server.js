@@ -1,7 +1,7 @@
 /** INJECT ENV VARS
- * Load environment variables from .env file into process.env
+ * Load environment variables from the appropriate .env file.
  */
-require('dotenv').config();
+require('dotenv').config({ path: '.env.staging' });
 
 /** IMPORT
  * All libraries / local exports / packages are imported here

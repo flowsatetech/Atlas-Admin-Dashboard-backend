@@ -1,0 +1,6 @@
+ignoredBuiltDependencies:
+  - '@scarf/scarf'
+
+allowedBuiltDependencies:
+  - bcrypt
+  - mongodb-memory-server
