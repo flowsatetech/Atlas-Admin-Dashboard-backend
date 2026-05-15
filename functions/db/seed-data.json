@@ -1,0 +1,516 @@
+{
+  "users": [
+    {
+      "userId": "seed-user-admin-001",
+      "fullName": "Admin One",
+      "firstName": "Admin",
+      "lastName": "One",
+      "email": "admin1@atlas-africa.com.ng",
+      "password": "nimda@salta",
+      "role": "admin",
+      "job": "Administrator",
+      "status": "active",
+      "authProvider": "atlas",
+      "createdAt": 1768435200000,
+      "updatedAt": 1768435200000
+    },
+    {
+      "userId": "seed-user-mgr-002",
+      "fullName": "Sarah James",
+      "firstName": "Sarah",
+      "lastName": "James",
+      "email": "sarah.james@atlas-africa.com.ng",
+      "password": "manager@salta",
+      "role": "manager",
+      "job": "Project Manager",
+      "status": "active",
+      "authProvider": "atlas",
+      "createdAt": 1768521600000,
+      "updatedAt": 1768521600000
+    },
+    {
+      "userId": "seed-user-staff-003",
+      "fullName": "David Okon",
+      "firstName": "David",
+      "lastName": "Okon",
+      "email": "david.okon@atlas-africa.com.ng",
+      "password": "staffpass@salta",
+      "role": "staff",
+      "job": "Content Strategist",
+      "status": "active",
+      "authProvider": "atlas",
+      "createdAt": 1768608000000,
+      "updatedAt": 1768608000000
+    }
+  ],
+
+  "clients": [
+    {
+      "id": "seed-client-001",
+      "fullName": "Adaeze Okafor",
+      "companyName": "TechCore Solutions",
+      "email": "adaeze@techcore.ng",
+      "phone": "+2348012345678",
+      "status": "Active",
+      "tags": ["tech", "enterprise"],
+      "assignedStaffId": "seed-user-mgr-002",
+      "leadSource": "Referral",
+      "notes": "Long-term partner, high priority account.",
+      "projectsCount": 2,
+      "createdAt": 1768435200000,
+      "updatedAt": 1775001600000
+    },
+    {
+      "id": "seed-client-002",
+      "fullName": "Emeka Nwachukwu",
+      "companyName": "BrightBrand Agency",
+      "email": "emeka@brightbrand.com",
+      "phone": "+2349087654321",
+      "status": "Lead",
+      "tags": ["marketing", "startup"],
+      "assignedStaffId": "seed-user-staff-003",
+      "leadSource": "LinkedIn",
+      "notes": "Interested in social media management services.",
+      "projectsCount": 1,
+      "createdAt": 1769904000000,
+      "updatedAt": 1769904000000
+    },
+    {
+      "id": "seed-client-003",
+      "fullName": "Tolu Fashola",
+      "companyName": "Pinnacle Retail",
+      "email": "tolu@pinnacleretail.ng",
+      "phone": "+2347066554433",
+      "status": "Inactive",
+      "tags": ["retail", "e-commerce"],
+      "assignedStaffId": null,
+      "leadSource": "Cold Outreach",
+      "notes": "Project paused due to budget constraints.",
+      "projectsCount": 1,
+      "createdAt": 1770249600000,
+      "updatedAt": 1773100800000
+    }
+  ],
+
+  "projects": [
+    {
+      "id": "seed-proj-001",
+      "name": "Website Rebrand",
+      "clientId": "seed-client-001",
+      "client": "TechCore Solutions",
+      "description": "Full visual and content overhaul of the TechCore website.",
+      "deadline": 1782777600000,
+      "budget": 4500000,
+      "recognizedRevenue": null,
+      "recognizedAt": null,
+      "priority": "High",
+      "status": "InProgress",
+      "teamIds": ["seed-user-mgr-002", "seed-user-staff-003"],
+      "progress": 45,
+      "files": [],
+      "createdAt": 1769904000000,
+      "updatedAt": 1776211200000
+    },
+    {
+      "id": "seed-proj-002",
+      "name": "Q1 SEO Campaign",
+      "clientId": "seed-client-001",
+      "client": "TechCore Solutions",
+      "description": "Three-month SEO audit and optimisation campaign.",
+      "deadline": 1772323200000,
+      "budget": 1800000,
+      "recognizedRevenue": 1800000,
+      "recognizedAt": 1773100800000,
+      "priority": "Medium",
+      "status": "Completed",
+      "teamIds": ["seed-user-staff-003"],
+      "progress": 100,
+      "files": [],
+      "createdAt": 1768435200000,
+      "updatedAt": 1773100800000
+    },
+    {
+      "id": "seed-proj-003",
+      "name": "Social Media Launch",
+      "clientId": "seed-client-002",
+      "client": "BrightBrand Agency",
+      "description": "Launch strategy and content plan for new social media channels.",
+      "deadline": 1788134400000,
+      "budget": 2500000,
+      "recognizedRevenue": null,
+      "recognizedAt": null,
+      "priority": "Medium",
+      "status": "Planned",
+      "teamIds": ["seed-user-mgr-002"],
+      "progress": 0,
+      "files": [],
+      "createdAt": 1771113600000,
+      "updatedAt": 1771113600000
+    },
+    {
+      "id": "seed-proj-004",
+      "name": "E-commerce Revamp",
+      "clientId": "seed-client-003",
+      "client": "Pinnacle Retail",
+      "description": "End-to-end redesign of the Pinnacle Retail online store.",
+      "deadline": 1785542400000,
+      "budget": 6000000,
+      "recognizedRevenue": null,
+      "recognizedAt": null,
+      "priority": "Urgent",
+      "status": "OnHold",
+      "teamIds": ["seed-user-mgr-002", "seed-user-staff-003"],
+      "progress": 20,
+      "files": [],
+      "createdAt": 1770249600000,
+      "updatedAt": 1773532800000
+    }
+  ],
+
+  "tasks": [
+    {
+      "id": "seed-task-001",
+      "title": "Design homepage mockups",
+      "description": "Create Figma wireframes and high-fidelity designs for the new homepage.",
+      "projectId": "seed-proj-001",
+      "assigneeId": "seed-user-mgr-002",
+      "dueDate": 1776211200000,
+      "status": "InProgress",
+      "createdAt": 1770249600000,
+      "updatedAt": 1776211200000
+    },
+    {
+      "id": "seed-task-002",
+      "title": "Write landing page copy",
+      "description": "Draft headline, sub-headline, and body copy for all landing page sections.",
+      "projectId": "seed-proj-001",
+      "assigneeId": "seed-user-staff-003",
+      "dueDate": 1777593600000,
+      "status": "Todo",
+      "createdAt": 1770249600000,
+      "updatedAt": 1770249600000
+    },
+    {
+      "id": "seed-task-003",
+      "title": "Conduct keyword research",
+      "description": "Identify primary and long-tail keywords for the Q1 SEO campaign.",
+      "projectId": "seed-proj-002",
+      "assigneeId": "seed-user-staff-003",
+      "dueDate": 1769904000000,
+      "status": "Done",
+      "createdAt": 1768521600000,
+      "updatedAt": 1770249600000
+    },
+    {
+      "id": "seed-task-004",
+      "title": "Set up social media accounts",
+      "description": "Create and configure Instagram, X, and LinkedIn profiles for BrightBrand.",
+      "projectId": "seed-proj-003",
+      "assigneeId": "seed-user-mgr-002",
+      "dueDate": 1778803200000,
+      "status": "Todo",
+      "createdAt": 1771113600000,
+      "updatedAt": 1771113600000
+    },
+    {
+      "id": "seed-task-005",
+      "title": "Audit product catalogue",
+      "description": "Review and categorise all 200+ SKUs before migration to new storefront.",
+      "projectId": "seed-proj-004",
+      "assigneeId": "seed-user-staff-003",
+      "dueDate": 1775001600000,
+      "status": "Blocked",
+      "createdAt": 1770249600000,
+      "updatedAt": 1773532800000
+    }
+  ],
+
+  "analyticsSnapshots": [
+    {
+      "id": "snap-feb-2026",
+      "periodStart": 1769904000000,
+      "periodEnd": 1772323199000,
+      "visitors": 1204,
+      "pageViews": 3418,
+      "trafficSources": [
+        { "source": "Organic", "percentage": 45 },
+        { "source": "Direct", "percentage": 30 },
+        { "source": "Social", "percentage": 15 },
+        { "source": "Referral", "percentage": 10 }
+      ]
+    },
+    {
+      "id": "snap-mar-2026",
+      "periodStart": 1772323200000,
+      "periodEnd": 1775001599000,
+      "visitors": 1451,
+      "pageViews": 4103,
+      "trafficSources": [
+        { "source": "Organic", "percentage": 48 },
+        { "source": "Direct", "percentage": 28 },
+        { "source": "Social", "percentage": 14 },
+        { "source": "Referral", "percentage": 10 }
+      ]
+    },
+    {
+      "id": "snap-apr-2026",
+      "periodStart": 1775001600000,
+      "periodEnd": 1777593599000,
+      "visitors": 1803,
+      "pageViews": 5217,
+      "trafficSources": [
+        { "source": "Organic", "percentage": 50 },
+        { "source": "Direct", "percentage": 25 },
+        { "source": "Social", "percentage": 16 },
+        { "source": "Referral", "percentage": 9 }
+      ]
+    }
+  ],
+
+  "campaignStats": [
+    {
+      "id": "camp-stat-001",
+      "campaignName": "Q1 Google Ads",
+      "impressions": 15200,
+      "clicks": 456,
+      "conversions": 32,
+      "conversionRate": 7.02,
+      "createdAt": 1768435200000,
+      "updatedAt": 1773100800000
+    },
+    {
+      "id": "camp-stat-002",
+      "campaignName": "Instagram Awareness",
+      "impressions": 8400,
+      "clicks": 223,
+      "conversions": 18,
+      "conversionRate": 8.07,
+      "createdAt": 1771113600000,
+      "updatedAt": 1774000000000
+    },
+    {
+      "id": "camp-stat-003",
+      "campaignName": "April Email Blast",
+      "impressions": 2100,
+      "clicks": 341,
+      "conversions": 61,
+      "conversionRate": 17.89,
+      "createdAt": 1775001600000,
+      "updatedAt": 1777000000000
+    }
+  ],
+
+  "blogPosts": [
+    {
+      "id": "blog-post-001",
+      "title": "5 SEO Trends Shaping 2026",
+      "slug": "5-seo-trends-shaping-2026",
+      "excerpt": "From AI-generated content to zero-click searches, here are the top SEO shifts you need to adapt to this year.",
+      "content": "Search engine optimisation has never moved faster. In 2026, brands that adapt quickly will pull ahead while those clinging to old tactics will lose ground...",
+      "category": "SEO",
+      "authorId": "seed-user-mgr-002",
+      "tags": ["seo", "digital marketing", "2026", "trends"],
+      "status": "published",
+      "isFeatured": true,
+      "views": 312,
+      "publishedAt": 1771113600000,
+      "scheduledAt": null,
+      "createdAt": 1770249600000,
+      "updatedAt": 1774000000000
+    },
+    {
+      "id": "blog-post-002",
+      "title": "Building a Strong Brand Identity",
+      "slug": "building-a-strong-brand-identity",
+      "excerpt": "Your brand is more than a logo. Learn how to craft a cohesive identity that resonates with your audience.",
+      "content": "A strong brand identity is the foundation of every successful business. From colour palettes to tone of voice, every element shapes how customers perceive you...",
+      "category": "Branding",
+      "authorId": "seed-user-mgr-002",
+      "tags": ["branding", "identity", "design"],
+      "status": "published",
+      "isFeatured": false,
+      "views": 187,
+      "publishedAt": 1773532800000,
+      "scheduledAt": null,
+      "createdAt": 1772323200000,
+      "updatedAt": 1775001600000
+    },
+    {
+      "id": "blog-post-003",
+      "title": "Email Marketing Best Practices for Growing Businesses",
+      "slug": "email-marketing-best-practices",
+      "excerpt": "Cut through inbox noise with these proven strategies for higher open rates, better click-throughs, and more conversions.",
+      "content": "Email marketing remains one of the highest-ROI channels available. But with inboxes more crowded than ever, standing out demands more than a catchy subject line...",
+      "category": "Email Marketing",
+      "authorId": "seed-user-staff-003",
+      "tags": ["email marketing", "conversion", "open rates"],
+      "status": "draft",
+      "isFeatured": false,
+      "views": 0,
+      "publishedAt": null,
+      "scheduledAt": null,
+      "createdAt": 1776211200000,
+      "updatedAt": 1776211200000
+    }
+  ],
+
+  "leads": [
+    {
+      "id": "lead-001",
+      "firstName": "Amara",
+      "lastName": "Nwosu",
+      "email": "amara.nwosu@example.com",
+      "phone": "+2348099887766",
+      "company": "NwosuTech Ltd",
+      "status": "new",
+      "source": "Website Form",
+      "notes": "Interested in full-service digital marketing.",
+      "assignedTo": "seed-user-staff-003",
+      "createdAt": 1776211200000,
+      "updatedAt": 1776211200000
+    },
+    {
+      "id": "lead-002",
+      "firstName": "Chidi",
+      "lastName": "Eze",
+      "email": "chidi.eze@techstartup.io",
+      "phone": "+2347011223344",
+      "company": "TechStartup IO",
+      "status": "contacted",
+      "source": "LinkedIn",
+      "notes": "Had initial call, follow up scheduled.",
+      "assignedTo": "seed-user-mgr-002",
+      "createdAt": 1774000000000,
+      "updatedAt": 1775001600000
+    },
+    {
+      "id": "lead-003",
+      "firstName": "Fatima",
+      "lastName": "Al-Rashid",
+      "email": "fatima@ventures.ae",
+      "phone": "+971501234567",
+      "company": "Al-Rashid Ventures",
+      "status": "qualified",
+      "source": "Referral",
+      "notes": "Budget confirmed, ready to proceed with proposal.",
+      "assignedTo": "seed-user-admin-001",
+      "createdAt": 1772323200000,
+      "updatedAt": 1777000000000
+    },
+    {
+      "id": "lead-004",
+      "firstName": "Omar",
+      "lastName": "Mensah",
+      "email": "omar.mensah@ghanacorp.com",
+      "phone": "+233201234567",
+      "company": "GhanaCorp Industries",
+      "status": "lost",
+      "source": "Cold Outreach",
+      "notes": "Went with a competitor. Revisit in Q3.",
+      "assignedTo": "seed-user-staff-003",
+      "createdAt": 1769904000000,
+      "updatedAt": 1773100800000
+    }
+  ],
+
+  "activityLogs": [
+    {
+      "id": "log-001",
+      "type": "auth.login",
+      "actorId": "seed-user-admin-001",
+      "entityId": null,
+      "entityType": null,
+      "message": "Admin user logged in",
+      "meta": {},
+      "createdAt": 1768435200000,
+      "updatedAt": 1768435200000
+    },
+    {
+      "id": "log-002",
+      "type": "client.created",
+      "actorId": "seed-user-admin-001",
+      "entityId": "seed-client-001",
+      "entityType": "client",
+      "message": "Client TechCore Solutions was created",
+      "meta": { "companyName": "TechCore Solutions" },
+      "createdAt": 1768435200000,
+      "updatedAt": 1768435200000
+    },
+    {
+      "id": "log-003",
+      "type": "project.created",
+      "actorId": "seed-user-mgr-002",
+      "entityId": "seed-proj-001",
+      "entityType": "project",
+      "message": "Project 'Website Rebrand' was created",
+      "meta": { "projectName": "Website Rebrand", "clientId": "seed-client-001" },
+      "createdAt": 1769904000000,
+      "updatedAt": 1769904000000
+    },
+    {
+      "id": "log-004",
+      "type": "task.created",
+      "actorId": "seed-user-mgr-002",
+      "entityId": "seed-task-001",
+      "entityType": "task",
+      "message": "Task 'Design homepage mockups' was created",
+      "meta": { "taskTitle": "Design homepage mockups", "projectId": "seed-proj-001" },
+      "createdAt": 1770249600000,
+      "updatedAt": 1770249600000
+    },
+    {
+      "id": "log-005",
+      "type": "project.updated",
+      "actorId": "seed-user-mgr-002",
+      "entityId": "seed-proj-002",
+      "entityType": "project",
+      "message": "Project 'Q1 SEO Campaign' marked as Completed",
+      "meta": { "projectName": "Q1 SEO Campaign", "status": "Completed" },
+      "createdAt": 1773100800000,
+      "updatedAt": 1773100800000
+    }
+  ],
+
+  "comments": [
+    {
+      "id": "comment-001",
+      "projectId": "seed-proj-001",
+      "authorId": "seed-user-mgr-002",
+      "content": "Wireframes look good. Let's align on the colour palette before moving to development.",
+      "createdAt": 1770508800000,
+      "updatedAt": 1770508800000
+    },
+    {
+      "id": "comment-002",
+      "projectId": "seed-proj-001",
+      "authorId": "seed-user-staff-003",
+      "content": "Copy draft is ready for review. Flagging the hero section — may need a shorter headline.",
+      "createdAt": 1771200000000,
+      "updatedAt": 1771200000000
+    },
+    {
+      "id": "comment-003",
+      "projectId": "seed-proj-002",
+      "authorId": "seed-user-staff-003",
+      "content": "Keyword research complete. Found 3 high-volume low-competition clusters worth targeting first.",
+      "createdAt": 1769990400000,
+      "updatedAt": 1769990400000
+    },
+    {
+      "id": "comment-004",
+      "projectId": "seed-proj-002",
+      "authorId": "seed-user-mgr-002",
+      "content": "Final report signed off by client — project can be marked complete.",
+      "createdAt": 1773100800000,
+      "updatedAt": 1773100800000
+    },
+    {
+      "id": "comment-005",
+      "projectId": "seed-proj-004",
+      "authorId": "seed-user-mgr-002",
+      "content": "Project on hold pending client budget approval. Will resume once confirmation is received.",
+      "createdAt": 1773532800000,
+      "updatedAt": 1773532800000
+    }
+  ]
+}

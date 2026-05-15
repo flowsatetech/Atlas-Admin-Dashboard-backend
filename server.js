@@ -34,6 +34,7 @@ const fourZeroFourApi = require('./functions/routes/404');
 const swaggerSpec = require('./functions/docs/swagger');
 
 const db = require('./functions/db');
+const { seedDB } = require('./functions/db/seed');
 const { logger } = require('./functions/helpers');
 
 /** SETUP
@@ -212,6 +213,7 @@ app.use(fourZeroFourApi);
 async function startServer() {
     try {
         await db.initializeDB();
+        await seedDB();
         app.listen(PORT, () => {
             console.log(`Server is running on Port ${PORT}`);
         });
