@@ -1439,8 +1439,8 @@ const options = {
                         { "name": "postId", "in": "path", "required": true, "schema": { "type": "string" } }
                     ],
                     "responses": {
-                        "200": { "description": "Deleted" },
-                        "404": { "description": "Not found" }
+                        "200": { description: "Deleted" },
+                        "404": { description: "Not found" }
                     }
                 }
             },
@@ -1481,7 +1481,7 @@ const options = {
                     "summary": "Serve a rendered HTML embed page for a published blog post",
                     "description": "Returns a full standalone HTML page suitable for embedding via an `<iframe>`. The page contains a tracking script that POSTs to `/api/blog/track/{slug}` to increment views. CORS and frame-ancestor headers allow embedding on any origin.",
                     "parameters": [
-                        { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }
+                        { "name": "slug", in: "path", "required": true, "schema": { "type": "string" } }
                     ],
                     "responses": {
                         "200": { "description": "HTML embed page", "content": { "text/html": {} } },
@@ -1522,7 +1522,11 @@ const options = {
                                         "email": { "type": "string", "format": "email" },
                                         "phone": { "type": "string" },
                                         "company": { "type": "string" },
-                                        "source": { "type": "string" }
+                                        "source": { "type": "string" },
+                                        "stage": { "type": "string" },
+                                        "contactPerson": { "type": "string" },
+                                        "value": { "type": "number" },
+                                        "notes": { "type": "string" }
                                     }
                                 }
                             }
@@ -1534,9 +1538,162 @@ const options = {
                     }
                 }
             },
+            "/api/clients/stats": {
+                "get": {
+                    "tags": ["Clients"],
+                    "summary": "Get client dashboard metrics cards",
+                    "security": [{ "cookieAuth": [] }],
+                    "description": "Requires `auth_token` cookie. Returns total, active, inactive, and lead client metrics totals for frontend KPI card rendering.",
+                    "responses": {
+                        "200": {
+                            "description": "Client cards statistics data returned dynamically",
+                            "content": {
+                                "application/json": {
+                                    "example": {
+                                        "status": "success",
+                                        "code": 200,
+                                        "data": {
+                                            "totalClients": 30,
+                                            "activeClients": 21,
+                                            "inactiveClients": 2,
+                                            "leadClients": 7
+                                        },
+                                        "message": "Request successful"
+                                    }
+                                }
+                            }
+                        },
+                        "401": { "description": "Unauthorized" },
+                        "500": { "description": "Internal server error" }
+                    }
+                }
+            },
+            "/api/clients/{id}": {
+                "get": {
+                    "tags": ["Clients"],
+                    "summary": "Get detailed overview of a single client profile entry",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Unique custom identifier token of target client" }
+                    ],
+                    "responses": {
+                        "200": { "description": "Client data object structures returned smoothly" },
+                        "404": { "description": "Client record not found matches target query" }
+                    }
+                },
+                "patch": {
+                    "tags": ["Clients"],
+                    "summary": "Update parts of an individual client document structure (Admin Only)",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Unique custom identifier token of target client" }
+                    ],
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "fullName": { "type": "string" },
+                                        "companyName": { "type": "string" },
+                                        "status": { "type": "string", "enum": ["Lead", "Active", "Inactive", "Archived"] },
+                                        "notes": { "type": "string" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "responses": {
+                        "200": { "description": "Client mutations saved cleanly and recorded in activity telemetry" },
+                        "400": { "description": "Validation schema matching execution constraints failed" },
+                        "404": { "description": "Target client record does not exist matching token query" }
+                    }
+                },
+                "delete": {
+                    "tags": ["Clients"],
+                    "summary": "Delete an individual client document from active ecosystem collection (Admin Only)",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Unique custom identifier token of target client" }
+                    ],
+                    "responses": {
+                        "200": { "description": "Client profile document fully cleared from the storage tables" },
+                        "404": { "description": "Client document profile target verification query failed" }
+                    }
+                }
+            },
+            "/api/leads/{leadId}": {
+                "get": {
+                    "tags": ["Leads"],
+                    "summary": "Get detailed pipeline information of an individual lead",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "leadId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Unique target token identifier of specified lead record" }
+                    ],
+                    "responses": {
+                        "200": { "description": "Lead deep metrics loaded cleanly" },
+                        "404": { "description": "Lead entry matching data lookup verification not found" }
+                    }
+                },
+                "patch": {
+                    "tags": ["Leads"],
+                    "summary": "Modify pipeline characteristics on an individual lead document structure",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "leadId", in: "path", "required": true, "schema": { "type": "string" }, "description": "Unique target token identifier of specified lead record" }
+                    ],
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "status": { "type": "string", "enum": ["new", "contacted", "qualified", "lost"] },
+                                        "stage": { "type": "string" },
+                                        "value": { "type": "number" },
+                                        "notes": { "type": "string" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "responses": {
+                        "200": { description: "Lead mutations verified and merged safely into the collection parameters" },
+                        "404": { description: "Lead record mismatch verify parameters on execution failed" }
+                    }
+                },
+                "delete": {
+                    "tags": ["Leads"],
+                    "summary": "Purge specified lead completely from active CRM pipelines",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "leadId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Unique target token identifier of specified lead record" }
+                    ],
+                    "responses": {
+                        "200": { "description": "Lead document profile successfully purged from active systems" },
+                        "404": { "description": "Lead document match validation check not found" }
+                    }
+                }
+            },
+            "/api/members/{memberId}": {
+                "delete": {
+                    "tags": ["Members"],
+                    "summary": "Offboard and remove individual staff access account (Admin Only)",
+                    "security": [{ "cookieAuth": [] }],
+                    "parameters": [
+                        { "name": "memberId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Unique account identifier token of target staff member" }
+                    ],
+                    "responses": {
+                        "200": { "description": "Staff account removed cleanly from active credentials collection" },
+                        "404": { "description": "Staff account document verify lookup mismatch failed" }
+                    }
+                }
+            }
         }
     },
-    apis: []
+    "apis": []
 };
 
 const swaggerSpec = swaggerJSDoc(options);
