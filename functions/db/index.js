@@ -121,16 +121,6 @@ async function getAllMembers({ page, limit, search } = {}) {
         totalPages: Math.ceil(total / safeLimit),
       },
     };
-
-    return {
-      members,
-      pagination: {
-        total,
-        page: safePage,
-        limit: safeLimit,
-        totalPages: Math.ceil(total / safeLimit),
-      },
-    };
   } catch (err) {
     logger("DB").error(err);
     throw err;
