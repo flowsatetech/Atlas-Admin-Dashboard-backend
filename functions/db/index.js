@@ -107,10 +107,20 @@ async function getAllMembers({ page, limit, search } = {}) {
         }
       : {};
 
-    const [members, total] = await Promise.all([
-      members = await users.find(query).skip(skip).limit(safeLimit).toArray(),
+    const [membersList, total] = await Promise.all([
+      users.find(query).skip(skip).limit(safeLimit).toArray(),
       users.countDocuments(query),
     ]);
+
+    return {
+      members: membersList,
+      pagination: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
 
     return {
       members,
