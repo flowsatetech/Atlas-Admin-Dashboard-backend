@@ -1282,6 +1282,22 @@ const options = {
                     }
                 }
             },
+            "/api/health/redis/flush": {
+                post: {
+                    tags: ["Health"],
+                    summary: "Flush Redis cache (admin only)",
+                    security: [{ cookieAuth: [] }],
+                    description: "Clears the active Redis database using FLUSHDB. Intended for controlled maintenance operations.",
+                    responses: {
+                        200: { description: "Redis cache flushed successfully" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { $ref: "#/components/responses/Forbidden" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" },
+                        503: { description: "Redis is not connected" }
+                    }
+                }
+            },
             "/api/tasks": {
                 "get": {
                     "tags": ["Tasks"],
