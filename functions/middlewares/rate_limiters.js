@@ -163,6 +163,8 @@ const logout = rateLimit({
 const fourzerofour = rateLimit({
   windowMs: envNumber("RATE_LIMIT_404_WINDOW_MS", 5 * 60 * 60 * 1000),
   max: envNumber("RATE_LIMIT_404_MAX", 10),
+  store: createStore(),
+  keyGenerator,
   ...commonOptions,
   message: { success: false, message: "Too many failed requests." },
 });
@@ -170,6 +172,8 @@ const fourzerofour = rateLimit({
 const health = rateLimit({
   windowMs: envNumber("RATE_LIMIT_HEALTH_WINDOW_MS", 60 * 1000),
   max: envNumber("RATE_LIMIT_HEALTH_MAX", 60),
+  store: createStore(),
+  keyGenerator,
   ...commonOptions,
   message: { success: false, message: "Too many health checks." },
 });
