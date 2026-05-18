@@ -107,13 +107,13 @@ async function getAllMembers({ page, limit, search } = {}) {
         }
       : {};
 
-    const [members, total] = await Promise.all([
+    const [membersList, total] = await Promise.all([
       users.find(query).skip(skip).limit(safeLimit).toArray(),
       users.countDocuments(query),
     ]);
 
     return {
-      members,
+      members: membersList,
       pagination: {
         total,
         page: safePage,
@@ -656,7 +656,7 @@ async function getCampaignStatsByDateRange({ from, to, page = 1, limit = 100, pr
   }
 }
 
-/** COMMENTS LOGIC */
+/** COMEMNTS LOGIC */
 
 async function addComment(commentData) {
   try {
@@ -907,6 +907,82 @@ async function getAllLeads({ page = 1, limit = 10, search = "", status = "" } = 
   }
 }
 
+/** ADDED CLIENTS & LEADS UTILITIES FROM PRD ROADMAP */
+
+async function getClientStats() {
+  try {
+    const [total, active, inactive, lead] = await Promise.all([
+      clients.countDocuments({}),
+      clients.countDocuments({ status: "Active" }),
+      clients.countDocuments({ status: "Inactive" }),
+      clients.countDocuments({ status: "Lead" }),
+    ]);
+    return {
+      totalClients: total,
+      activeClients: active,
+      inactiveClients: inactive,
+      leadClients: lead,
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function updateClient(clientId, updateData) {
+  try {
+    return await clients.updateOne({ id: clientId }, { $set: updateData });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function deleteClient(clientId) {
+  try {
+    return await clients.deleteOne({ id: clientId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getLeadById(leadId) {
+  try {
+    return await leads.findOne({ id: leadId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function updateLead(leadId, updateData) {
+  try {
+    return await leads.updateOne({ id: leadId }, { $set: updateData });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function deleteLead(leadId) {
+  try {
+    return await leads.deleteOne({ id: leadId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function deleteUserById(userId) {
+  try {
+    return await users.deleteOne({ userId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 module.exports = {
   initializeDB,
 
@@ -918,6 +994,7 @@ module.exports = {
   getUserById,
   getUsersByIds,
   updateUser,
+  deleteUserById,
   getProjectsPaginated,
   getProjectById,
   addProject,
@@ -936,6 +1013,9 @@ module.exports = {
   countClientsByFilter,
   getClientsCreatedBetween,
   addClient,
+  getClientStats,
+  updateClient,
+  deleteClient,
 
   addTask,
   getTaskById,
@@ -979,4 +1059,7 @@ module.exports = {
 
   getAllLeads,
   addLead,
+  getLeadById,
+  updateLead,
+  deleteLead,
 };

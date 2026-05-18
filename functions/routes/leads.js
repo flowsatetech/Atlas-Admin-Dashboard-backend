@@ -81,5 +81,106 @@ router.post('/', leadsRateLimiter, async (req, res) => {
     }
 });
 
+// 3. GET /api/leads/:leadId - Get details of a single lead
+router.get('/:leadId', leadsRateLimiter, async (req, res) => {
+    try {
+        const lead = await db.getLeadById(req.params.leadId);
+        if (!lead) {
+            return res.status(404).json({
+                status: "error",
+                code: 404,
+                message: 'Lead not found'
+            });
+        }
+
+        res.status(200).json({
+            status: "success",
+            code: 200,
+            data: lead,
+            message: 'Lead details fetched successfully'
+        });
+    } catch (e) {
+        logger('LEADS_DETAIL_GET').error(e);
+        res.status(400).json({ 
+            status: "error",
+            code: 400,
+            message: 'Failed to fetch lead details' 
+        });
+    }
+});
+
+// 4. PATCH /api/leads/:leadId - Update an individual lead
+router.patch('/:leadId', leadsRateLimiter, async (req, res) => {
+    try {
+        const updateSchema = LeadSchema.partial();
+        const validatedData = updateSchema.parse(req.body);
+
+        const lead = await db.getLeadById(req.params.leadId);
+        if (!lead) {
+            return res.status(404).json({
+                status: "error",
+                code: 404,
+                message: 'Lead not found'
+            });
+        }
+
+        const updates = {
+            ...validatedData,
+            updatedAt: new Date().toISOString()
+        };
+
+        await db.updateLead(req.params.leadId, updates);
+
+        res.status(200).json({
+            status: "success",
+            code: 200,
+            message: 'Lead updated successfully'
+        });
+    } catch (e) {
+        if (e instanceof z.ZodError) {
+            return res.status(400).json({ 
+                status: "error",
+                code: 400,
+                errors: e.errors.map(err => err.message) 
+            });
+        }
+        logger('LEADS_PATCH').error(e);
+        res.status(400).json({ 
+            status: "error",
+            code: 400,
+            message: 'Failed to update lead' 
+        });
+    }
+});
+
+// 5. DELETE /api/leads/:leadId - Delete an individual lead
+router.delete('/:leadId', leadsRateLimiter, async (req, res) => {
+    try {
+        const lead = await db.getLeadById(req.params.leadId);
+        if (!lead) {
+            return res.status(404).json({
+                status: "error",
+                code: 404,
+                message: 'Lead not found'
+            });
+        }
+
+        await db.deleteLead(req.params.leadId);
+
+        res.status(200).json({
+            status: "success",
+            code: 200,
+            message: 'Lead successfully deleted'
+        });
+    } catch (e) {
+        logger('LEADS_DELETE').error(e);
+        res.status(400).json({ 
+            status: "error",
+            code: 400,
+            message: 'Failed to delete lead' 
+        });
+    }
+});
+
 /** EXPORTS */
 module.exports = router;
