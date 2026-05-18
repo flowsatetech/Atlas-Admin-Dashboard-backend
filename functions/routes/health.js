@@ -1,5 +1,7 @@
 const express = require("express");
 const middlewares = require("../middlewares");
+const { logger } = require("../helpers");
+const redisClient = require("../middlewares/utils/redis_client");
 const router = express.Router();
 
 const { health: healthLimiter } = middlewares.rateLimiters;
@@ -47,5 +49,35 @@ router.get("/", healthLimiter, (req, res) => {
     uptime: `${Math.floor(process.uptime())}s`,
   });
 });
+
+router.post(
+  "/redis/flush",
+  middlewares.authMiddleware,
+  middlewares.adminOnly,
+  healthLimiter,
+  async (req, res) => {
+    try {
+      if (!redisClient?.isOpen) {
+        return res.status(503).json({
+          success: false,
+          message: "Redis is not connected",
+        });
+      }
+
+      await redisClient.flushDb();
+
+      return res.status(200).json({
+        success: true,
+        message: "Redis cache flushed successfully",
+      });
+    } catch (error) {
+      logger("REDIS_FLUSH").error(error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to flush Redis cache",
+      });
+    }
+  },
+);
 
 module.exports = router;
