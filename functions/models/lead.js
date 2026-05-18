@@ -8,10 +8,14 @@ const { z } = require('zod');
 const LeadSchema = z.object({
     firstName: z.string().trim().min(1, "First name is required"),
     lastName: z.string().trim().min(1, "Last name is required"),
+    fullName: z.string().trim().optional().or(z.literal('')), 
     email: z.string().trim().email("Invalid email address"),
     phone: z.string().trim().optional().or(z.literal('')),
     company: z.string().trim().optional().or(z.literal('')),
     status: z.enum(['new', 'contacted', 'qualified', 'lost']).default('new'),
+    stage: z.string().trim().optional().or(z.literal('')),          
+    contactPerson: z.string().trim().optional().or(z.literal('')),  
+    value: z.number().optional().default(0),
     source: z.string().trim().optional().or(z.literal('')),
     notes: z.string().trim().optional().or(z.literal('')),
     assignedTo: z.string().trim().optional().or(z.literal('')), // Admin ID

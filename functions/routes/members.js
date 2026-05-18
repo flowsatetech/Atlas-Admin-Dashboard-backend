@@ -156,5 +156,31 @@ router.put('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) =
     }
 });
 
+// 4. DELETE /api/members/:memberId - Delete staff member (admin only)
+router.delete('/:memberId', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
+    try {
+        const member = await db.getUserById(req.params.memberId);
+        if (!member) {
+            return res.status(404).json({
+                success: false,
+                message: 'Staff member not found'
+            });
+        }
+
+        await db.deleteUserById(req.params.memberId);
+
+        res.status(200).json({
+            success: true,
+            message: 'Staff member removed successfully'
+        });
+    } catch (e) {
+        logger('MEMBERS_DELETE').error(e);
+        res.status(500).json({
+            success: false,
+            message: 'An unknown error occurred'
+        });
+    }
+});
+
 /** EXPORTS */
 module.exports = router;

@@ -19,7 +19,7 @@ const listClientsQuerySchema = z.object({
 const strictCreateClientSchema = z.object({
   fullName: z.string().min(1),
   companyName: z.string().min(1),
-  email: z.email(),
+  email: z.string().email(),
   phone: z.string().min(3),
   status: clientStatusEnum.default("Lead"),
   tags: z.array(z.string().min(1)).default([]),
@@ -39,6 +39,28 @@ const legacyCreateClientSchema = z.object({
   assignedStaffId: z.string().min(1),
   notes: z.string().optional(),
   leadSource: z.string().optional(),
+});
+
+// Validation Schema for PATCH updates
+const updateClientSchema = strictCreateClientSchema.partial();
+
+/**
+ * GET /api/clients/stats
+ * Aggregates client baseline card statistics from the collection
+ */
+router.get("/stats", rateLimiter, async (req, res) => {
+  try {
+    const stats = await db.getClientStats();
+    
+    res.status(200).json({
+      success: true,
+      message: "Fetch client stats success",
+      data: stats,
+    });
+  } catch (e) {
+    logger("CLIENT_STATS").error(e);
+    res.status(400).json({ success: false, message: "An unknown error occured" });
+  }
 });
 
 router.get("/", rateLimiter, async (req, res) => {
@@ -86,6 +108,53 @@ router.get("/", rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("ALL_CLIENTS").error(e);
+    res.status(400).json({ success: false, message: "An unknown error occured" });
+  }
+});
+
+/**
+ * GET /api/clients/:id
+ * Fetches details for an individual client document
+ */
+router.get("/:id", rateLimiter, async (req, res) => {
+  try {
+    const client = await db.getClientById(req.params.id);
+    if (!client) {
+      return res.status(404).json({ success: false, message: "Client not found" });
+    }
+
+    let managerName = "Unassigned";
+    if (client.assignedStaffId) {
+      const manager = await db.getUserById(client.assignedStaffId);
+      if (manager) {
+        managerName = `${manager.firstName || ""} ${manager.lastName || ""}`.trim() || manager.email || client.assignedStaffId;
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Fetch client details success",
+      data: {
+        client: {
+          id: client.id,
+          fullName: client.fullName,
+          companyName: client.companyName,
+          email: client.email,
+          phone: client.phone,
+          status: client.status,
+          tags: client.tags || [],
+          manager: managerName,
+          assignedStaffId: client.assignedStaffId,
+          leadSource: client.leadSource || null,
+          notes: client.notes || "",
+          projectsCount: client.projectsCount || 0,
+          createdAt: client.createdAt,
+          updatedAt: client.updatedAt,
+        },
+      },
+    });
+  } catch (e) {
+    logger("GET_CLIENT_DETAIL").error(e);
     res.status(400).json({ success: false, message: "An unknown error occured" });
   }
 });
@@ -179,6 +248,90 @@ router.post("/", middlewares.adminOnly, rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("NEW_CLIENT").error(e);
+    res.status(400).json({ success: false, message: "An unknown error occured" });
+  }
+});
+
+/**
+ * PATCH /api/clients/:id
+ * Implements optional field mutations securely for existing client records
+ */
+router.patch("/:id", middlewares.adminOnly, rateLimiter, async (req, res) => {
+  try {
+    const parsed = updateClientSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid update payload data",
+        data: { errors: parsed.error.issues.map((i) => i.message) },
+      });
+    }
+
+    const client = await db.getClientById(req.params.id);
+    if (!client) {
+      return res.status(404).json({ success: false, message: "Client not found" });
+    }
+
+    if (parsed.data.assignedStaffId) {
+      const staffExists = await db.getUserById(parsed.data.assignedStaffId);
+      if (!staffExists) {
+        return res.status(404).json({ success: false, message: "Assigned staff member not found" });
+      }
+    }
+
+    const updates = {
+      ...parsed.data,
+      updatedAt: Date.now(),
+    };
+
+    await db.updateClient(req.params.id, updates);
+
+    await services.logActivity({
+      type: "client.updated",
+      actorId: req.user?.userId || null,
+      entityId: client.id,
+      entityType: "client",
+      message: `${client.fullName} profile info was updated`,
+      meta: updates,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Client updated successfully",
+    });
+  } catch (e) {
+    logger("UPDATE_CLIENT").error(e);
+    res.status(400).json({ success: false, message: "An unknown error occured" });
+  }
+});
+
+/**
+ * DELETE /api/clients/:id
+ * Clears an active client record from the project database collection
+ */
+router.delete("/:id", middlewares.adminOnly, rateLimiter, async (req, res) => {
+  try {
+    const client = await db.getClientById(req.params.id);
+    if (!client) {
+      return res.status(404).json({ success: false, message: "Client not found" });
+    }
+
+    await db.deleteClient(req.params.id);
+
+    await services.logActivity({
+      type: "client.deleted",
+      actorId: req.user?.userId || null,
+      entityId: req.params.id,
+      entityType: "client",
+      message: `${client.fullName} was deleted from clients list`,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Client profile successfully deleted",
+    });
+  } catch (e) {
+    logger("DELETE_CLIENT").error(e);
     res.status(400).json({ success: false, message: "An unknown error occured" });
   }
 });
