@@ -114,6 +114,14 @@ const analytics = rateLimit({
   message: { success: false, message: "Too many analytics requests. Please slow down." },
 });
 
+const payments = rateLimit({
+  windowMs: 30 * 60 * 1000,
+  max: 30,
+  store: createStore(),
+  keyGenerator,
+  message: { success: false, message: "Too many payment requests. Please slow down." },
+});
+
 const tasks = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 50,
@@ -188,6 +196,7 @@ module.exports = {
   leads,
   media,
   analytics,
+  payments,
   tasks,
   fourzerofour,
   blog,

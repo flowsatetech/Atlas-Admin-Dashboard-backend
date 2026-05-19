@@ -10,6 +10,7 @@ const analyticsSnapshot = require("./analytics-snapshot");
 const campaignStat = require("./campaign-stat");
 const activityLog = require("./activity-log");
 const blogPost = require("./blog-post");
+const payment = require("./payment");
 
 module.exports = {
     common,
@@ -23,5 +24,6 @@ module.exports = {
     analyticsSnapshot,
     campaignStat,
     activityLog,
-    blogPost
+    blogPost,
+    payment
 };
