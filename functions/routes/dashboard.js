@@ -185,15 +185,15 @@ router.get('/performance', dashboard, async (req, res) => {
             unit: range.unit
         });
 
-        const [clients, recognizedRevenueProjects] = await Promise.all([
+        const [clients, paidPayments] = await Promise.all([
             db.getClientsCreatedBetween(range.currentStart, range.currentEnd),
-            db.getRecognizedRevenueProjectsBetween(range.currentStart, range.currentEnd)
+            db.getPaidPaymentsBetween(range.currentStart, range.currentEnd)
         ]);
 
         const revenueSeries = buckets.map((bucket) => {
-            const revenue = recognizedRevenueProjects.reduce((sum, project) => {
-                if (project.recognizedAt >= bucket.start && project.recognizedAt <= bucket.end) {
-                    return sum + (Number(project.recognizedRevenue) || 0);
+            const revenue = paidPayments.reduce((sum, payment) => {
+                if (payment.date >= bucket.start && payment.date <= bucket.end) {
+                    return sum + (Number(payment.amount) || 0);
                 }
                 return sum;
             }, 0);

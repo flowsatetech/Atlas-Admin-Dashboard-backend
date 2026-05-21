@@ -102,15 +102,16 @@ async function getAllMembers({ page, limit, search } = {}) {
     if (!hasPagination) return await users.find({}).toArray();
 
     const safePage = Number.isFinite(page) ? Math.max(1, Number(page)) : 1;
-    const safeLimit = Number.isFinite(limit) ? Math.max(1, Number(limit)) : 10;
+    const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(1, Number(limit)), 100) : 10;
     const skip = (safePage - 1) * safeLimit;
 
-    const query = search
+    const safeSearch = search ? escapeRegex(search) : "";
+    const query = safeSearch
       ? {
           $or: [
-            { firstName: { $regex: search, $options: "i" } },
-            { lastName: { $regex: search, $options: "i" } },
-            { email: { $regex: search, $options: "i" } },
+            { firstName: { $regex: safeSearch, $options: "i" } },
+            { lastName: { $regex: safeSearch, $options: "i" } },
+            { email: { $regex: safeSearch, $options: "i" } },
           ],
         }
       : {};
@@ -466,6 +467,15 @@ async function updateTaskById(taskId, updateData) {
   }
 }
 
+async function deleteTaskById(taskId) {
+  try {
+    return await tasks.deleteOne({ id: taskId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function countPendingTasks() {
   try {
     return await tasks.countDocuments({ status: { $in: ["Todo", "InProgress", "Review", "Blocked"] } });
@@ -798,14 +808,16 @@ async function updateMediaString(stringId, string) {
 
 async function getBlogPostsPaginated({ page = 1, limit = 10, status = "", category = "", search = "" } = {}) {
   try {
-    const skip = (page - 1) * limit;
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(Math.max(1, Number(limit) || 10), 100);
+    const skip = (safePage - 1) * safeLimit;
     const query = {};
     if (status) query.status = status;
     if (category) query.category = category;
-    if (search) query.title = { $regex: search, $options: "i" };
+    if (search) query.title = { $regex: escapeRegex(search), $options: "i" };
 
     const [docs, filteredTotal] = await Promise.all([
-      blogPosts.find(query).skip(skip).limit(limit).sort({ createdAt: -1 }).toArray(),
+      blogPosts.find(query).skip(skip).limit(safeLimit).sort({ createdAt: -1 }).toArray(),
       blogPosts.countDocuments(query),
     ]);
 
@@ -813,9 +825,9 @@ async function getBlogPostsPaginated({ page = 1, limit = 10, status = "", catego
       posts: docs,
       pagination: {
         total: filteredTotal,
-        page,
-        limit,
-        totalPages: Math.ceil(filteredTotal / limit),
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(filteredTotal / safeLimit),
       },
     };
   } catch (err) {
@@ -916,17 +928,18 @@ async function addLead(leadData) {
 async function getAllLeads({ page = 1, limit = 10, search = "", status = "" } = {}) {
   try {
     const safePage = Math.max(1, Number(page));
-    const safeLimit = Math.max(1, Number(limit));
+    const safeLimit = Math.min(Math.max(1, Number(limit)), 100);
     const skip = (safePage - 1) * safeLimit;
 
     const query = {};
     if (status) query.status = status;
     if (search) {
+      const safeSearch = escapeRegex(search);
       query.$or = [
-        { firstName: { $regex: search, $options: "i" } },
-        { lastName: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-        { company: { $regex: search, $options: "i" } },
+        { firstName: { $regex: safeSearch, $options: "i" } },
+        { lastName: { $regex: safeSearch, $options: "i" } },
+        { email: { $regex: safeSearch, $options: "i" } },
+        { company: { $regex: safeSearch, $options: "i" } },
       ];
     }
 
@@ -968,6 +981,23 @@ async function getClientStats() {
     };
   } catch (err) {
     logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getProjectStats() {
+  try {
+    const [total, planned, inProgress, onHold, completed, cancelled] = await Promise.all([
+      projects.countDocuments({}),
+      projects.countDocuments({ status: 'Planned' }),
+      projects.countDocuments({ status: 'InProgress' }),
+      projects.countDocuments({ status: 'OnHold' }),
+      projects.countDocuments({ status: 'Completed' }),
+      projects.countDocuments({ status: 'Cancelled' }),
+    ]);
+    return { total, planned, inProgress, onHold, completed, cancelled };
+  } catch (err) {
+    logger('DB').error(err);
     throw err;
   }
 }
@@ -1094,6 +1124,20 @@ async function deletePayment(paymentId) {
   }
 }
 
+async function getPaidPaymentsBetween(from, to) {
+  try {
+    return await payments
+      .find(
+        { status: "Paid", date: { $gte: from, $lte: to } },
+        { projection: { _id: 0, id: 1, amount: 1, date: 1, clientId: 1, projectId: 1 } },
+      )
+      .toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function deleteUserById(userId) {
   try {
     return await users.deleteOne({ userId });
@@ -1135,6 +1179,7 @@ module.exports = {
   getClientsCreatedBetween,
   addClient,
   getClientStats,
+  getProjectStats,
   updateClient,
   deleteClient,
 
@@ -1142,6 +1187,7 @@ module.exports = {
   getTaskById,
   getTasks,
   updateTaskById,
+  deleteTaskById,
   countPendingTasks,
   countOverdueTasks,
   countTasksByFilter,
@@ -1188,4 +1234,5 @@ module.exports = {
   addPayment,
   updatePayment,
   deletePayment,
+  getPaidPaymentsBetween,
 };

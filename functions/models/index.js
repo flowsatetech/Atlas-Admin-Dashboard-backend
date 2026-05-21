@@ -3,6 +3,7 @@ const user = require("./user");
 const client = require("./client");
 const project = require("./project");
 const task = require("./task");
+const lead = require("./lead");
 const comment = require("./comment");
 const mediaFile = require("./media-file");
 const cmsPage = require("./cms-page");
@@ -18,6 +19,7 @@ module.exports = {
     client,
     project,
     task,
+    lead,
     comment,
     mediaFile,
     cmsPage,

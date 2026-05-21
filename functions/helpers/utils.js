@@ -51,4 +51,13 @@ function slugify(str) {
     .replace(/-+/g, "-");
 }
 
-module.exports = { generateToken, isEmpty, handleAuthFailure, getAuthCookieOptions, slugify }
+function stripMongoId(value) {
+  if (Array.isArray(value)) return value.map(stripMongoId);
+  if (value && typeof value === 'object') {
+    const { _id, ...rest } = value;
+    return rest;
+  }
+  return value;
+}
+
+module.exports = { generateToken, isEmpty, handleAuthFailure, getAuthCookieOptions, slugify, stripMongoId }

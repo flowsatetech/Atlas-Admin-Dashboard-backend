@@ -6,103 +6,27 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { z } = require('zod');
 
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const { logger, generateToken, isEmpty, getAuthCookieOptions } = require('../helpers');
+const { logger, generateToken, getAuthCookieOptions } = require('../helpers');
 const db = require('../db');
+const { loginSchema } = require('../models/user');
 
 
 /** SETUP
  * Global variables referenced in this file are defined here
  */
 const router = express.Router();
-const { authLoginIp, authLogin, logout, createMember: createMemberRateLimiter } = middlewares.rateLimiters;
-const { userAlreadyAuth, authMiddleware, adminOnly } = middlewares;
+const { authLoginIp, authLogin, logout } = middlewares.rateLimiters;
+const { userAlreadyAuth, authMiddleware } = middlewares;
 
 /** MAIN AUTH ROUTES */
-router.post('/signup', authMiddleware, adminOnly, createMemberRateLimiter, async (req, res) => {
-    try {
-        const validData = z.object({
-            firstName: z.string().min(1, 'First name is required'),
-            lastName: z.string().min(1, 'Last name is required'),
-            email: z.email('Invalid email address'),
-            password: z.string().min(8, 'Password must be at least 8 characters'),
-            isAdmin: z.boolean().optional()
-        }).safeParse(req.body);
-
-        if (!validData.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Couldn\'t create account. Some fields are missing or invalid.'
-            });
-        }
-
-        const { firstName, lastName, email, password, isAdmin } = validData.data;
-
-        const empty = isEmpty({ firstName, lastName, email, password });
-        if (empty) {
-            return res.status(400).json({
-                success: false,
-                message: `${empty} is required but is empty`
-            });
-        }
-
-        const existing = await db.getUserByEmail(email);
-        if (existing) {
-            return res.status(409).json({
-                success: false,
-                message: 'Email already registered'
-            });
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const userId = generateToken();
-        const role = isAdmin ? 'admin' : 'staff';
-
-        const newUser = {
-            userId,
-            firstName,
-            lastName,
-            fullName: `${firstName} ${lastName}`,
-            email,
-            password: hashedPassword,
-            role,
-            status: 'active',
-            authProvider: 'atlas',
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            lastLogin: null,
-            stamp: null
-        };
-
-        await db.addUser(newUser);
-
-        res.status(201).json({
-            success: true,
-            message: 'Account created successfully',
-            data: {
-                user: { userId, firstName, lastName, email, role }
-            }
-        });
-    } catch (e) {
-        logger('SIGNUP').error(e);
-        res.status(500).json({
-            success: false,
-            message: 'An unknown error occurred'
-        });
-    }
-});
 
 router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) => {
     try {
-        const validData = z.object({
-            email: z.email(),
-            password: z.string().min(8),
-            rememberMe: z.boolean().optional()
-        }).safeParse(req.body);
+        const validData = loginSchema.safeParse(req.body);
 
         if(!validData.success) {
             return res.status(400).json({

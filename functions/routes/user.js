@@ -45,8 +45,8 @@ router.get('/profile', profile, async (req, res) => {
             }
         });
     } catch (e) {
-        logger('SIGNIN').error(e);
-        res.status(400).json({
+        logger('GET_PROFILE').error(e);
+        res.status(500).json({
             success: false, message: 'An unknown error occured'
         })
     }
