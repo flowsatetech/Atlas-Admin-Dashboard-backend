@@ -64,17 +64,20 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
         const userId = generateToken();
         const stamp = `${generateToken()}_stamp_${Date.now()}`;
 
+        const now = Date.now();
         const newMember = {
             userId,
             firstName,
             lastName,
+            fullName: `${firstName} ${lastName}`,
             email,
             password: hashedPassword,
             role,
             job: job || null,
             status: 'active',
             authProvider: 'atlas',
-            createdAt: Date.now(),
+            createdAt: now,
+            updatedAt: now,
             lastLogin: null,
             stamp
         };
