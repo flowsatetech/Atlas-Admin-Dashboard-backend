@@ -297,38 +297,6 @@ const options = {
                     }
                 }
             },
-            "/api/auth/signup": {
-                post: {
-                    tags: ["Auth"],
-                    summary: "Create a new user account",
-                    description: "Creates a new account. Use POST /api/auth/login afterward to set the auth_token cookie for protected endpoints.",
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    required: ["firstName", "lastName", "email", "password"],
-                                    properties: {
-                                        firstName: { type: "string" },
-                                        lastName: { type: "string" },
-                                        email: { type: "string", format: "email" },
-                                        password: { type: "string", minLength: 8 },
-                                        isAdmin: { type: "boolean", description: "If true, the account is created with admin role. Defaults to false (staff)." }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        201: { description: "Account created successfully. Response includes user object with userId, firstName, lastName, email, and role (admin|staff)." },
-                        400: { description: "Validation error or email already registered" },
-                        403: { description: "Admins only" },
-                        409: { description: "Email already registered" },
-                        429: { description: "Rate limited" }
-                    }
-                }
-            },
             "/api/auth/logout": {
                 post: {
                     tags: ["Auth"],
@@ -507,6 +475,45 @@ const options = {
                                                 }
                                             ],
                                             pagination: { page: 1, limit: 10, total: 24, totalPages: 3 }
+                                        },
+                                        message: "Request successful"
+                                    }
+                                }
+                            }
+                        },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                }
+            },
+            "/api/revenue": {
+                get: {
+                    tags: ["Revenue"],
+                    summary: "Get revenue time series",
+                    security: [{ cookieAuth: [] }],
+                    description: "Returns a revenue time series (labels + values) for the requested period.",
+                    parameters: [
+                        {
+                            name: "period",
+                            in: "query",
+                            required: false,
+                            schema: { type: "string", enum: ["3months", "6months", "12months"], default: "6months" }
+                        }
+                    ],
+                    responses: {
+                        200: {
+                            description: "Revenue series returned",
+                            content: {
+                                "application/json": {
+                                    example: {
+                                        status: "success",
+                                        code: 200,
+                                        data: {
+                                            period: "6months",
+                                            labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+                                            revenueSeries: [45000, 52000, 48000, 61000, 55000, 68000]
                                         },
                                         message: "Request successful"
                                     }
@@ -1287,7 +1294,23 @@ const options = {
                         400: { $ref: "#/components/responses/BadRequest" },
                         401: { $ref: "#/components/responses/Unauthorized" },
                         403: { $ref: "#/components/responses/Forbidden" },
-                        404: { description: "Member not found or no changes made" },
+                        404: { description: "Member not found" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                },
+                delete: {
+                    tags: ["Members"],
+                    summary: "Offboard and remove individual staff access account (Admin Only)",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "memberId", in: "path", required: true, schema: { type: "string" }, description: "Unique account identifier token of target staff member" }
+                    ],
+                    responses: {
+                        200: { description: "Staff account removed successfully" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { $ref: "#/components/responses/Forbidden" },
+                        404: { description: "Member not found" },
                         429: { $ref: "#/components/responses/TooManyRequests" },
                         500: { $ref: "#/components/responses/ServerError" }
                     }
@@ -1586,7 +1609,7 @@ const options = {
                     }
                 }
             },
-            "/": {
+            "/api/health": {
                 get: {
                     tags: ["Health"],
                     summary: "Basic health check endpoint",
@@ -1611,56 +1634,6 @@ const options = {
                     }
                 }
             },
-            "/api/tasks": {
-                "get": {
-                    "tags": ["Tasks"],
-                    "summary": "Get all tasks with filtering and pagination",
-                    "parameters": [
-                        { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["Todo", "InProgress", "Review", "Done", "Blocked"] } },
-                        { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
-                        { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } }
-                    ],
-                    "responses": {
-                        "200": { "description": "Successfully fetched tasks" }
-                    }
-                },
-                "post": {
-                    "tags": ["Tasks"],
-                    "summary": "Create a new task (Admin Only)",
-                    "security": [{ "bearerAuth": [] }],
-                    "requestBody": {
-                        "required": true,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "required": ["title", "assigneeId"],
-                                    "properties": {
-                                        "title": { "type": "string" },
-                                        "assigneeId": { "type": "string" }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "201": { "description": "Task created successfully" }
-                    }
-                }
-            },
-            "/api/tasks/{taskId}": {
-                "put": {
-                    "tags": ["Tasks"],
-                    "summary": "Update an existing task (Admin Only)",
-                    "parameters": [
-                        { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string" } }
-                    ],
-                    "responses": {
-                        "200": { "description": "Task updated successfully" }
-                    }
-                }
-            },
-
             "/api/blog": {
                 "get": {
                     "tags": ["Blog"],
@@ -2003,20 +1976,6 @@ const options = {
                     "responses": {
                         "200": { "description": "Lead document profile successfully purged from active systems" },
                         "404": { "description": "Lead document match validation check not found" }
-                    }
-                }
-            },
-            "/api/members/{memberId}": {
-                "delete": {
-                    "tags": ["Members"],
-                    "summary": "Offboard and remove individual staff access account (Admin Only)",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "memberId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Unique account identifier token of target staff member" }
-                    ],
-                    "responses": {
-                        "200": { "description": "Staff account removed cleanly from active credentials collection" },
-                        "404": { "description": "Staff account document verify lookup mismatch failed" }
                     }
                 }
             }
