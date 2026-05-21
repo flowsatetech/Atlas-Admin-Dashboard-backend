@@ -466,6 +466,15 @@ async function updateTaskById(taskId, updateData) {
   }
 }
 
+async function deleteTaskById(taskId) {
+  try {
+    return await tasks.deleteOne({ id: taskId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function countPendingTasks() {
   try {
     return await tasks.countDocuments({ status: { $in: ["Todo", "InProgress", "Review", "Blocked"] } });
@@ -972,6 +981,23 @@ async function getClientStats() {
   }
 }
 
+async function getProjectStats() {
+  try {
+    const [total, planned, inProgress, onHold, completed, cancelled] = await Promise.all([
+      projects.countDocuments({}),
+      projects.countDocuments({ status: 'Planned' }),
+      projects.countDocuments({ status: 'InProgress' }),
+      projects.countDocuments({ status: 'OnHold' }),
+      projects.countDocuments({ status: 'Completed' }),
+      projects.countDocuments({ status: 'Cancelled' }),
+    ]);
+    return { total, planned, inProgress, onHold, completed, cancelled };
+  } catch (err) {
+    logger('DB').error(err);
+    throw err;
+  }
+}
+
 async function updateClient(clientId, updateData) {
   try {
     return await clients.updateOne({ id: clientId }, { $set: updateData });
@@ -1135,6 +1161,7 @@ module.exports = {
   getClientsCreatedBetween,
   addClient,
   getClientStats,
+  getProjectStats,
   updateClient,
   deleteClient,
 
@@ -1142,6 +1169,7 @@ module.exports = {
   getTaskById,
   getTasks,
   updateTaskById,
+  deleteTaskById,
   countPendingTasks,
   countOverdueTasks,
   countTasksByFilter,

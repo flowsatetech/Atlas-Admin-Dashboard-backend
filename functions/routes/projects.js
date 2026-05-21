@@ -21,6 +21,20 @@ const { projects } = middlewares.rateLimiters;
 
 /** MAIN PROJECT ROUTES */
 
+router.get('/stats', projects, async (req, res) => {
+    try {
+        const stats = await db.getProjectStats();
+        res.status(200).json({
+            success: true,
+            message: 'Fetch project stats success',
+            data: { stats }
+        });
+    } catch (e) {
+        logger('GET_PROJECT_STATS').error(e);
+        res.status(500).json({ success: false, message: 'An unknown error occurred' });
+    }
+});
+
 router.get('/', projects, async (req, res) => {
     try {
         const querySchema = models.common.paginationQuerySchema.extend({
@@ -276,6 +290,25 @@ router.post('/:projectId/comments', projects, async (req, res) => {
         res.status(500).json({
             success: false, message: 'An unknown error occurred'
         });
+    }
+});
+
+router.get('/:projectId/comments', projects, async (req, res) => {
+    try {
+        const existing = await db.getProjectById(req.params.projectId);
+        if (!existing) {
+            return res.status(404).json({ success: false, message: 'Project not found' });
+        }
+
+        const comments = await db.getCommentsByProjectId(req.params.projectId);
+        res.status(200).json({
+            success: true,
+            message: 'Fetch comments success',
+            data: { comments }
+        });
+    } catch (e) {
+        logger('GET_COMMENTS').error(e);
+        res.status(500).json({ success: false, message: 'An unknown error occurred' });
     }
 });
 

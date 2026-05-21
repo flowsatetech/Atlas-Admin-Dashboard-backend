@@ -956,6 +956,33 @@ const options = {
                     }
                 }
             },
+            "/api/projects/stats": {
+                get: {
+                    tags: ["Projects"],
+                    summary: "Get project counts by status",
+                    security: [{ cookieAuth: [] }],
+                    responses: {
+                        200: {
+                            description: "Project stats returned",
+                            content: {
+                                "application/json": {
+                                    example: {
+                                        status: "success",
+                                        code: 200,
+                                        data: {
+                                            stats: { total: 24, planned: 4, inProgress: 10, onHold: 2, completed: 7, cancelled: 1 }
+                                        },
+                                        message: "Fetch project stats success"
+                                    }
+                                }
+                            }
+                        },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                }
+            },
             "/api/projects": {
                 get: {
                     tags: ["Projects"],
@@ -1185,6 +1212,21 @@ const options = {
                 }
             },
             "/api/projects/{projectId}/comments": {
+                get: {
+                    tags: ["Projects"],
+                    summary: "Get comments for a project",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "projectId", in: "path", required: true, schema: { type: "string" } }
+                    ],
+                    responses: {
+                        200: { description: "Comments returned" },
+                        404: { description: "Project not found" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                },
                 post: {
                     tags: ["Projects"],
                     summary: "Add a comment to a project",
@@ -1606,6 +1648,22 @@ const options = {
                         403: { $ref: "#/components/responses/Forbidden" },
                         404: { description: "Task, assignee, or project not found" },
                         429: { $ref: "#/components/responses/TooManyRequests" }
+                    }
+                },
+                delete: {
+                    tags: ["Tasks"],
+                    summary: "Delete a task (admin only)",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "taskId", in: "path", required: true, schema: { type: "string" } }
+                    ],
+                    responses: {
+                        200: { description: "Task deleted successfully" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { $ref: "#/components/responses/Forbidden" },
+                        404: { description: "Task not found" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 }
             },
