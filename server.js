@@ -25,6 +25,8 @@ const clientsRoutes = require('./functions/routes/clients');
 const membersRoutes = require('./functions/routes/members');
 const mediaRoutes = require('./functions/routes/media');
 const analyticsRoutes = require('./functions/routes/analytics');
+const revenueRoutes = require('./functions/routes/revenue');
+const paymentRoutes = require('./functions/routes/payments');
 const tasksRoutes = require('./functions/routes/tasks');
 const blogRoutes = require('./functions/routes/blog');
 const leadsRoutes = require('./functions/routes/leads');
@@ -151,7 +153,7 @@ app.use('/api', (req, res, next) => {
 /** ROUTERS
  * All routers are created here
  */
-const [authApi, userApi, dashboardApi, projectsApi, clientsApi, membersApi, mediaApi, analyticsApi, tasksApi, blogApi, leadsApi] = Array.from({ length: 11 }, () => express.Router());
+const [authApi, userApi, dashboardApi, projectsApi, clientsApi, membersApi, mediaApi, analyticsApi, revenueApi, paymentsApi, tasksApi, blogApi, leadsApi] = Array.from({ length: 13 }, () => express.Router());
 
 /** ROUTERS -> HANDLER MAPPING
  * All routers are mapped to their handlers
@@ -164,6 +166,8 @@ clientsApi.use(clientsRoutes);
 membersApi.use(membersRoutes);
 mediaApi.use(mediaRoutes);
 analyticsApi.use(analyticsRoutes);
+revenueApi.use(revenueRoutes);
+paymentsApi.use(paymentRoutes);
 tasksApi.use(tasksRoutes);
 blogApi.use(blogRoutes);
 leadsApi.use(leadsRoutes);
@@ -181,6 +185,8 @@ app.use('/api/clients', middlewares.authMiddleware, clientsApi);
 app.use('/api/members', middlewares.authMiddleware, membersApi);
 app.use('/api/media', middlewares.authMiddleware, mediaApi);
 app.use('/api/analytics', middlewares.authMiddleware, analyticsApi);
+app.use('/api/revenue', middlewares.authMiddleware, revenueApi);
+app.use('/api/payments', middlewares.authMiddleware, paymentsApi);
 app.use('/api/tasks', middlewares.authMiddleware, tasksApi);
 app.use('/api/blog', blogApi);
 app.use('/api/leads', middlewares.authMiddleware, leadsApi);

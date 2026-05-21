@@ -1,8 +1,15 @@
 const { createClient } = require('redis');
 const { logger } = require('../../helpers');
 
+const redisUrl =
+  process.env.NODE_ENV === 'production'
+    ? process.env.REDIS_URL_PROD
+    : process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+
+console.log('[REDIS_URL_USED]', redisUrl);
+
 const redisClient = createClient({
-  url: process.env.NODE_ENV === 'production' ? process.env.REDIS_URL_PROD : process.env.REDIS_URL
+  url: redisUrl,
 });
 
 redisClient.on('error', (err) => {
