@@ -6,13 +6,13 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { z } = require('zod');
 
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
 const { logger, generateToken, isEmpty, getAuthCookieOptions } = require('../helpers');
 const db = require('../db');
+const { loginSchema } = require('../models/user');
 
 
 /** SETUP
@@ -98,11 +98,7 @@ router.post('/signup', authMiddleware, adminOnly, createMemberRateLimiter, async
 
 router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) => {
     try {
-        const validData = z.object({
-            email: z.email(),
-            password: z.string().min(8),
-            rememberMe: z.boolean().optional()
-        }).safeParse(req.body);
+        const validData = loginSchema.safeParse(req.body);
 
         if(!validData.success) {
             return res.status(400).json({

@@ -9,7 +9,7 @@ const { z } = require('zod');
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
 const { verifyAndConsumeTrackingToken } = require('../helpers/blog-tracking');
-const { logger, generateToken, slugify } = require('../helpers');
+const { logger, generateToken, slugify, stripMongoId } = require('../helpers');
 const db = require('../db');
 const models = require('../models');
 
@@ -18,19 +18,6 @@ const models = require('../models');
  */
 const router = express.Router();
 const { blog: blogLimiter } = middlewares.rateLimiters;
-
-const stripMongoId = (value) => {
-    if (Array.isArray(value)) {
-        return value.map(stripMongoId);
-    }
-
-    if (value && typeof value === 'object') {
-        const { _id, ...rest } = value;
-        return rest;
-    }
-
-    return value;
-};
 
 router.get('/', blogLimiter, middlewares.authMiddleware, async (req, res) => {
     try {

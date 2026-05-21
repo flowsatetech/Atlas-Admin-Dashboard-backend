@@ -138,11 +138,13 @@ router.post('/', middlewares.adminOnly, projects, async (req, res) => {
         };
 
         const newProject = await db.addProject(projectData);
+        // eslint-disable-next-line no-unused-vars
+        const { _id, ...projectOut } = newProject;
 
         res.status(201).json({
             success: true,
             message: 'Project created successfully',
-            data: { project: newProject }
+            data: { project: projectOut }
         });
     } catch (e) {
         logger('NEW_PROJECT').error(e);

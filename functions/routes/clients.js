@@ -1,48 +1,13 @@
 const express = require("express");
-const { z } = require("zod");
 
 const middlewares = require("../middlewares");
 const { logger, generateToken } = require("../helpers");
 const db = require("../db");
-const { clientStatusEnum } = require("../models/client");
+const { clientStatusEnum, createClientSchema, updateClientSchema, listClientsQuerySchema } = require("../models/client");
 const services = require("../services");
 
 const router = express.Router();
 const { clients: rateLimiter } = middlewares.rateLimiters;
-
-const listClientsQuerySchema = z.object({
-  status: clientStatusEnum.optional(),
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(10),
-});
-
-const strictCreateClientSchema = z.object({
-  fullName: z.string().min(1),
-  companyName: z.string().min(1),
-  email: z.string().email(),
-  phone: z.string().min(3),
-  status: clientStatusEnum.default("Lead"),
-  tags: z.array(z.string().min(1)).default([]),
-  assignedStaffId: z.string().min(1).nullable().optional(),
-  leadSource: z.string().min(1).nullable().optional(),
-  notes: z.string().optional(),
-});
-
-// Legacy-compatible shape from teammate branch.
-const legacyCreateClientSchema = z.object({
-  fullName: z.string().min(1),
-  companyId: z.string().min(1),
-  email: z.string().email(),
-  phone: z.string().min(3),
-  statusId: z.string().min(1).optional(),
-  tags: z.array(z.string()).default([]),
-  assignedStaffId: z.string().min(1),
-  notes: z.string().optional(),
-  leadSource: z.string().optional(),
-});
-
-// Validation Schema for PATCH updates
-const updateClientSchema = strictCreateClientSchema.partial();
 
 /**
  * GET /api/clients/stats
@@ -59,7 +24,7 @@ router.get("/stats", rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("CLIENT_STATS").error(e);
-    res.status(400).json({ success: false, message: "An unknown error occured" });
+    res.status(500).json({ success: false, message: "An unknown error occured" });
   }
 });
 
@@ -108,7 +73,7 @@ router.get("/", rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("ALL_CLIENTS").error(e);
-    res.status(400).json({ success: false, message: "An unknown error occured" });
+    res.status(500).json({ success: false, message: "An unknown error occured" });
   }
 });
 
@@ -155,39 +120,22 @@ router.get("/:id", rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("GET_CLIENT_DETAIL").error(e);
-    res.status(400).json({ success: false, message: "An unknown error occured" });
+    res.status(500).json({ success: false, message: "An unknown error occured" });
   }
 });
 
 router.post("/", middlewares.adminOnly, rateLimiter, async (req, res) => {
   try {
-    let payload;
-    const strict = strictCreateClientSchema.safeParse(req.body);
-    if (strict.success) {
-      payload = strict.data;
-    } else {
-      const legacy = legacyCreateClientSchema.safeParse(req.body);
-      if (!legacy.success) {
-        return res.status(400).json({
-          success: false,
-          message: "Couldn't complete create client request",
-          data: {
-            errors: [...strict.error.issues, ...legacy.error.issues].map((issue) => issue.message),
-          },
-        });
-      }
-      payload = {
-        fullName: legacy.data.fullName,
-        companyName: legacy.data.companyId,
-        email: legacy.data.email,
-        phone: legacy.data.phone,
-        status: clientStatusEnum.options.includes(legacy.data.statusId) ? legacy.data.statusId : "Lead",
-        tags: legacy.data.tags || [],
-        assignedStaffId: legacy.data.assignedStaffId || null,
-        leadSource: legacy.data.leadSource || null,
-        notes: legacy.data.notes || "",
-      };
+    const parsed = createClientSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Couldn't complete create client request",
+        data: { errors: parsed.error.issues.map((issue) => issue.message) },
+      });
     }
+
+    const payload = parsed.data;
 
     const now = Date.now();
     const newClient = {
@@ -248,7 +196,7 @@ router.post("/", middlewares.adminOnly, rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("NEW_CLIENT").error(e);
-    res.status(400).json({ success: false, message: "An unknown error occured" });
+    res.status(500).json({ success: false, message: "An unknown error occured" });
   }
 });
 
@@ -301,7 +249,7 @@ router.patch("/:id", middlewares.adminOnly, rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("UPDATE_CLIENT").error(e);
-    res.status(400).json({ success: false, message: "An unknown error occured" });
+    res.status(500).json({ success: false, message: "An unknown error occured" });
   }
 });
 
@@ -332,7 +280,7 @@ router.delete("/:id", middlewares.adminOnly, rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("DELETE_CLIENT").error(e);
-    res.status(400).json({ success: false, message: "An unknown error occured" });
+    res.status(500).json({ success: false, message: "An unknown error occured" });
   }
 });
 
