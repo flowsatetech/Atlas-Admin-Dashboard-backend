@@ -19,9 +19,9 @@ const leadSchema = z.object({
     assignedTo: z.string().trim().optional().default(''),
 });
 
-const createLeadSchema = leadSchema.omit({ createdAt: true, updatedAt: true });
+const createLeadSchema = leadSchema.omit({ id: true, createdAt: true, updatedAt: true });
 
-const updateLeadSchema = createLeadSchema.omit({ id: true }).partial();
+const updateLeadSchema = createLeadSchema.partial();
 
 module.exports = {
     leadStatusEnum,

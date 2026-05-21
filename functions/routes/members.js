@@ -109,14 +109,16 @@ router.put('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) =
         }
 
         const userId = req.params.id;
-        const result = await db.updateUser(userId, validData.data);
 
-        if (result.changes === 0) {
-            return res.status(404).json({ 
-                success: false, 
-                message: 'Member not found or no changes made' 
+        const existing = await db.getUserById(userId);
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                message: 'Member not found',
             });
         }
+
+        await db.updateUser(userId, validData.data);
 
         res.status(200).json({
             success: true,
