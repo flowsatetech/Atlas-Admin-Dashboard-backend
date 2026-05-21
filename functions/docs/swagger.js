@@ -10,7 +10,7 @@ const options = {
             version: "1.0.0",
             description: `API documentation for the Atlas Africa admin backend.
 
-**Authentication:** All protected routes require a valid \`auth_token\` HttpOnly cookie (set on login). The cookie is \`Secure\`, \`SameSite=Strict\`, and stamp-verified against the database on every request for server-side session revocation.
+**Authentication:** All protected routes require a valid \`auth_token\` HttpOnly cookie (set on login). In production the cookie is \`Secure\` and \`SameSite=Strict\`; in local development it uses localhost-friendly settings. The token stamp is verified against the database on every request for server-side session revocation.
 
 **Authorization Levels:**
 - **Authenticated** — any logged-in user.
@@ -179,6 +179,92 @@ const options = {
                         totalViews: { type: "integer" }
                     }
                 }
+            },
+            responses: {
+                BadRequest: {
+                    description: "Invalid request parameters",
+                    content: {
+                        "application/json": {
+                            schema: { $ref: "#/components/schemas/ErrorResponse" },
+                            example: {
+                                status: "error",
+                                code: 400,
+                                data: null,
+                                message: "Invalid request parameters"
+                            }
+                        }
+                    }
+                },
+                Unauthorized: {
+                    description: "Authentication required or session invalid",
+                    content: {
+                        "application/json": {
+                            schema: { $ref: "#/components/schemas/ErrorResponse" },
+                            example: {
+                                status: "error",
+                                code: 401,
+                                data: null,
+                                message: "Access denied. Please sign in."
+                            }
+                        }
+                    }
+                },
+                Forbidden: {
+                    description: "Authenticated user does not have permission",
+                    content: {
+                        "application/json": {
+                            schema: { $ref: "#/components/schemas/ErrorResponse" },
+                            example: {
+                                status: "error",
+                                code: 403,
+                                data: null,
+                                message: "Access denied. Admins only."
+                            }
+                        }
+                    }
+                },
+                NotFound: {
+                    description: "Resource not found",
+                    content: {
+                        "application/json": {
+                            schema: { $ref: "#/components/schemas/ErrorResponse" },
+                            example: {
+                                status: "error",
+                                code: 404,
+                                data: null,
+                                message: "Resource not found"
+                            }
+                        }
+                    }
+                },
+                TooManyRequests: {
+                    description: "Rate limit exceeded",
+                    content: {
+                        "application/json": {
+                            schema: { $ref: "#/components/schemas/ErrorResponse" },
+                            example: {
+                                status: "error",
+                                code: 429,
+                                data: null,
+                                message: "Too many requests. Please slow down."
+                            }
+                        }
+                    }
+                },
+                ServerError: {
+                    description: "Internal server error",
+                    content: {
+                        "application/json": {
+                            schema: { $ref: "#/components/schemas/ErrorResponse" },
+                            example: {
+                                status: "error",
+                                code: 500,
+                                data: null,
+                                message: "An unknown error occurred"
+                            }
+                        }
+                    }
+                }
             }
         },
         paths: {
@@ -214,9 +300,8 @@ const options = {
             "/api/auth/signup": {
                 post: {
                     tags: ["Auth"],
-                    summary: "Create a new user account (admin only)",
-                    description: "Requires an active admin session (cookieAuth). Creates the user but does NOT set a cookie for the new user — the admin's session is preserved.",
-                    security: [{ cookieAuth: [] }],
+                    summary: "Create a new user account",
+                    description: "Creates a new account. Use POST /api/auth/login afterward to set the auth_token cookie for protected endpoints.",
                     requestBody: {
                         required: true,
                         content: {
@@ -430,6 +515,234 @@ const options = {
                         },
                         400: { $ref: "#/components/responses/BadRequest" },
                         401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                }
+            },
+            "/api/revenue/dashboard": {
+                get: {
+                    tags: ["Revenue"],
+                    summary: "Get revenue dashboard aggregate data",
+                    security: [{ cookieAuth: [] }],
+                    description: "Requires `auth_token` cookie. Returns revenue KPI cards, revenue-over-time series, revenue by source, revenue by service, and top clients.",
+                    parameters: [
+                        {
+                            name: "period",
+                            in: "query",
+                            required: false,
+                            schema: { type: "string", enum: ["3months", "6months", "12months"], default: "6months" }
+                        }
+                    ],
+                    responses: {
+                        200: {
+                            description: "Revenue dashboard returned",
+                            content: {
+                                "application/json": {
+                                    example: {
+                                        status: "success",
+                                        code: 200,
+                                        data: {
+                                            summary: {
+                                                totalRevenue: { value: 346000, changePct: 15, direction: "up", compareLabel: "vs previous period" },
+                                                monthlyRevenue: { value: 68000, changePct: 12, direction: "up", compareLabel: "vs last month" },
+                                                growthRate: { value: 18.5, changePct: 3, direction: "up", compareLabel: "vs last quarter" },
+                                                pendingPayments: { value: 30000, changePct: -8, direction: "down", compareLabel: "vs last month" }
+                                            },
+                                            revenueOverTime: {
+                                                labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+                                                series: [45000, 52000, 48000, 61000, 55000, 68000]
+                                            },
+                                            revenueBySource: [
+                                                { source: "Website", amount: 120000 },
+                                                { source: "Referral", amount: 180000 }
+                                            ],
+                                            revenueByService: [
+                                                { service: "Consulting", amount: 180000, percentage: 38 },
+                                                { service: "Design Services", amount: 140000, percentage: 30 }
+                                            ],
+                                            topClients: [
+                                                { clientId: "abc", clientName: "Global Solutions", amount: 85000, percentage: 18, logoUrl: null }
+                                            ]
+                                        },
+                                        message: "Revenue dashboard fetched successfully"
+                                    }
+                                }
+                            }
+                        },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                }
+            },
+            "/api/payments": {
+                get: {
+                    tags: ["Payments"],
+                    summary: "List payments with filtering and pagination",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "page", in: "query", required: false, schema: { type: "integer", default: 1, minimum: 1 } },
+                        { name: "limit", in: "query", required: false, schema: { type: "integer", default: 8, minimum: 1, maximum: 100 } },
+                        { name: "search", in: "query", required: false, schema: { type: "string" } },
+                        { name: "status", in: "query", required: false, schema: { type: "string", enum: ["Paid", "Pending", "Failed", "Cancelled"] } },
+                        { name: "from", in: "query", required: false, schema: { type: "string", example: "2026-04-01" } },
+                        { name: "to", in: "query", required: false, schema: { type: "string", example: "2026-04-30" } }
+                    ],
+                    responses: {
+                        200: {
+                            description: "Payments returned",
+                            content: {
+                                "application/json": {
+                                    example: {
+                                        status: "success",
+                                        code: 200,
+                                        data: {
+                                            payments: [
+                                                {
+                                                    id: "pay_123",
+                                                    clientId: "client_123",
+                                                    client: "Acme Corporation",
+                                                    clientName: "Acme Corporation",
+                                                    projectId: "project_123",
+                                                    project: "Website Redesign",
+                                                    projectName: "Website Redesign",
+                                                    amount: 15000,
+                                                    status: "Paid",
+                                                    date: 1775779200000,
+                                                    source: "Website",
+                                                    notes: "",
+                                                    createdAt: 1775600000000,
+                                                    updatedAt: 1775600000000
+                                                }
+                                            ],
+                                            pagination: { page: 1, limit: 8, total: 1, totalPages: 1 }
+                                        },
+                                        message: "Fetch payments success"
+                                    }
+                                }
+                            }
+                        },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                },
+                post: {
+                    tags: ["Payments"],
+                    summary: "Create a payment (Admin Only)",
+                    security: [{ cookieAuth: [] }],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    required: ["clientName", "project", "amount", "status", "date"],
+                                    properties: {
+                                        clientId: { type: "string", nullable: true },
+                                        clientName: { type: "string" },
+                                        projectId: { type: "string", nullable: true },
+                                        project: { type: "string", description: "Alias for projectName" },
+                                        projectName: { type: "string" },
+                                        amount: { type: "number", minimum: 0 },
+                                        status: { type: "string", enum: ["Paid", "Pending", "Failed", "Cancelled"] },
+                                        date: { oneOf: [{ type: "integer" }, { type: "string", example: "2026-04-10" }] },
+                                        source: { type: "string", nullable: true },
+                                        notes: { type: "string" }
+                                    }
+                                },
+                                example: {
+                                    clientName: "Acme Corporation",
+                                    project: "Website Redesign",
+                                    amount: 15000,
+                                    status: "Paid",
+                                    date: "2026-04-10",
+                                    source: "Website",
+                                    notes: "April milestone payment"
+                                }
+                            }
+                        }
+                    },
+                    responses: {
+                        201: { description: "Payment created" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        404: { description: "Client or project not found" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                }
+            },
+            "/api/payments/{paymentId}": {
+                get: {
+                    tags: ["Payments"],
+                    summary: "Get a payment",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "paymentId", in: "path", required: true, schema: { type: "string" } }
+                    ],
+                    responses: {
+                        200: { description: "Payment returned" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        404: { description: "Payment not found" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                },
+                patch: {
+                    tags: ["Payments"],
+                    summary: "Update a payment (Admin Only)",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "paymentId", in: "path", required: true, schema: { type: "string" } }
+                    ],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    properties: {
+                                        clientId: { type: "string", nullable: true },
+                                        clientName: { type: "string" },
+                                        projectId: { type: "string", nullable: true },
+                                        project: { type: "string" },
+                                        projectName: { type: "string" },
+                                        amount: { type: "number", minimum: 0 },
+                                        status: { type: "string", enum: ["Paid", "Pending", "Failed", "Cancelled"] },
+                                        date: { oneOf: [{ type: "integer" }, { type: "string", example: "2026-04-10" }] },
+                                        source: { type: "string", nullable: true },
+                                        notes: { type: "string" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    responses: {
+                        200: { description: "Payment updated" },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { description: "Admins only" },
+                        404: { description: "Payment, client, or project not found" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                },
+                delete: {
+                    tags: ["Payments"],
+                    summary: "Delete a payment (Admin Only)",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "paymentId", in: "path", required: true, schema: { type: "string" } }
+                    ],
+                    responses: {
+                        200: { description: "Payment deleted" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { description: "Admins only" },
+                        404: { description: "Payment not found" },
                         429: { $ref: "#/components/responses/TooManyRequests" },
                         500: { $ref: "#/components/responses/ServerError" }
                     }
@@ -1279,6 +1592,22 @@ const options = {
                     summary: "Basic health check endpoint",
                     responses: {
                         200: { description: "Service is healthy" }
+                    }
+                }
+            },
+            "/api/health/redis/flush": {
+                post: {
+                    tags: ["Health"],
+                    summary: "Flush Redis cache (admin only)",
+                    security: [{ cookieAuth: [] }],
+                    description: "Clears the active Redis database using FLUSHDB. Intended for controlled maintenance operations.",
+                    responses: {
+                        200: { description: "Redis cache flushed successfully" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { $ref: "#/components/responses/Forbidden" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" },
+                        503: { description: "Redis is not connected" }
                     }
                 }
             },

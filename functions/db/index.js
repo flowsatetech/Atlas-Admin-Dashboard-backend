@@ -15,6 +15,7 @@ let analyticsSnapshots;
 let campaignStats;
 let blogPosts;
 let leads;
+let payments;
 
 async function initializeDB() {
   try {
@@ -39,6 +40,7 @@ async function initializeDB() {
     campaignStats = db.collection("campaignStats");
     blogPosts = db.collection("blogPosts");
     leads = db.collection("leads");
+    payments = db.collection("payments");
 
     await users.createIndex({ email: 1 }, { unique: true });
     await clients.createIndex({ id: 1 }, { unique: true });
@@ -66,6 +68,12 @@ async function initializeDB() {
     await leads.createIndex({ email: 1 });
     await leads.createIndex({ status: 1 });
     await leads.createIndex({ createdAt: -1 });
+    await payments.createIndex({ id: 1 }, { unique: true });
+    await payments.createIndex({ clientId: 1 });
+    await payments.createIndex({ projectId: 1 });
+    await payments.createIndex({ status: 1 });
+    await payments.createIndex({ date: -1 });
+    await payments.createIndex({ clientName: "text", projectName: "text", source: "text", notes: "text" });
 
     logger("DB").info("MongoDB initialized successfully");
   } catch (err) {
@@ -270,8 +278,43 @@ async function getRecognizedRevenueProjectsBetween(from, to) {
             id: 1,
             name: 1,
             status: 1,
+            client: 1,
+            clientId: 1,
+            source: 1,
+            service: 1,
+            category: 1,
+            type: 1,
             recognizedAt: 1,
             recognizedRevenue: 1,
+          },
+        },
+      )
+      .toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getPendingRevenueProjectsBetween(from, to) {
+  try {
+    return await projects
+      .find(
+        {
+          status: { $nin: ["Completed", "Cancelled"] },
+          createdAt: { $gte: from, $lte: to },
+          budget: { $type: "number", $gt: 0 },
+        },
+        {
+          projection: {
+            _id: 0,
+            id: 1,
+            name: 1,
+            status: 1,
+            client: 1,
+            clientId: 1,
+            budget: 1,
+            createdAt: 1,
           },
         },
       )
@@ -975,6 +1018,83 @@ async function deleteLead(leadId) {
   }
 }
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function getPayments({ page = 1, limit = 8, search = "", status = "", from, to } = {}) {
+  try {
+    const safePage = Math.max(1, Number(page));
+    const safeLimit = Math.max(1, Number(limit));
+    const skip = (safePage - 1) * safeLimit;
+    const query = {};
+
+    if (status) query.status = status;
+    if (from || to) {
+      query.date = {};
+      if (from) query.date.$gte = from;
+      if (to) query.date.$lte = to;
+    }
+    if (search) {
+      const regex = { $regex: escapeRegex(search), $options: "i" };
+      query.$or = [
+        { clientName: regex },
+        { projectName: regex },
+        { source: regex },
+        { notes: regex },
+      ];
+    }
+
+    const [rows, total] = await Promise.all([
+      payments.find(query).sort({ date: -1, createdAt: -1 }).skip(skip).limit(safeLimit).toArray(),
+      payments.countDocuments(query),
+    ]);
+
+    return { rows, total };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getPaymentById(paymentId) {
+  try {
+    return await payments.findOne({ id: paymentId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function addPayment(paymentData) {
+  try {
+    const result = await payments.insertOne(paymentData);
+    return { ...paymentData, _id: result.insertedId };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function updatePayment(paymentId, updateData) {
+  try {
+    await payments.updateOne({ id: paymentId }, { $set: updateData });
+    return await payments.findOne({ id: paymentId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function deletePayment(paymentId) {
+  try {
+    return await payments.deleteOne({ id: paymentId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function deleteUserById(userId) {
   try {
     return await users.deleteOne({ userId });
@@ -1007,6 +1127,7 @@ module.exports = {
   countProjectsByFilter,
   getProjectsCreatedBetween,
   getRecognizedRevenueProjectsBetween,
+  getPendingRevenueProjectsBetween,
   getInProgressProjects,
   getClientById,
   getClients,
@@ -1063,4 +1184,9 @@ module.exports = {
   getLeadById,
   updateLead,
   deleteLead,
+  getPayments,
+  getPaymentById,
+  addPayment,
+  updatePayment,
+  deletePayment,
 };

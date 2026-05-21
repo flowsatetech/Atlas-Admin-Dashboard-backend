@@ -34,6 +34,14 @@ const handleAuthFailure = (req, res, isApi, message) => {
     return res.redirect(loginUrl);
 };
 
+const getAuthCookieOptions = (overrides = {}) => ({
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+    path: '/',
+    ...overrides
+});
+
 function slugify(str) {
   return str
     .toLowerCase()
@@ -43,4 +51,4 @@ function slugify(str) {
     .replace(/-+/g, "-");
 }
 
-module.exports = { generateToken, isEmpty, handleAuthFailure, slugify }
+module.exports = { generateToken, isEmpty, handleAuthFailure, getAuthCookieOptions, slugify }
