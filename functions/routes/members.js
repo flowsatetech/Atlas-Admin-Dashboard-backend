@@ -20,7 +20,7 @@ const { members: membersRateLimiter, createMember: createMemberRateLimiter } = m
 router.get('/', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
+        const limit = Math.min(parseInt(req.query.limit) || 10, 100);
         const search = req.query.search || "";
 
         const result = await db.getAllMembers({ page, limit, search });
@@ -92,6 +92,9 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
             }
         });
     } catch (e) {
+        if (e.code === 11000) {
+            return res.status(409).json({ success: false, message: 'A member with this email already exists' });
+        }
         logger('MEMBERS_POST').error(e);
         res.status(500).json({
             success: false,
@@ -121,7 +124,11 @@ router.put('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) =
             });
         }
 
-        await db.updateUser(userId, validData.data);
+        const updateData = { ...validData.data, updatedAt: Date.now() };
+        if (updateData.firstName || updateData.lastName) {
+            updateData.fullName = `${updateData.firstName || existing.firstName} ${updateData.lastName || existing.lastName}`;
+        }
+        await db.updateUser(userId, updateData);
 
         res.status(200).json({
             success: true,
