@@ -1,10 +1,10 @@
 const express = require("express");
-const { z } = require("zod");
 
 const middlewares = require("../middlewares");
 const { logger, generateToken } = require("../helpers");
 const db = require("../db");
 const services = require("../services");
+const { createTaskSchema, updateTaskSchema, listTasksQuerySchema } = require("../models/task");
 
 const router = express.Router();
 const { tasks: tasksRateLimiter } = middlewares.rateLimiters;
@@ -15,32 +15,6 @@ const { tasks: tasksRateLimiter } = middlewares.rateLimiters;
  * name: Tasks
  * description: Task management and assignment API
  */
-
-const listTasksQuerySchema = z.object({
-  status: z
-    .enum(["Todo", "InProgress", "Review", "Done", "Blocked"])
-    .optional(),
-  assigneeId: z.string().min(1).optional(),
-  assignedTo: z.string().min(1).optional(),
-  projectId: z.string().min(1).optional(),
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
-});
-
-const createTaskSchema = z.object({
-  title: z.string().min(1),
-  description: z.string().optional(),
-  assigneeId: z.string().min(1).optional(),
-  assignedTo: z.string().min(1).optional(),
-  dueDate: z.number().int().nonnegative().optional(),
-  status: z
-    .enum(["Todo", "InProgress", "Review", "Done", "Blocked"])
-    .default("Todo"),
-  projectId: z.string().min(1).optional(),
-  priority: z.enum(["low", "medium", "high"]).optional(),
-});
-
-const updateTaskSchema = createTaskSchema.partial();
 
 /**
  * @swagger
@@ -126,7 +100,7 @@ router.get("/", tasksRateLimiter, async (req, res) => {
   } catch (error) {
     logger("ALL_TASKS").error(error);
     return res
-      .status(400)
+      .status(500)
       .json({ success: false, message: "An unknown error occured" });
   }
 });
@@ -225,9 +199,7 @@ router.post("/", middlewares.adminOnly, tasksRateLimiter, async (req, res) => {
     });
   } catch (error) {
     logger("NEW_TASK").error(error);
-    return res
-      .status(400)
-      .json({ success: false, message: "An unknown error occured" });
+    return res.status(500).json({ success: false, message: "An unknown error occured" });
   }
 });
 
@@ -320,10 +292,35 @@ router.put(
     } catch (error) {
       logger("UPDATE_TASK").error(error);
       return res
-        .status(400)
+        .status(500)
         .json({ success: false, message: "An unknown error occured" });
     }
   },
 );
+
+router.delete("/:taskId", middlewares.adminOnly, tasksRateLimiter, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const existing = await db.getTaskById(taskId);
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Task not found" });
+    }
+
+    await db.deleteTaskById(taskId);
+    await services.logActivity({
+      type: "task.deleted",
+      actorId: req.user?.userId || null,
+      entityId: taskId,
+      entityType: "task",
+      message: `${existing.title || "Task"} was deleted`,
+      meta: {},
+    });
+
+    return res.status(200).json({ success: true, message: "Task deleted successfully" });
+  } catch (error) {
+    logger("DELETE_TASK").error(error);
+    return res.status(500).json({ success: false, message: "An unknown error occured" });
+  }
+});
 
 module.exports = router;

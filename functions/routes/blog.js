@@ -9,7 +9,7 @@ const { z } = require('zod');
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
 const { verifyAndConsumeTrackingToken } = require('../helpers/blog-tracking');
-const { logger, generateToken, slugify } = require('../helpers');
+const { logger, generateToken, slugify, stripMongoId } = require('../helpers');
 const db = require('../db');
 const models = require('../models');
 
@@ -18,19 +18,6 @@ const models = require('../models');
  */
 const router = express.Router();
 const { blog: blogLimiter } = middlewares.rateLimiters;
-
-const stripMongoId = (value) => {
-    if (Array.isArray(value)) {
-        return value.map(stripMongoId);
-    }
-
-    if (value && typeof value === 'object') {
-        const { _id, ...rest } = value;
-        return rest;
-    }
-
-    return value;
-};
 
 router.get('/', blogLimiter, middlewares.authMiddleware, async (req, res) => {
     try {
@@ -125,6 +112,11 @@ router.post('/', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly,
             return res.status(404).json({ success: false, message: 'Author not found' });
         }
 
+        const slugConflict = await db.getBlogPostBySlug(data.slug);
+        if (slugConflict) {
+            return res.status(409).json({ success: false, message: 'A post with this slug already exists. Try a different title or provide a custom slug.' });
+        }
+
         const post = await db.addBlogPost({ ...data, views: 0 });
         return res.status(201).json({
             success: true,
@@ -152,7 +144,14 @@ router.put('/:postId', blogLimiter, middlewares.authMiddleware, middlewares.admi
         const updates = { ...validData.data, updatedAt: Date.now() };
 
         if (updates.title && !req.body.slug) {
-            updates.slug = slugify(updates.title);
+            const newSlug = slugify(updates.title);
+            if (newSlug !== post.slug) {
+                const slugConflict = await db.getBlogPostBySlug(newSlug);
+                if (slugConflict) {
+                    return res.status(409).json({ success: false, message: 'A post with this slug already exists.' });
+                }
+            }
+            updates.slug = newSlug;
         }
 
         if (updates.status === 'published' && !post.publishedAt) {

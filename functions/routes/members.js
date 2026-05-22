@@ -3,12 +3,12 @@
  */
 const express = require('express');
 const bcrypt = require('bcrypt');
-const { z } = require('zod');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const { logger, generateToken, isEmpty } = require('../helpers');
+const { logger, generateToken, stripMongoId } = require('../helpers');
 const db = require('../db');
+const { createMemberSchema, updateMemberSchema } = require('../models/user');
 
 /** SETUP */
 const router = express.Router();
@@ -20,7 +20,7 @@ const { members: membersRateLimiter, createMember: createMemberRateLimiter } = m
 router.get('/', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
+        const limit = Math.min(parseInt(req.query.limit) || 10, 100);
         const search = req.query.search || "";
 
         const result = await db.getAllMembers({ page, limit, search });
@@ -28,11 +28,11 @@ router.get('/', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
         res.status(200).json({
             success: true,
             message: 'Staff members fetched successfully',
-            data: result
+            data: stripMongoId(result)
         });
     } catch (e) {
         logger('MEMBERS_GET').error(e);
-        res.status(400).json({ 
+        res.status(500).json({ 
             success: false, 
             message: 'An unknown error occurred' 
         });
@@ -42,16 +42,7 @@ router.get('/', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
 // 2. POST /api/members - Add new staff member (admin only)
 router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res) => {
     try {
-        const schema = z.object({
-            firstName: z.string().min(1, 'First name is required'),
-            lastName: z.string().min(1, 'Last name is required'),
-            email: z.string().email('Invalid email address'),
-            password: z.string().min(8, 'Password must be at least 8 characters'),
-            role: z.enum(['admin', 'staff']),
-            job: z.string().optional()
-        });
-
-        const validData = schema.safeParse(req.body);
+        const validData = createMemberSchema.safeParse(req.body);
         if (!validData.success) {
             return res.status(400).json({
                 success: false,
@@ -60,14 +51,6 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
         }
 
         const { firstName, lastName, email, password, role, job } = validData.data;
-
-        const empty = isEmpty({ firstName, lastName, email, password });
-        if (empty) {
-            return res.status(400).json({
-                success: false,
-                message: `${empty} is required but is empty`
-            });
-        }
 
         const existing = await db.getUserByEmail(email);
         if (existing) {
@@ -81,17 +64,20 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
         const userId = generateToken();
         const stamp = `${generateToken()}_stamp_${Date.now()}`;
 
+        const now = Date.now();
         const newMember = {
             userId,
             firstName,
             lastName,
+            fullName: `${firstName} ${lastName}`,
             email,
             password: hashedPassword,
             role,
             job: job || null,
             status: 'active',
             authProvider: 'atlas',
-            createdAt: Date.now(),
+            createdAt: now,
+            updatedAt: now,
             lastLogin: null,
             stamp
         };
@@ -106,6 +92,9 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
             }
         });
     } catch (e) {
+        if (e.code === 11000) {
+            return res.status(409).json({ success: false, message: 'A member with this email already exists' });
+        }
         logger('MEMBERS_POST').error(e);
         res.status(500).json({
             success: false,
@@ -117,15 +106,7 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
 // 3. PUT /api/members/:id - Update staff member
 router.put('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
     try {
-        const schema = z.object({
-            firstName: z.string().optional(),
-            lastName: z.string().optional(),
-            role: z.enum(['admin', 'staff']).optional(),
-            job: z.string().optional(),
-            status: z.string().optional()
-        });
-
-        const validData = schema.safeParse(req.body);
+        const validData = updateMemberSchema.safeParse(req.body);
         if (!validData.success) {
             return res.status(400).json({
                 success: false,
@@ -134,14 +115,20 @@ router.put('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) =
         }
 
         const userId = req.params.id;
-        const result = await db.updateUser(userId, validData.data);
 
-        if (result.changes === 0) {
-            return res.status(404).json({ 
-                success: false, 
-                message: 'Member not found or no changes made' 
+        const existing = await db.getUserById(userId);
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                message: 'Member not found',
             });
         }
+
+        const updateData = { ...validData.data, updatedAt: Date.now() };
+        if (updateData.firstName || updateData.lastName) {
+            updateData.fullName = `${updateData.firstName || existing.firstName} ${updateData.lastName || existing.lastName}`;
+        }
+        await db.updateUser(userId, updateData);
 
         res.status(200).json({
             success: true,

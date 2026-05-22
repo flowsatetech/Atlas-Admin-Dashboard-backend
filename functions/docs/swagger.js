@@ -142,16 +142,26 @@ const options = {
                     type: "object",
                     required: ["title", "excerpt", "category", "authorId", "status"],
                     properties: {
-                        title: { type: "string", example: "10 SEO Tips for 2026" },
-                        slug: { type: "string", description: "Optional — auto-generated from title if omitted", example: "10-seo-tips-for-2026" },
-                        excerpt: { type: "string", example: "A concise summary of the post." },
-                        content: { type: "string", description: "Markdown body content. The backend stores markdown and renders HTML in /embed/{slug}." },
-                        category: { type: "string", enum: ["Marketing", "SEO", "Branding", "Social Media", "Content Marketing", "Email Marketing", "Other"] },
-                        authorId: { type: "string" },
-                        tags: { type: "array", items: { type: "string" }, example: ["SEO", "Marketing"] },
-                        status: { type: "string", enum: ["draft", "published", "scheduled"] },
-                        isFeatured: { type: "boolean", default: false },
-                        scheduledAt: { type: "integer", nullable: true, description: "Unix ms timestamp for scheduled publish" }
+                        title: { type: "string", example: "Getting Started with Digital Marketing" },
+                        slug: { type: "string", description: "Optional — auto-generated from title if omitted", example: "getting-started-with-digital-marketing" },
+                        excerpt: { type: "string", example: "A practical guide to building your digital marketing strategy from the ground up." },
+                        content: { type: "string", description: "Body content of the post.", example: "Digital marketing encompasses all marketing efforts that use the internet or an electronic device." },
+                        category: { type: "string", enum: ["Marketing", "SEO", "Branding", "Social Media", "Content Marketing", "Email Marketing", "Other"], example: "Marketing" },
+                        authorId: { type: "string", description: "userId of an existing user. Must match a user in the database.", example: "2854abb8528fe1806d4a75d4f81035ef" },
+                        tags: { type: "array", items: { type: "string" }, example: ["marketing", "digital", "strategy"] },
+                        status: { type: "string", enum: ["draft", "published", "scheduled"], example: "draft" },
+                        isFeatured: { type: "boolean", default: false, example: false },
+                        scheduledAt: { type: "integer", nullable: true, description: "Unix ms timestamp for scheduled publish. Required when status is 'scheduled'.", example: null }
+                    },
+                    example: {
+                        title: "Getting Started with Digital Marketing",
+                        excerpt: "A practical guide to building your digital marketing strategy from the ground up.",
+                        content: "Digital marketing encompasses all marketing efforts that use the internet or an electronic device.",
+                        category: "Marketing",
+                        authorId: "2854abb8528fe1806d4a75d4f81035ef",
+                        tags: ["marketing", "digital", "strategy"],
+                        status: "draft",
+                        isFeatured: false
                     }
                 },
                 UpdateBlogPostBody: {
@@ -294,38 +304,6 @@ const options = {
                         400: { description: "Validation error" },
                         401: { description: "Invalid email or password" },
                         429: { description: "Rate limited (per-email and per-IP)" }
-                    }
-                }
-            },
-            "/api/auth/signup": {
-                post: {
-                    tags: ["Auth"],
-                    summary: "Create a new user account",
-                    description: "Creates a new account. Use POST /api/auth/login afterward to set the auth_token cookie for protected endpoints.",
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    required: ["firstName", "lastName", "email", "password"],
-                                    properties: {
-                                        firstName: { type: "string" },
-                                        lastName: { type: "string" },
-                                        email: { type: "string", format: "email" },
-                                        password: { type: "string", minLength: 8 },
-                                        isAdmin: { type: "boolean", description: "If true, the account is created with admin role. Defaults to false (staff)." }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        201: { description: "Account created successfully. Response includes user object with userId, firstName, lastName, email, and role (admin|staff)." },
-                        400: { description: "Validation error or email already registered" },
-                        403: { description: "Admins only" },
-                        409: { description: "Email already registered" },
-                        429: { description: "Rate limited" }
                     }
                 }
             },
@@ -507,6 +485,45 @@ const options = {
                                                 }
                                             ],
                                             pagination: { page: 1, limit: 10, total: 24, totalPages: 3 }
+                                        },
+                                        message: "Request successful"
+                                    }
+                                }
+                            }
+                        },
+                        400: { $ref: "#/components/responses/BadRequest" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                }
+            },
+            "/api/revenue": {
+                get: {
+                    tags: ["Revenue"],
+                    summary: "Get revenue time series",
+                    security: [{ cookieAuth: [] }],
+                    description: "Returns a revenue time series (labels + values) for the requested period.",
+                    parameters: [
+                        {
+                            name: "period",
+                            in: "query",
+                            required: false,
+                            schema: { type: "string", enum: ["3months", "6months", "12months"], default: "6months" }
+                        }
+                    ],
+                    responses: {
+                        200: {
+                            description: "Revenue series returned",
+                            content: {
+                                "application/json": {
+                                    example: {
+                                        status: "success",
+                                        code: 200,
+                                        data: {
+                                            period: "6months",
+                                            labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+                                            revenueSeries: [45000, 52000, 48000, 61000, 55000, 68000]
                                         },
                                         message: "Request successful"
                                     }
@@ -949,6 +966,33 @@ const options = {
                     }
                 }
             },
+            "/api/projects/stats": {
+                get: {
+                    tags: ["Projects"],
+                    summary: "Get project counts by status",
+                    security: [{ cookieAuth: [] }],
+                    responses: {
+                        200: {
+                            description: "Project stats returned",
+                            content: {
+                                "application/json": {
+                                    example: {
+                                        status: "success",
+                                        code: 200,
+                                        data: {
+                                            stats: { total: 24, planned: 4, inProgress: 10, onHold: 2, completed: 7, cancelled: 1 }
+                                        },
+                                        message: "Fetch project stats success"
+                                    }
+                                }
+                            }
+                        },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                }
+            },
             "/api/projects": {
                 get: {
                     tags: ["Projects"],
@@ -1178,6 +1222,21 @@ const options = {
                 }
             },
             "/api/projects/{projectId}/comments": {
+                get: {
+                    tags: ["Projects"],
+                    summary: "Get comments for a project",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "projectId", in: "path", required: true, schema: { type: "string" } }
+                    ],
+                    responses: {
+                        200: { description: "Comments returned" },
+                        404: { description: "Project not found" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                },
                 post: {
                     tags: ["Projects"],
                     summary: "Add a comment to a project",
@@ -1287,7 +1346,23 @@ const options = {
                         400: { $ref: "#/components/responses/BadRequest" },
                         401: { $ref: "#/components/responses/Unauthorized" },
                         403: { $ref: "#/components/responses/Forbidden" },
-                        404: { description: "Member not found or no changes made" },
+                        404: { description: "Member not found" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                },
+                delete: {
+                    tags: ["Members"],
+                    summary: "Offboard and remove individual staff access account (Admin Only)",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "memberId", in: "path", required: true, schema: { type: "string" }, description: "Unique account identifier token of target staff member" }
+                    ],
+                    responses: {
+                        200: { description: "Staff account removed successfully" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { $ref: "#/components/responses/Forbidden" },
+                        404: { description: "Member not found" },
                         429: { $ref: "#/components/responses/TooManyRequests" },
                         500: { $ref: "#/components/responses/ServerError" }
                     }
@@ -1584,9 +1659,25 @@ const options = {
                         404: { description: "Task, assignee, or project not found" },
                         429: { $ref: "#/components/responses/TooManyRequests" }
                     }
+                },
+                delete: {
+                    tags: ["Tasks"],
+                    summary: "Delete a task (admin only)",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "taskId", in: "path", required: true, schema: { type: "string" } }
+                    ],
+                    responses: {
+                        200: { description: "Task deleted successfully" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        403: { $ref: "#/components/responses/Forbidden" },
+                        404: { description: "Task not found" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
                 }
             },
-            "/": {
+            "/api/health": {
                 get: {
                     tags: ["Health"],
                     summary: "Basic health check endpoint",
@@ -1611,56 +1702,6 @@ const options = {
                     }
                 }
             },
-            "/api/tasks": {
-                "get": {
-                    "tags": ["Tasks"],
-                    "summary": "Get all tasks with filtering and pagination",
-                    "parameters": [
-                        { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["Todo", "InProgress", "Review", "Done", "Blocked"] } },
-                        { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
-                        { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } }
-                    ],
-                    "responses": {
-                        "200": { "description": "Successfully fetched tasks" }
-                    }
-                },
-                "post": {
-                    "tags": ["Tasks"],
-                    "summary": "Create a new task (Admin Only)",
-                    "security": [{ "bearerAuth": [] }],
-                    "requestBody": {
-                        "required": true,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "required": ["title", "assigneeId"],
-                                    "properties": {
-                                        "title": { "type": "string" },
-                                        "assigneeId": { "type": "string" }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "201": { "description": "Task created successfully" }
-                    }
-                }
-            },
-            "/api/tasks/{taskId}": {
-                "put": {
-                    "tags": ["Tasks"],
-                    "summary": "Update an existing task (Admin Only)",
-                    "parameters": [
-                        { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string" } }
-                    ],
-                    "responses": {
-                        "200": { "description": "Task updated successfully" }
-                    }
-                }
-            },
-
             "/api/blog": {
                 "get": {
                     "tags": ["Blog"],
@@ -1693,6 +1734,7 @@ const options = {
                 "post": {
                     "tags": ["Blog"],
                     "summary": "Create a new blog post (Admin Only)",
+                    "description": "Creates a new blog post. `slug` is auto-generated from `title` if omitted. Setting `status` to `published` will automatically set `publishedAt` to the current timestamp. `authorId` must be the `userId` of an existing user.",
                     "security": [{ "cookieAuth": [] }],
                     "requestBody": {
                         "required": true,
@@ -1703,9 +1745,32 @@ const options = {
                         }
                     },
                     "responses": {
-                        "201": { "description": "Blog post created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BlogPost" } } } },
-                        "400": { "description": "Validation error" },
-                        "404": { "description": "Author not found" }
+                        "201": {
+                            "description": "Blog post created successfully",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "success": { "type": "boolean", "example": true },
+                                            "message": { "type": "string", "example": "Blog post created" },
+                                            "data": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "post": { "$ref": "#/components/schemas/BlogPost" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "400": { "description": "Validation error — missing or invalid fields", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+                        "401": { "description": "Not authenticated — missing or invalid auth_token cookie", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+                        "403": { "description": "Forbidden — admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+                        "404": { "description": "Author not found — authorId does not match any existing user", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+                        "409": { "description": "Conflict — a post with the same slug already exists", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+                        "500": { "description": "Internal server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
                     }
                 }
             },
@@ -2003,20 +2068,6 @@ const options = {
                     "responses": {
                         "200": { "description": "Lead document profile successfully purged from active systems" },
                         "404": { "description": "Lead document match validation check not found" }
-                    }
-                }
-            },
-            "/api/members/{memberId}": {
-                "delete": {
-                    "tags": ["Members"],
-                    "summary": "Offboard and remove individual staff access account (Admin Only)",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "memberId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Unique account identifier token of target staff member" }
-                    ],
-                    "responses": {
-                        "200": { "description": "Staff account removed cleanly from active credentials collection" },
-                        "404": { "description": "Staff account document verify lookup mismatch failed" }
                     }
                 }
             }

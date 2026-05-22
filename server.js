@@ -72,7 +72,7 @@ app.use(express.urlencoded({ extended: true }));
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 
-/*app.use(
+app.use(
     helmet({
         contentSecurityPolicy: {
             directives: {
@@ -86,7 +86,7 @@ app.set('trust proxy', 1);
             },
         },
     })
-);*/
+);
 
 /**
  * Unified API response envelope for JSON responses.

@@ -1,4 +1,4 @@
-const { z, baseEntityFields } = require("./common");
+const { z, baseEntityFields, paginationQuerySchema } = require("./common");
 
 const clientStatusEnum = z.enum(["Lead", "Active", "Inactive", "Archived"]);
 
@@ -21,11 +21,26 @@ const createClientSchema = clientSchema.omit({
     updatedAt: true
 });
 
-const updateClientSchema = createClientSchema.partial();
+const updateClientSchema = z.object({
+    fullName: z.string().min(1).optional(),
+    companyName: z.string().min(1).optional(),
+    email: z.email().optional(),
+    phone: z.string().min(3).optional(),
+    status: clientStatusEnum.optional(),
+    tags: z.array(z.string().min(1)).optional(),
+    assignedStaffId: z.string().min(1).nullable().optional(),
+    leadSource: z.string().min(1).nullable().optional(),
+    notes: z.string().optional(),
+});
+
+const listClientsQuerySchema = paginationQuerySchema.extend({
+    status: clientStatusEnum.optional(),
+});
 
 module.exports = {
     clientStatusEnum,
     clientSchema,
     createClientSchema,
-    updateClientSchema
+    updateClientSchema,
+    listClientsQuerySchema,
 };
