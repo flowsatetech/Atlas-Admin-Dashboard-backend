@@ -931,7 +931,8 @@ const options = {
                 },
                 post: {
                     tags: ["Clients"],
-                    summary: "Create a new client",
+                    summary: "Create a new client (Admin Only)",
+                    description: "Creates a new client record. If `assignedStaffId` is provided it must be the `userId` of an existing user.",
                     security: [{ cookieAuth: [] }],
                     requestBody: {
                         required: true,
@@ -941,26 +942,66 @@ const options = {
                                     type: "object",
                                     required: ["fullName", "companyName", "email", "phone"],
                                     properties: {
-                                        fullName: { type: "string" },
-                                        companyName: { type: "string" },
-                                        email: { type: "string", format: "email" },
-                                        phone: { type: "string" },
-                                        status: { type: "string", enum: ["Lead", "Active", "Inactive", "Archived"] },
-                                        tags: { type: "array", items: { type: "string" } },
-                                        assignedStaffId: { type: "string", nullable: true },
-                                        leadSource: { type: "string", nullable: true },
-                                        notes: { type: "string" }
+                                        fullName: { type: "string", example: "Jane Doe" },
+                                        companyName: { type: "string", example: "Acme Corp" },
+                                        email: { type: "string", format: "email", example: "jane.doe@acmecorp.com" },
+                                        phone: { type: "string", example: "+2348012345678" },
+                                        status: { type: "string", enum: ["Lead", "Active", "Inactive", "Archived"], default: "Lead" },
+                                        tags: { type: "array", items: { type: "string" }, example: ["enterprise", "fintech"] },
+                                        assignedStaffId: { type: "string", nullable: true, description: "userId of an existing staff member", example: null },
+                                        leadSource: { type: "string", nullable: true, example: "Referral" },
+                                        notes: { type: "string", example: "Met at Lagos Tech Summit" }
+                                    },
+                                    example: {
+                                        fullName: "Jane Doe",
+                                        companyName: "Acme Corp",
+                                        email: "jane.doe@acmecorp.com",
+                                        phone: "+2348012345678",
+                                        status: "Lead",
+                                        tags: ["enterprise", "fintech"],
+                                        leadSource: "Referral",
+                                        notes: "Met at Lagos Tech Summit"
                                     }
                                 }
                             }
                         }
                     },
                     responses: {
-                        201: { description: "Client added successfully" },
+                        201: {
+                            description: "Client added successfully",
+                            content: {
+                                "application/json": {
+                                    schema: {
+                                        type: "object",
+                                        properties: {
+                                            success: { type: "boolean", example: true },
+                                            message: { type: "string", example: "Client added successfully" },
+                                            data: {
+                                                type: "object",
+                                                properties: {
+                                                    client: {
+                                                        type: "object",
+                                                        properties: {
+                                                            id: { type: "string" },
+                                                            fullName: { type: "string" },
+                                                            company: { type: "string" },
+                                                            status: { type: "string", enum: ["Lead", "Active", "Inactive", "Archived"] },
+                                                            tags: { type: "array", items: { type: "string" } },
+                                                            manager: { type: "string", description: "Assigned staff name or 'Unassigned'" },
+                                                            projectsCount: { type: "integer", example: 0 }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
                         400: { $ref: "#/components/responses/BadRequest" },
                         401: { $ref: "#/components/responses/Unauthorized" },
                         403: { $ref: "#/components/responses/Forbidden" },
-                        409: { description: "Conflict (duplicate resource)" },
+                        404: { description: "assignedStaffId does not match any existing user", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
                         429: { $ref: "#/components/responses/TooManyRequests" },
                         500: { $ref: "#/components/responses/ServerError" }
                     }

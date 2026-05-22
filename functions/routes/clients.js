@@ -126,7 +126,7 @@ router.get("/:id", rateLimiter, async (req, res) => {
 
 router.post("/", middlewares.adminOnly, rateLimiter, async (req, res) => {
   try {
-    const parsed = createClientSchema.safeParse(req.body);
+    const parsed = createClientSchema.safeParse({ ...req.body, id: generateToken() });
     if (!parsed.success) {
       return res.status(400).json({
         success: false,
@@ -139,7 +139,7 @@ router.post("/", middlewares.adminOnly, rateLimiter, async (req, res) => {
 
     const now = Date.now();
     const newClient = {
-      id: generateToken(),
+      id: payload.id,
       fullName: payload.fullName,
       companyName: payload.companyName,
       email: payload.email,
