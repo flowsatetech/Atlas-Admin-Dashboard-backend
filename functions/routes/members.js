@@ -6,7 +6,7 @@ const bcrypt = require('bcrypt');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const { logger, generateToken, stripMongoId } = require('../helpers');
+const { logger, generateToken } = require('../helpers');
 const db = require('../db');
 const { createMemberSchema, updateMemberSchema } = require('../models/user');
 
@@ -25,10 +25,28 @@ router.get('/', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
 
         const result = await db.getAllMembers({ page, limit, search });
 
+        const sanitizeMember = (m) => ({
+            userId: m.userId,
+            firstName: m.firstName,
+            lastName: m.lastName,
+            fullName: m.fullName,
+            email: m.email,
+            role: m.role,
+            job: m.job ?? null,
+            status: m.status ?? null,
+            avatarUrl: m.avatarUrl ?? null,
+            lastLogin: m.lastLogin ?? null,
+            createdAt: m.createdAt,
+            updatedAt: m.updatedAt,
+        });
+
         res.status(200).json({
             success: true,
             message: 'Staff members fetched successfully',
-            data: stripMongoId(result)
+            data: {
+                members: result.members.map(sanitizeMember),
+                pagination: result.pagination,
+            }
         });
     } catch (e) {
         logger('MEMBERS_GET').error(e);
