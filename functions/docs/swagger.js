@@ -142,16 +142,26 @@ const options = {
                     type: "object",
                     required: ["title", "excerpt", "category", "authorId", "status"],
                     properties: {
-                        title: { type: "string", example: "10 SEO Tips for 2026" },
-                        slug: { type: "string", description: "Optional — auto-generated from title if omitted", example: "10-seo-tips-for-2026" },
-                        excerpt: { type: "string", example: "A concise summary of the post." },
-                        content: { type: "string", description: "Markdown body content. The backend stores markdown and renders HTML in /embed/{slug}." },
-                        category: { type: "string", enum: ["Marketing", "SEO", "Branding", "Social Media", "Content Marketing", "Email Marketing", "Other"] },
-                        authorId: { type: "string" },
-                        tags: { type: "array", items: { type: "string" }, example: ["SEO", "Marketing"] },
-                        status: { type: "string", enum: ["draft", "published", "scheduled"] },
-                        isFeatured: { type: "boolean", default: false },
-                        scheduledAt: { type: "integer", nullable: true, description: "Unix ms timestamp for scheduled publish" }
+                        title: { type: "string", example: "Getting Started with Digital Marketing" },
+                        slug: { type: "string", description: "Optional — auto-generated from title if omitted", example: "getting-started-with-digital-marketing" },
+                        excerpt: { type: "string", example: "A practical guide to building your digital marketing strategy from the ground up." },
+                        content: { type: "string", description: "Body content of the post.", example: "Digital marketing encompasses all marketing efforts that use the internet or an electronic device." },
+                        category: { type: "string", enum: ["Marketing", "SEO", "Branding", "Social Media", "Content Marketing", "Email Marketing", "Other"], example: "Marketing" },
+                        authorId: { type: "string", description: "userId of an existing user. Must match a user in the database.", example: "2854abb8528fe1806d4a75d4f81035ef" },
+                        tags: { type: "array", items: { type: "string" }, example: ["marketing", "digital", "strategy"] },
+                        status: { type: "string", enum: ["draft", "published", "scheduled"], example: "draft" },
+                        isFeatured: { type: "boolean", default: false, example: false },
+                        scheduledAt: { type: "integer", nullable: true, description: "Unix ms timestamp for scheduled publish. Required when status is 'scheduled'.", example: null }
+                    },
+                    example: {
+                        title: "Getting Started with Digital Marketing",
+                        excerpt: "A practical guide to building your digital marketing strategy from the ground up.",
+                        content: "Digital marketing encompasses all marketing efforts that use the internet or an electronic device.",
+                        category: "Marketing",
+                        authorId: "2854abb8528fe1806d4a75d4f81035ef",
+                        tags: ["marketing", "digital", "strategy"],
+                        status: "draft",
+                        isFeatured: false
                     }
                 },
                 UpdateBlogPostBody: {
@@ -1724,6 +1734,7 @@ const options = {
                 "post": {
                     "tags": ["Blog"],
                     "summary": "Create a new blog post (Admin Only)",
+                    "description": "Creates a new blog post. `slug` is auto-generated from `title` if omitted. Setting `status` to `published` will automatically set `publishedAt` to the current timestamp. `authorId` must be the `userId` of an existing user.",
                     "security": [{ "cookieAuth": [] }],
                     "requestBody": {
                         "required": true,
@@ -1734,9 +1745,32 @@ const options = {
                         }
                     },
                     "responses": {
-                        "201": { "description": "Blog post created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BlogPost" } } } },
-                        "400": { "description": "Validation error" },
-                        "404": { "description": "Author not found" }
+                        "201": {
+                            "description": "Blog post created successfully",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "success": { "type": "boolean", "example": true },
+                                            "message": { "type": "string", "example": "Blog post created" },
+                                            "data": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "post": { "$ref": "#/components/schemas/BlogPost" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "400": { "description": "Validation error — missing or invalid fields", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+                        "401": { "description": "Not authenticated — missing or invalid auth_token cookie", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+                        "403": { "description": "Forbidden — admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+                        "404": { "description": "Author not found — authorId does not match any existing user", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+                        "409": { "description": "Conflict — a post with the same slug already exists", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+                        "500": { "description": "Internal server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
                     }
                 }
             },
