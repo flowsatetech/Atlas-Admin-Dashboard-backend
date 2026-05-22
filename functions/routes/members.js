@@ -6,7 +6,7 @@ const bcrypt = require('bcrypt');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const { logger, generateToken } = require('../helpers');
+const { logger, generateToken, serverError, clientError } = require('../helpers');
 const db = require('../db');
 const { createMemberSchema, updateMemberSchema } = require('../models/user');
 
@@ -50,10 +50,7 @@ router.get('/', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
         });
     } catch (e) {
         logger('MEMBERS_GET').error(e);
-        res.status(500).json({ 
-            success: false, 
-            message: 'An unknown error occurred' 
-        });
+        return serverError(res, e, 'Failed to fetch staff members.');
     }
 });
 
@@ -62,20 +59,14 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
     try {
         const validData = createMemberSchema.safeParse(req.body);
         if (!validData.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Couldn\'t create member. Some fields are missing or invalid.',
-            });
+            return clientError(res, 400, 'Couldn\'t create member. Some fields are missing or invalid.', validData.error.issues.map(i => i.message));
         }
 
         const { firstName, lastName, email, password, role, job } = validData.data;
 
         const existing = await db.getUserByEmail(email);
         if (existing) {
-            return res.status(409).json({
-                success: false,
-                message: 'A member with this email already exists'
-            });
+            return clientError(res, 409, 'A member with this email already exists');
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -111,13 +102,10 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
         });
     } catch (e) {
         if (e.code === 11000) {
-            return res.status(409).json({ success: false, message: 'A member with this email already exists' });
+            return clientError(res, 409, 'A member with this email already exists');
         }
         logger('MEMBERS_POST').error(e);
-        res.status(500).json({
-            success: false,
-            message: 'An unknown error occurred'
-        });
+        return serverError(res, e, 'Failed to create member.');
     }
 });
 
@@ -126,20 +114,14 @@ router.put('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) =
     try {
         const validData = updateMemberSchema.safeParse(req.body);
         if (!validData.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid update data.',
-            });
+            return clientError(res, 400, 'Invalid update data.', validData.error.issues.map(i => i.message));
         }
 
         const userId = req.params.id;
 
         const existing = await db.getUserById(userId);
         if (!existing) {
-            return res.status(404).json({
-                success: false,
-                message: 'Member not found',
-            });
+            return clientError(res, 404, 'Member not found');
         }
 
         const updateData = { ...validData.data, updatedAt: Date.now() };
@@ -154,10 +136,7 @@ router.put('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) =
         });
     } catch (e) {
         logger('MEMBERS_PUT').error(e);
-        res.status(500).json({ 
-            success: false, 
-            message: 'An unknown error occurred' 
-        });
+        return serverError(res, e, 'Failed to update member.');
     }
 });
 
@@ -166,10 +145,7 @@ router.delete('/:memberId', middlewares.adminOnly, membersRateLimiter, async (re
     try {
         const member = await db.getUserById(req.params.memberId);
         if (!member) {
-            return res.status(404).json({
-                success: false,
-                message: 'Staff member not found'
-            });
+            return clientError(res, 404, 'Staff member not found');
         }
 
         await db.deleteUserById(req.params.memberId);
@@ -180,10 +156,7 @@ router.delete('/:memberId', middlewares.adminOnly, membersRateLimiter, async (re
         });
     } catch (e) {
         logger('MEMBERS_DELETE').error(e);
-        res.status(500).json({
-            success: false,
-            message: 'An unknown error occurred'
-        });
+        return serverError(res, e, 'Failed to delete member.');
     }
 });
 

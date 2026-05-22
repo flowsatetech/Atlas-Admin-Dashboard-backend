@@ -60,4 +60,29 @@ function stripMongoId(value) {
   return value;
 }
 
-module.exports = { generateToken, isEmpty, handleAuthFailure, getAuthCookieOptions, slugify, stripMongoId }
+
+function serverError(res, err, message = 'An unexpected error occurred. Please try again later.') {
+    const body = { success: false, message };
+
+    if (process.env.NODE_ENV !== 'production') {
+        body.error = {
+            name:    err?.name    ?? 'Error',
+            message: err?.message ?? String(err),
+            stack:   err?.stack   ?? null,
+        };
+    }
+
+    return res.status(500).json(body);
+}
+
+function clientError(res, status, message, details = null) {
+    const body = { success: false, message };
+
+    if (process.env.NODE_ENV !== 'production' && details !== null) {
+        body.details = details;
+    }
+
+    return res.status(status).json(body);
+}
+
+module.exports = { generateToken, isEmpty, handleAuthFailure, getAuthCookieOptions, slugify, stripMongoId, serverError, clientError }

@@ -2,7 +2,7 @@ const express = require("express");
 const { z } = require("zod");
 
 const middlewares = require("../middlewares");
-const { logger, generateToken } = require("../helpers");
+const { logger, generateToken, serverError, clientError } = require("../helpers");
 const db = require("../db");
 const models = require("../models");
 const services = require("../services");
@@ -87,17 +87,13 @@ router.get("/", paymentsRateLimiter, async (req, res) => {
   try {
     const parsed = paymentListQuerySchema.safeParse(req.query);
     if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid query parameters",
-        data: { errors: parsed.error.issues.map((issue) => issue.message) },
-      });
+      return clientError(res, 400, 'Invalid query parameters', parsed.error.issues.map(i => i.message));
     }
 
     const from = parseDateQuery(parsed.data.from);
     const to = parseDateQuery(parsed.data.to, true);
     if (from === null || to === null) {
-      return res.status(400).json({ success: false, message: "Invalid date range" });
+      return clientError(res, 400, 'Invalid date range');
     }
 
     const { page, limit, search, status } = parsed.data;
@@ -125,7 +121,7 @@ router.get("/", paymentsRateLimiter, async (req, res) => {
     });
   } catch (error) {
     logger("ALL_PAYMENTS").error(error);
-    return res.status(500).json({ success: false, message: "An unknown error occurred" });
+    return serverError(res, error, 'Failed to fetch payments.');
   }
 });
 
@@ -133,16 +129,12 @@ router.post("/", middlewares.adminOnly, paymentsRateLimiter, async (req, res) =>
   try {
     const parsed = models.payment.createPaymentSchema.safeParse(normalizePaymentPayload(req.body));
     if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Couldn't complete create payment request",
-        data: { errors: parsed.error.issues.map((issue) => issue.message) },
-      });
+      return clientError(res, 400, 'Couldn\'t complete create payment request', parsed.error.issues.map(i => i.message));
     }
 
     const enriched = await enrichPaymentData(parsed.data);
     if (enriched.error) {
-      return res.status(404).json({ success: false, message: enriched.error });
+      return clientError(res, 404, enriched.error);
     }
 
     const now = Date.now();
@@ -178,7 +170,7 @@ router.post("/", middlewares.adminOnly, paymentsRateLimiter, async (req, res) =>
     });
   } catch (error) {
     logger("NEW_PAYMENT").error(error);
-    return res.status(500).json({ success: false, message: "An unknown error occurred" });
+    return serverError(res, error, 'Failed to create payment.');
   }
 });
 
@@ -186,7 +178,7 @@ router.get("/:paymentId", paymentsRateLimiter, async (req, res) => {
   try {
     const payment = await db.getPaymentById(req.params.paymentId);
     if (!payment) {
-      return res.status(404).json({ success: false, message: "Payment not found" });
+      return clientError(res, 404, 'Payment not found');
     }
 
     return res.status(200).json({
@@ -196,7 +188,7 @@ router.get("/:paymentId", paymentsRateLimiter, async (req, res) => {
     });
   } catch (error) {
     logger("GET_PAYMENT").error(error);
-    return res.status(500).json({ success: false, message: "An unknown error occurred" });
+    return serverError(res, error, 'Failed to fetch payment.');
   }
 });
 
@@ -204,21 +196,17 @@ router.patch("/:paymentId", middlewares.adminOnly, paymentsRateLimiter, async (r
   try {
     const existing = await db.getPaymentById(req.params.paymentId);
     if (!existing) {
-      return res.status(404).json({ success: false, message: "Payment not found" });
+      return clientError(res, 404, 'Payment not found');
     }
 
     const parsed = models.payment.updatePaymentSchema.safeParse(normalizePaymentPayload(req.body));
     if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid update payload data",
-        data: { errors: parsed.error.issues.map((issue) => issue.message) },
-      });
+      return clientError(res, 400, 'Invalid update payload data', parsed.error.issues.map(i => i.message));
     }
 
     const enriched = await enrichPaymentData(parsed.data);
     if (enriched.error) {
-      return res.status(404).json({ success: false, message: enriched.error });
+      return clientError(res, 404, enriched.error);
     }
 
     const updateData = {
@@ -244,7 +232,7 @@ router.patch("/:paymentId", middlewares.adminOnly, paymentsRateLimiter, async (r
     });
   } catch (error) {
     logger("UPDATE_PAYMENT").error(error);
-    return res.status(500).json({ success: false, message: "An unknown error occurred" });
+    return serverError(res, error, 'Failed to update payment.');
   }
 });
 
@@ -252,7 +240,7 @@ router.delete("/:paymentId", middlewares.adminOnly, paymentsRateLimiter, async (
   try {
     const existing = await db.getPaymentById(req.params.paymentId);
     if (!existing) {
-      return res.status(404).json({ success: false, message: "Payment not found" });
+      return clientError(res, 404, 'Payment not found');
     }
 
     await db.deletePayment(req.params.paymentId);
@@ -270,7 +258,7 @@ router.delete("/:paymentId", middlewares.adminOnly, paymentsRateLimiter, async (
     });
   } catch (error) {
     logger("DELETE_PAYMENT").error(error);
-    return res.status(500).json({ success: false, message: "An unknown error occurred" });
+    return serverError(res, error, 'Failed to delete payment.');
   }
 });
 

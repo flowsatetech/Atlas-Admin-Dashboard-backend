@@ -9,7 +9,7 @@ const { z } = require('zod');
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
 const { verifyAndConsumeTrackingToken } = require('../helpers/blog-tracking');
-const { logger, generateToken, slugify, stripMongoId } = require('../helpers');
+const { logger, generateToken, slugify, stripMongoId, serverError, clientError } = require('../helpers');
 const db = require('../db');
 const models = require('../models');
 
@@ -29,7 +29,7 @@ router.get('/', blogLimiter, middlewares.authMiddleware, async (req, res) => {
         const parsed = querySchema.safeParse(req.query);
 
         if (!parsed.success) {
-            return res.status(400).json({ success: false, message: 'Invalid query parameters.' });
+            return clientError(res, 400, 'Invalid query parameters.', parsed.error.issues.map(i => i.message));
         }
 
         const { page, limit, status, category, search } = parsed.data;
@@ -45,7 +45,7 @@ router.get('/', blogLimiter, middlewares.authMiddleware, async (req, res) => {
         });
     } catch (e) {
         logger('GET_BLOG_POSTS').error(e);
-        return res.status(500).json({ success: false, message: 'An unknown error occurred' });
+        return serverError(res, e, 'Failed to fetch blog posts.');
     }
 });
 
@@ -59,7 +59,7 @@ router.get('/stats', blogLimiter, middlewares.authMiddleware, async (req, res) =
         });
     } catch (e) {
         logger('GET_BLOG_STATS').error(e);
-        return res.status(500).json({ success: false, message: 'An unknown error occurred' });
+        return serverError(res, e, 'Failed to fetch blog stats.');
     }
 });
 
@@ -67,7 +67,7 @@ router.get('/:postId', blogLimiter, middlewares.authMiddleware, async (req, res)
     try {
         const post = await db.getBlogPostById(req.params.postId);
         if (!post) {
-            return res.status(404).json({ success: false, message: 'Blog post not found' });
+            return clientError(res, 404, 'Blog post not found');
         }
         return res.status(200).json({
             success: true,
@@ -76,7 +76,7 @@ router.get('/:postId', blogLimiter, middlewares.authMiddleware, async (req, res)
         });
     } catch (e) {
         logger('GET_BLOG_POST').error(e);
-        return res.status(500).json({ success: false, message: 'An unknown error occurred' });
+        return serverError(res, e, 'Failed to fetch blog post.');
     }
 });
 
@@ -95,10 +95,7 @@ router.post('/', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly,
         });
 
         if (!validData.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Couldn\'t create blog post. Some fields are missing or invalid.',
-            });
+            return clientError(res, 400, 'Couldn\'t create blog post. Some fields are missing or invalid.', validData.error.issues.map(i => i.message));
         }
         
         const data = validData.data;
@@ -109,12 +106,12 @@ router.post('/', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly,
         
         const author = await db.getUserById(data.authorId);
         if (!author) {
-            return res.status(404).json({ success: false, message: 'Author not found' });
+            return clientError(res, 404, 'Author not found');
         }
 
         const slugConflict = await db.getBlogPostBySlug(data.slug);
         if (slugConflict) {
-            return res.status(409).json({ success: false, message: 'A post with this slug already exists. Try a different title or provide a custom slug.' });
+            return clientError(res, 409, 'A post with this slug already exists. Try a different title or provide a custom slug.');
         }
 
         const post = await db.addBlogPost({ ...data, views: 0 });
@@ -125,7 +122,7 @@ router.post('/', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly,
         });
     } catch (e) {
         logger('CREATE_BLOG_POST').error(e);
-        return res.status(500).json({ success: false, message: 'An unknown error occurred' });
+        return serverError(res, e, 'Failed to create blog post.');
     }
 });
 
@@ -133,12 +130,12 @@ router.put('/:postId', blogLimiter, middlewares.authMiddleware, middlewares.admi
     try {
         const post = await db.getBlogPostById(req.params.postId);
         if (!post) {
-            return res.status(404).json({ success: false, message: 'Blog post not found' });
+            return clientError(res, 404, 'Blog post not found');
         }
 
         const validData = models.blogPost.updateBlogPostSchema.safeParse(req.body);
         if (!validData.success) {
-            return res.status(400).json({ success: false, message: 'Invalid update data.' });
+            return clientError(res, 400, 'Invalid update data.', validData.error.issues.map(i => i.message));
         }
 
         const updates = { ...validData.data, updatedAt: Date.now() };
@@ -148,7 +145,7 @@ router.put('/:postId', blogLimiter, middlewares.authMiddleware, middlewares.admi
             if (newSlug !== post.slug) {
                 const slugConflict = await db.getBlogPostBySlug(newSlug);
                 if (slugConflict) {
-                    return res.status(409).json({ success: false, message: 'A post with this slug already exists.' });
+                    return clientError(res, 409, 'A post with this slug already exists.');
                 }
             }
             updates.slug = newSlug;
@@ -166,7 +163,7 @@ router.put('/:postId', blogLimiter, middlewares.authMiddleware, middlewares.admi
         });
     } catch (e) {
         logger('UPDATE_BLOG_POST').error(e);
-        return res.status(500).json({ success: false, message: 'An unknown error occurred' });
+        return serverError(res, e, 'Failed to update blog post.');
     }
 });
 
@@ -174,14 +171,14 @@ router.delete('/:postId', blogLimiter, middlewares.authMiddleware, middlewares.a
     try {
         const post = await db.getBlogPostById(req.params.postId);
         if (!post) {
-            return res.status(404).json({ success: false, message: 'Blog post not found' });
+            return clientError(res, 404, 'Blog post not found');
         }
 
         await db.deleteBlogPost(req.params.postId);
         return res.status(200).json({ success: true, message: 'Blog post deleted', data: null });
     } catch (e) {
         logger('DELETE_BLOG_POST').error(e);
-        return res.status(500).json({ success: false, message: 'An unknown error occurred' });
+        return serverError(res, e, 'Failed to delete blog post.');
     }
 });
 
@@ -192,7 +189,7 @@ router.post(
     async (req, res) => {
     const { slug } = req.params;
     if (!slug || typeof slug !== 'string' || !/^[a-z0-9-]+$/.test(slug)) {
-        return res.status(400).json({ success: false, message: 'Invalid slug' });
+        return clientError(res, 400, 'Invalid slug');
     }
 
     const token = req.body?.token;
@@ -214,7 +211,7 @@ router.post(
         }
         return res.status(200).json({ success: true });
     } catch (e) {
-        return res.status(500).json({ success: false, message: 'An unknown error occurred' });
+        return serverError(res, e, 'Failed to record page view.');
     }
 });
 

@@ -7,6 +7,8 @@ const {
   uploadImage,
   deleteImage,
   generateToken,
+  serverError,
+  clientError,
 } = require("../helpers");
 const db = require("../db");
 const services = require("../services");
@@ -67,9 +69,7 @@ router.get("/images/all", mediaRateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("ALL_MEDIA_IMAGES").error(e);
-    res
-      .status(400)
-      .json({ success: false, message: "An unknown error occurred" });
+    return serverError(res, e, 'Failed to fetch images.');
   }
 });
 
@@ -96,13 +96,11 @@ router.get("/images/:imageId", mediaRateLimiter, async (req, res) => {
     const { imageId } = req.params;
     const image = await db.findImageById(imageId);
     if (!image)
-      return res
-        .status(404)
-        .json({ success: false, message: "Image Id not found" });
+      return clientError(res, 404, 'Image Id not found');
     res.redirect(image.url);
   } catch (e) {
     logger("GET_MEDIA_IMAGE_PROXIED").error(e);
-    res.status(500).send("Server Error");
+    return serverError(res, e, 'Failed to retrieve image.');
   }
 });
 
@@ -133,9 +131,7 @@ router.post(
   async (req, res) => {
     try {
       if (!req.file)
-        return res
-          .status(400)
-          .json({ success: false, message: "No image file uploaded" });
+        return clientError(res, 400, 'No image file uploaded');
 
       const uploaded = await uploadImage(req.file);
       const id = generateToken(32);
@@ -164,9 +160,7 @@ router.post(
       });
     } catch (e) {
       logger("ADD_MEDIA_IMAGES").error(e);
-      res
-        .status(400)
-        .json({ success: false, message: "Upload process failed" });
+      return serverError(res, e, 'Upload process failed.');
     }
   },
 );
@@ -204,16 +198,12 @@ router.put(
   async (req, res) => {
     try {
       if (!req.file)
-        return res
-          .status(400)
-          .json({ success: false, message: "No image file uploaded" });
+        return clientError(res, 400, 'No image file uploaded');
 
       const { imageId } = req.params;
       const image = await db.findImageById(imageId);
       if (!image)
-        return res
-          .status(404)
-          .json({ success: false, message: "Image Id not found" });
+        return clientError(res, 404, 'Image Id not found');
 
       const uploaded = await uploadImage(req.file);
       if (image.public_id) await deleteImage(image.public_id);
@@ -242,9 +232,7 @@ router.put(
       });
     } catch (e) {
       logger("REPLACE_MEDIA_IMAGE").error(e);
-      res
-        .status(400)
-        .json({ success: false, message: "Replace operation failed" });
+      return serverError(res, e, 'Replace operation failed.');
     }
   },
 );
@@ -269,9 +257,7 @@ router.get("/strings/all", mediaRateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("ALL_MEDIA_STRINGS").error(e);
-    res
-      .status(400)
-      .json({ success: false, message: "An unknown error occured" });
+    return serverError(res, e, 'Failed to fetch media strings.');
   }
 });
 
@@ -308,7 +294,7 @@ router.post("/strings/new", mediaRateLimiter, async (req, res) => {
       });
   } catch (e) {
     logger("ADD_MEDIA_STRING").error(e);
-    res.status(400).json({ success: false, message: "Failed to store string" });
+    return serverError(res, e, 'Failed to store string.');
   }
 });
 
@@ -347,9 +333,7 @@ router.put("/strings/:stringId/replace", mediaRateLimiter, async (req, res) => {
       .json({ success: true, message: "Replace media string success" });
   } catch (e) {
     logger("REPLACE_MEDIA_STRING").error(e);
-    res
-      .status(400)
-      .json({ success: false, message: "An unknown error occured" });
+    return serverError(res, e, 'Failed to replace media string.');
   }
 });
 
@@ -374,13 +358,11 @@ router.get("/strings/:stringId", async (req, res) => {
     const { stringId } = req.params;
     const string = await db.getMediaStringById(stringId);
     if (!string)
-      return res
-        .status(404)
-        .json({ success: false, message: "String Id not found" });
+      return clientError(res, 404, 'String Id not found');
     res.status(200).end(string.string);
   } catch (e) {
     logger("GET_STRING").error(e);
-    res.status(500).send("Server Error");
+    return serverError(res, e, 'Failed to retrieve string.');
   }
 });
 

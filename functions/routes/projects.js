@@ -8,7 +8,7 @@ const { z } = require('zod');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const { logger, generateToken } = require('../helpers');
+const { logger, generateToken, serverError, clientError } = require('../helpers');
 const db = require('../db');
 const models = require('../models');
 const services = require('../services');
@@ -31,7 +31,7 @@ router.get('/stats', projects, async (req, res) => {
         });
     } catch (e) {
         logger('GET_PROJECT_STATS').error(e);
-        res.status(500).json({ success: false, message: 'An unknown error occurred' });
+        return serverError(res, e, 'Failed to fetch project stats.');
     }
 });
 
@@ -43,10 +43,7 @@ router.get('/', projects, async (req, res) => {
         const parsed = querySchema.safeParse(req.query);
 
         if (!parsed.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid query parameters.',
-            });
+            return clientError(res, 400, 'Invalid query parameters.', parsed.error.issues.map(i => i.message));
         }
 
         const { page, limit, status } = parsed.data;
@@ -63,9 +60,7 @@ router.get('/', projects, async (req, res) => {
         });
     } catch (e) {
         logger('GET_PROJECTS').error(e);
-        res.status(500).json({
-            success: false, message: 'An unknown error occurred'
-        });
+        return serverError(res, e, 'Failed to fetch projects.');
     }
 });
 
@@ -74,10 +69,7 @@ router.get('/:projectId', projects, async (req, res) => {
         const project = await db.getProjectById(req.params.projectId);
 
         if (!project) {
-            return res.status(404).json({
-                success: false,
-                message: 'Project not found',
-            });
+            return clientError(res, 404, 'Project not found');
         }
 
         const comments = await db.getCommentsByProjectId(project.id);
@@ -106,9 +98,7 @@ router.get('/:projectId', projects, async (req, res) => {
         });
     } catch (e) {
         logger('GET_PROJECT').error(e);
-        res.status(500).json({
-            success: false, message: 'An unknown error occurred'
-        });
+        return serverError(res, e, 'Failed to fetch project.');
     }
 });
 
@@ -120,27 +110,18 @@ router.post('/', middlewares.adminOnly, projects, async (req, res) => {
         });
 
         if (!validData.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Couldn\'t create project. Some fields are missing or invalid.',
-            });
+            return clientError(res, 400, 'Couldn\'t create project. Some fields are missing or invalid.', validData.error.issues.map(i => i.message));
         }
 
         const clientExists = await db.getClientById(validData.data.clientId);
         if (!clientExists) {
-            return res.status(404).json({
-                success: false,
-                message: 'Client not found',
-            });
+            return clientError(res, 404, 'Client not found');
         }
 
         if (validData.data.teamIds && validData.data.teamIds.length > 0) {
             const foundUsers = await db.getUsersByIds(validData.data.teamIds);
             if (foundUsers.length !== validData.data.teamIds.length) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'One or more team members not found',
-                });
+                return clientError(res, 404, 'One or more team members not found');
             }
         }
 
@@ -162,9 +143,7 @@ router.post('/', middlewares.adminOnly, projects, async (req, res) => {
         });
     } catch (e) {
         logger('NEW_PROJECT').error(e);
-        res.status(500).json({
-            success: false, message: 'An unknown error occurred'
-        });
+        return serverError(res, e, 'Failed to create project.');
     }
 });
 
@@ -173,38 +152,26 @@ router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) =>
         const existing = await db.getProjectById(req.params.projectId);
 
         if (!existing) {
-            return res.status(404).json({
-                success: false,
-                message: 'Project not found',
-            });
+            return clientError(res, 404, 'Project not found');
         }
 
         const validData = models.project.updateProjectSchema.safeParse(req.body);
 
         if (!validData.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid update data.',
-            });
+            return clientError(res, 400, 'Invalid update data.', validData.error.issues.map(i => i.message));
         }
 
         if (validData.data.clientId) {
             const clientExists = await db.getClientById(validData.data.clientId);
             if (!clientExists) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Client not found',
-                });
+                return clientError(res, 404, 'Client not found');
             }
         }
 
         if (validData.data.teamIds && validData.data.teamIds.length > 0) {
             const foundUsers = await db.getUsersByIds(validData.data.teamIds);
             if (foundUsers.length !== validData.data.teamIds.length) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'One or more team members not found',
-                });
+                return clientError(res, 404, 'One or more team members not found');
             }
         }
 
@@ -222,9 +189,7 @@ router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) =>
         });
     } catch (e) {
         logger('UPDATE_PROJECT').error(e);
-        res.status(500).json({
-            success: false, message: 'An unknown error occurred'
-        });
+        return serverError(res, e, 'Failed to update project.');
     }
 });
 
@@ -233,19 +198,14 @@ router.delete('/:projectId', middlewares.adminOnly, projects, async (req, res) =
         const existing = await db.getProjectById(req.params.projectId);
 
         if (!existing) {
-            return res.status(404).json({
-                success: false,
-                message: 'Project not found',
-            });
+            return clientError(res, 404, 'Project not found');
         }
 
         await db.deleteProject(req.params.projectId);
         res.status(204).send();
     } catch (e) {
         logger('DELETE_PROJECT').error(e);
-        res.status(500).json({
-            success: false, message: 'An unknown error occurred'
-        });
+        return serverError(res, e, 'Failed to delete project.');
     }
 });
 
@@ -254,10 +214,7 @@ router.post('/:projectId/comments', projects, async (req, res) => {
         const existing = await db.getProjectById(req.params.projectId);
 
         if (!existing) {
-            return res.status(404).json({
-                success: false,
-                message: 'Project not found',
-            });
+            return clientError(res, 404, 'Project not found');
         }
 
         const commentSchema = z.object({
@@ -267,10 +224,7 @@ router.post('/:projectId/comments', projects, async (req, res) => {
         const validData = commentSchema.safeParse(req.body);
 
         if (!validData.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Comment content is required.',
-            });
+            return clientError(res, 400, 'Comment content is required.');
         }
 
         const now = Date.now();
@@ -287,9 +241,7 @@ router.post('/:projectId/comments', projects, async (req, res) => {
         res.status(204).send();
     } catch (e) {
         logger('ADD_COMMENT').error(e);
-        res.status(500).json({
-            success: false, message: 'An unknown error occurred'
-        });
+        return serverError(res, e, 'Failed to add comment.');
     }
 });
 
@@ -297,7 +249,7 @@ router.get('/:projectId/comments', projects, async (req, res) => {
     try {
         const existing = await db.getProjectById(req.params.projectId);
         if (!existing) {
-            return res.status(404).json({ success: false, message: 'Project not found' });
+            return clientError(res, 404, 'Project not found');
         }
 
         const comments = await db.getCommentsByProjectId(req.params.projectId);
@@ -308,7 +260,7 @@ router.get('/:projectId/comments', projects, async (req, res) => {
         });
     } catch (e) {
         logger('GET_COMMENTS').error(e);
-        res.status(500).json({ success: false, message: 'An unknown error occurred' });
+        return serverError(res, e, 'Failed to fetch comments.');
     }
 });
 
@@ -328,18 +280,12 @@ router.put('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
         }).safeParse(req.body);
 
         if (!validData.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Couldn\'t complete update project request'
-            });
+            return clientError(res, 400, 'Couldn\'t complete update project request');
         }
 
         const existing = await db.getProjectById(projectId);
         if (!existing) {
-            return res.status(404).json({
-                success: false,
-                message: 'Project not found'
-            });
+            return clientError(res, 404, 'Project not found');
         }
 
         const incoming = validData.data;
@@ -347,10 +293,7 @@ router.put('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
         if (incoming.assignees && incoming.assignees.length > 0) {
             const foundUsers = await db.getUsersByIds(incoming.assignees);
             if (foundUsers.length !== incoming.assignees.length) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'One or more assignees not found'
-                });
+                return clientError(res, 404, 'One or more assignees not found');
             }
         }
 
@@ -358,10 +301,7 @@ router.put('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
             Object.prototype.hasOwnProperty.call(incoming, 'recognizedAt')) &&
             !(Object.prototype.hasOwnProperty.call(incoming, 'recognizedRevenue') &&
               Object.prototype.hasOwnProperty.call(incoming, 'recognizedAt'))) {
-            return res.status(400).json({
-                success: false,
-                message: 'recognizedRevenue and recognizedAt must be provided together'
-            });
+            return clientError(res, 400, 'recognizedRevenue and recognizedAt must be provided together');
         }
 
         const nextStatus = incoming.status || existing.status;
@@ -373,10 +313,7 @@ router.put('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
             : existing.recognizedAt;
 
         if (nextStatus !== 'Completed' && (nextRecognizedRevenue != null || nextRecognizedAt != null)) {
-            return res.status(400).json({
-                success: false,
-                message: 'recognizedRevenue and recognizedAt are only allowed for Completed projects'
-            });
+            return clientError(res, 400, 'recognizedRevenue and recognizedAt are only allowed for Completed projects');
         }
 
         const updateData = {
@@ -406,9 +343,7 @@ router.put('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
         });
     } catch (e) {
         logger('UPDATE_PROJECT').error(e);
-        res.status(400).json({
-            success: false, message: 'An unknown error occured'
-        });
+        return serverError(res, e, 'Failed to update project.');
     }
 });
 
