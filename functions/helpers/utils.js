@@ -37,7 +37,7 @@ const handleAuthFailure = (req, res, isApi, message) => {
 const getAuthCookieOptions = (overrides = {}) => ({
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'none',
     path: '/',
     ...overrides
 });
