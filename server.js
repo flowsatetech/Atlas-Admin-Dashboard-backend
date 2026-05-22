@@ -37,6 +37,7 @@ const swaggerSpec = require('./functions/docs/swagger');
 
 const db = require('./functions/db');
 const { logger } = require('./functions/helpers');
+const { serverError } = require('./functions/helpers');
 
 /** SETUP
  * Global variables neccessary to build the server are defined here
@@ -214,6 +215,11 @@ app.use('/app', (req, res, next) => {
 });
 
 app.use(fourZeroFourApi);
+
+app.use((err, req, res, next) => {
+    logger('GLOBAL_ERROR').error(err);
+    serverError(res, err, 'An unexpected error occurred. Please try again later.');
+});
 
 async function startServer() {
     try {

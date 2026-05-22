@@ -1,7 +1,7 @@
 const express = require("express");
 
 const middlewares = require("../middlewares");
-const { logger, generateToken } = require("../helpers");
+const { logger, generateToken, serverError, clientError } = require("../helpers");
 const db = require("../db");
 const services = require("../services");
 const { createTaskSchema, updateTaskSchema, listTasksQuerySchema } = require("../models/task");
@@ -56,9 +56,7 @@ router.get("/", tasksRateLimiter, async (req, res) => {
   try {
     const parsed = listTasksQuerySchema.safeParse(req.query);
     if (!parsed.success)
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid query parameters" });
+      return clientError(res, 400, 'Invalid query parameters');
 
     const { status, assigneeId, assignedTo, projectId, page, limit } =
       parsed.data;
@@ -99,9 +97,7 @@ router.get("/", tasksRateLimiter, async (req, res) => {
     });
   } catch (error) {
     logger("ALL_TASKS").error(error);
-    return res
-      .status(500)
-      .json({ success: false, message: "An unknown error occured" });
+    return serverError(res, error, 'Failed to fetch tasks.');
   }
 });
 
@@ -145,23 +141,18 @@ router.post("/", middlewares.adminOnly, tasksRateLimiter, async (req, res) => {
   try {
     const parsed = createTaskSchema.safeParse(req.body);
     if (!parsed.success)
-      return res.status(400).json({
-        success: false,
-        message: "Couldn't complete create task request",
-      });
+      return clientError(res, 400, 'Couldn\'t complete create task request', parsed.error.issues.map(i => i.message));
 
     const resolvedAssigneeId = parsed.data.assigneeId || parsed.data.assignedTo;
     if (!resolvedAssigneeId)
-      return res
-        .status(400)
-        .json({ success: false, message: "assigneeId is required" });
+      return clientError(res, 400, 'assigneeId is required');
 
     const assigneeExists = await db.getUserById(resolvedAssigneeId);
-    if (!assigneeExists) return res.status(404).json({ success: false, message: "Assignee not found" });
+    if (!assigneeExists) return clientError(res, 404, 'Assignee not found');
 
     if (parsed.data.projectId) {
       const projectExists = await db.getProjectById(parsed.data.projectId);
-      if (!projectExists) return res.status(404).json({ success: false, message: "Project not found" });
+      if (!projectExists) return clientError(res, 404, 'Project not found');
     }
 
     const now = Date.now();
@@ -199,7 +190,7 @@ router.post("/", middlewares.adminOnly, tasksRateLimiter, async (req, res) => {
     });
   } catch (error) {
     logger("NEW_TASK").error(error);
-    return res.status(500).json({ success: false, message: "An unknown error occured" });
+    return serverError(res, error, 'Failed to create task.');
   }
 });
 
@@ -239,32 +230,23 @@ router.put(
       const { taskId } = req.params;
       const parsed = updateTaskSchema.safeParse(req.body);
       if (!parsed.success)
-        return res.status(400).json({
-          success: false,
-          message: "Couldn't complete update task request",
-        });
+        return clientError(res, 400, 'Couldn\'t complete update task request', parsed.error.issues.map(i => i.message));
 
       const existing = await db.getTaskById(taskId);
       if (!existing)
-        return res
-          .status(404)
-          .json({ success: false, message: "Task not found" });
+        return clientError(res, 404, 'Task not found');
 
       const resolvedAssigneeId = parsed.data.assigneeId || parsed.data.assignedTo;
       if (resolvedAssigneeId) {
         const assigneeExists = await db.getUserById(resolvedAssigneeId);
         if (!assigneeExists)
-          return res
-            .status(404)
-            .json({ success: false, message: "Assignee not found" });
+          return clientError(res, 404, 'Assignee not found');
       }
 
       if (parsed.data.projectId) {
         const projectExists = await db.getProjectById(parsed.data.projectId);
         if (!projectExists)
-          return res
-            .status(404)
-            .json({ success: false, message: "Project not found" });
+          return clientError(res, 404, 'Project not found');
       }
 
       const updateData = { ...parsed.data, updatedAt: Date.now() };
@@ -291,9 +273,7 @@ router.put(
         .json({ success: true, message: "Task updated successfully" });
     } catch (error) {
       logger("UPDATE_TASK").error(error);
-      return res
-        .status(500)
-        .json({ success: false, message: "An unknown error occured" });
+      return serverError(res, error, 'Failed to update task.');
     }
   },
 );
@@ -303,7 +283,7 @@ router.delete("/:taskId", middlewares.adminOnly, tasksRateLimiter, async (req, r
     const { taskId } = req.params;
     const existing = await db.getTaskById(taskId);
     if (!existing) {
-      return res.status(404).json({ success: false, message: "Task not found" });
+      return clientError(res, 404, 'Task not found');
     }
 
     await db.deleteTaskById(taskId);
@@ -319,7 +299,7 @@ router.delete("/:taskId", middlewares.adminOnly, tasksRateLimiter, async (req, r
     return res.status(200).json({ success: true, message: "Task deleted successfully" });
   } catch (error) {
     logger("DELETE_TASK").error(error);
-    return res.status(500).json({ success: false, message: "An unknown error occured" });
+    return serverError(res, error, 'Failed to delete task.');
   }
 });
 

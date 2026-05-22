@@ -1,6 +1,6 @@
 const express = require("express");
 const middlewares = require("../middlewares");
-const { logger } = require("../helpers");
+const { logger, serverError, clientError } = require("../helpers");
 const redisClient = require("../middlewares/utils/redis_client");
 const router = express.Router();
 
@@ -58,10 +58,7 @@ router.post(
   async (req, res) => {
     try {
       if (!redisClient?.isOpen) {
-        return res.status(503).json({
-          success: false,
-          message: "Redis is not connected",
-        });
+        return clientError(res, 503, 'Redis is not connected');
       }
 
       await redisClient.flushDb();
@@ -72,10 +69,7 @@ router.post(
       });
     } catch (error) {
       logger("REDIS_FLUSH").error(error);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to flush Redis cache",
-      });
+      return serverError(res, error, 'Failed to flush Redis cache.');
     }
   },
 );

@@ -1,7 +1,7 @@
 const express = require("express");
 
 const middlewares = require("../middlewares");
-const { logger, generateToken } = require("../helpers");
+const { logger, generateToken, serverError, clientError } = require("../helpers");
 const db = require("../db");
 const { clientStatusEnum, createClientSchema, updateClientSchema, listClientsQuerySchema } = require("../models/client");
 const services = require("../services");
@@ -24,7 +24,7 @@ router.get("/stats", rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("CLIENT_STATS").error(e);
-    res.status(500).json({ success: false, message: "An unknown error occured" });
+    return serverError(res, e, 'Failed to fetch client stats.');
   }
 });
 
@@ -32,11 +32,7 @@ router.get("/", rateLimiter, async (req, res) => {
   try {
     const parsedQuery = listClientsQuerySchema.safeParse(req.query);
     if (!parsedQuery.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid query parameters",
-        data: { errors: parsedQuery.error.issues.map((issue) => issue.message) },
-      });
+      return clientError(res, 400, 'Invalid query parameters', parsedQuery.error.issues.map(i => i.message));
     }
 
     const { status, page, limit } = parsedQuery.data;
@@ -73,7 +69,7 @@ router.get("/", rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("ALL_CLIENTS").error(e);
-    res.status(500).json({ success: false, message: "An unknown error occured" });
+    return serverError(res, e, 'Failed to fetch clients.');
   }
 });
 
@@ -85,7 +81,7 @@ router.get("/:id", rateLimiter, async (req, res) => {
   try {
     const client = await db.getClientById(req.params.id);
     if (!client) {
-      return res.status(404).json({ success: false, message: "Client not found" });
+      return clientError(res, 404, 'Client not found');
     }
 
     let managerName = "Unassigned";
@@ -120,7 +116,7 @@ router.get("/:id", rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("GET_CLIENT_DETAIL").error(e);
-    res.status(500).json({ success: false, message: "An unknown error occured" });
+    return serverError(res, e, 'Failed to fetch client details.');
   }
 });
 
@@ -128,11 +124,7 @@ router.post("/", middlewares.adminOnly, rateLimiter, async (req, res) => {
   try {
     const parsed = createClientSchema.safeParse({ ...req.body, id: generateToken() });
     if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Couldn't complete create client request",
-        data: { errors: parsed.error.issues.map((issue) => issue.message) },
-      });
+      return clientError(res, 400, 'Couldn\'t complete create client request', parsed.error.issues.map(i => i.message));
     }
 
     const payload = parsed.data;
@@ -157,10 +149,7 @@ router.post("/", middlewares.adminOnly, rateLimiter, async (req, res) => {
     if (newClient.assignedStaffId) {
       const staffExists = await db.getUserById(newClient.assignedStaffId);
       if (!staffExists) {
-        return res.status(404).json({
-          success: false,
-          message: "Assigned staff member not found",
-        });
+        return clientError(res, 404, 'Assigned staff member not found');
       }
     }
 
@@ -196,7 +185,7 @@ router.post("/", middlewares.adminOnly, rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("NEW_CLIENT").error(e);
-    res.status(500).json({ success: false, message: "An unknown error occured" });
+    return serverError(res, e, 'Failed to create client.');
   }
 });
 
@@ -208,22 +197,18 @@ router.patch("/:id", middlewares.adminOnly, rateLimiter, async (req, res) => {
   try {
     const parsed = updateClientSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid update payload data",
-        data: { errors: parsed.error.issues.map((i) => i.message) },
-      });
+      return clientError(res, 400, 'Invalid update payload data', parsed.error.issues.map(i => i.message));
     }
 
     const client = await db.getClientById(req.params.id);
     if (!client) {
-      return res.status(404).json({ success: false, message: "Client not found" });
+      return clientError(res, 404, 'Client not found');
     }
 
     if (parsed.data.assignedStaffId) {
       const staffExists = await db.getUserById(parsed.data.assignedStaffId);
       if (!staffExists) {
-        return res.status(404).json({ success: false, message: "Assigned staff member not found" });
+        return clientError(res, 404, 'Assigned staff member not found');
       }
     }
 
@@ -249,7 +234,7 @@ router.patch("/:id", middlewares.adminOnly, rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("UPDATE_CLIENT").error(e);
-    res.status(500).json({ success: false, message: "An unknown error occured" });
+    return serverError(res, e, 'Failed to update client.');
   }
 });
 
@@ -261,7 +246,7 @@ router.delete("/:id", middlewares.adminOnly, rateLimiter, async (req, res) => {
   try {
     const client = await db.getClientById(req.params.id);
     if (!client) {
-      return res.status(404).json({ success: false, message: "Client not found" });
+      return clientError(res, 404, 'Client not found');
     }
 
     await db.deleteClient(req.params.id);
@@ -280,7 +265,7 @@ router.delete("/:id", middlewares.adminOnly, rateLimiter, async (req, res) => {
     });
   } catch (e) {
     logger("DELETE_CLIENT").error(e);
-    res.status(500).json({ success: false, message: "An unknown error occured" });
+    return serverError(res, e, 'Failed to delete client.');
   }
 });
 

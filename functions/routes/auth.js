@@ -10,7 +10,7 @@ const jwt = require('jsonwebtoken');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const { logger, generateToken, getAuthCookieOptions } = require('../helpers');
+const { logger, generateToken, getAuthCookieOptions, serverError, clientError } = require('../helpers');
 const db = require('../db');
 const { loginSchema } = require('../models/user');
 
@@ -29,28 +29,19 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) 
         const validData = loginSchema.safeParse(req.body);
 
         if(!validData.success) {
-            return res.status(400).json({
-                success: false,
-                message: 'Couldn\'t complete login request'
-            })
+            return clientError(res, 400, 'Couldn\'t complete login request', validData.error.issues.map(i => i.message));
         }
         const { email, password, rememberMe } = validData.data;
 
         /** Check if user doesn't exists in the db / password not matching */
         const user = await db.getUserByEmail(email);
         if (!user) {
-            return res.status(401).json({
-                success: false,
-                message: 'Invalid email or password'
-            });
+            return clientError(res, 401, 'Invalid email or password');
         }
 
         const isValidPassword = await bcrypt.compare(password, user.password);
         if (!isValidPassword) {
-            return res.status(401).json({
-                success: false,
-                message: 'Invalid email or password'
-            });
+            return clientError(res, 401, 'Invalid email or password');
         }
 
         /** Prepare new auth cookie and reload stamp to invalidate all old cookies */
@@ -87,9 +78,7 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) 
         });
     } catch (e) {
         logger('SIGNIN').error(e);
-        res.status(500).json({
-            success: false, message: 'An unknown error occured'
-        })
+        return serverError(res, e, 'Login failed. Please try again.');
     }
 });
 
@@ -106,10 +95,7 @@ router.post('/logout', authMiddleware, logout, async (req, res) => {
 
     } catch (error) {
         logger('LOGOUT').error(error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error during logout'
-        });
+        return serverError(res, error, 'Logout failed. Please try again.');
     }
 });
 

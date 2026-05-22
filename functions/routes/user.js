@@ -8,7 +8,7 @@ const { z } = require('zod');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const { logger } = require('../helpers');
+const { logger, serverError, clientError } = require('../helpers');
 const db = require('../db');
 
 
@@ -25,10 +25,7 @@ router.get('/profile', profile, async (req, res) => {
 
         /** Extra validation if user exists in the db */
         if (!user) {
-            return res.status(401).json({
-                success: false,
-                message: 'Invalid User'
-            });
+            return clientError(res, 401, 'Invalid User');
         }
 
         res.status(200).json({
@@ -46,9 +43,7 @@ router.get('/profile', profile, async (req, res) => {
         });
     } catch (e) {
         logger('GET_PROFILE').error(e);
-        res.status(500).json({
-            success: false, message: 'An unknown error occured'
-        })
+        return serverError(res, e, 'Failed to fetch profile.');
     }
 });
 
