@@ -225,7 +225,6 @@ app.use((err, req, res, next) => {
 async function startServer() {
     try {
         await db.initializeDB();
-        await seedDB();
         app.listen(PORT, () => {
             console.log(`Server is running on Port ${PORT}`);
         });
