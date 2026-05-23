@@ -19,10 +19,17 @@ let payments;
 
 async function initializeDB() {
   try {
-    const { MongoMemoryServer } = require('mongodb-memory-server');
-    const mongod = await MongoMemoryServer.create();
-    const mongoUri = mongod.getUri();
-    logger("DB").info("MongoDB Memory Server started for staging");
+    let mongoUri;
+    if (process.env.NODE_ENV === 'staging') {
+      const { MongoMemoryServer } = require('mongodb-memory-server');
+      const mongod = await MongoMemoryServer.create();
+      mongoUri = mongod.getUri();
+      logger("DB").info("MongoDB Memory Server started");
+    } else {
+      mongoUri = process.env.NODE_ENV === 'production'
+        ? process.env.MONGO_URI_PROD
+        : process.env.MONGO_URI;
+    }
 
     client = new MongoClient(mongoUri);
     await client.connect();
@@ -76,6 +83,12 @@ async function initializeDB() {
     await payments.createIndex({ clientName: "text", projectName: "text", source: "text", notes: "text" });
 
     logger("DB").info("MongoDB initialized successfully");
+
+    if (process.env.NODE_ENV === 'staging') {
+      const { seedDB } = require('./seed');
+      await seedDB();
+      logger("DB").info("Database seeded successfully");
+    }
   } catch (err) {
     logger("DB").error("Failed to initialize database");
     logger("DB").error(err);
