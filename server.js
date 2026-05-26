@@ -136,10 +136,15 @@ app.use('/api', (req, res, next) => {
             return originalJson(safePayload);
         }
 
-        const isSuccess = res.statusCode < 400;
+        let isSuccess = res.statusCode < 400;
+        if (Object.prototype.hasOwnProperty.call(payload, 'success')) {
+            isSuccess = payload.success;
+        }
+        
         const resolvedHttpCode = Number.isInteger(res.statusCode) && res.statusCode > 0
             ? res.statusCode
             : (isSuccess ? 200 : 400);
+            
         const normalized = {
             status: isSuccess ? 'success' : 'error',
             code: resolvedHttpCode,
