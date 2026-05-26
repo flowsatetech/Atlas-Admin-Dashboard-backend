@@ -33,6 +33,7 @@ const leadsRoutes = require('./functions/routes/leads');
 const embedRoutes = require('./functions/routes/embed');
 const healthApi = require('./functions/routes/health');
 const fourZeroFourApi = require('./functions/routes/404');
+const webhookRoutes = require('./functions/routes/webhooks');
 const swaggerSpec = require('./functions/docs/swagger');
 
 const db = require('./functions/db');
@@ -193,6 +194,7 @@ app.use('/api/tasks', middlewares.authMiddleware, tasksApi);
 app.use('/api/blog', blogApi);
 app.use('/api/leads', middlewares.authMiddleware, leadsApi);
 app.use('/api/health', healthApi);
+app.use('/api/webhooks', webhookRoutes);
 app.use('/embed', embedRoutes);
 
 /** SWAGGER DOCUMENTATION */

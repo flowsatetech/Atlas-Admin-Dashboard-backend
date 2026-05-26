@@ -222,6 +222,15 @@ const blogEmbedPage = rateLimit({
   message: { success: false, message: "Too many embed page requests." },
 });
 
+const webhook = rateLimit({
+  windowMs: envNumber("RATE_LIMIT_WEBHOOK_WINDOW_MS", 60 * 1000),
+  max: envNumber("RATE_LIMIT_WEBHOOK_MAX", 60),
+  store: createStore(),
+  keyGenerator: (req) => `webhook_${ipKeyGenerator(req.ip)}`,
+  ...commonOptions,
+  message: { success: false, message: "Too many webhook requests." },
+});
+
 module.exports = {
   createMember,
   authLogin,
@@ -243,4 +252,5 @@ module.exports = {
   blogEmbedPage,
   blogEmbedTrack,
   blogEmbedTrackHourly,
+  webhook,
 };
