@@ -5,9 +5,12 @@
  * Requires the server to already be running on BASE_URL.
  */
 
-const BASE_URL = process.env.SMOKE_TEST_BASE_URL || "http://localhost:3000";
-const EMAIL = process.env.SMOKE_EMAIL || "admin@atlas.local";
-const PASSWORD = process.env.SMOKE_PASSWORD || "TestPassword123!";
+require('dotenv').config({ path: '.env.staging' });
+
+const BASE_URL = process.env.SMOKE_TEST_BASE_URL || "http://127.0.0.1:3000";
+const EMAIL = (process.env.SMOKE_EMAIL || "admin@atlas.local").trim();
+const PASSWORD = (process.env.SMOKE_PASSWORD || "TestPassword123!").trim();
+const WEBHOOK_TOKEN = process.env.WEBHOOK_BEARER_TOKEN || "test-webhook-token";
 
 let authCookie = "";
 const pass = [];
@@ -91,13 +94,22 @@ async function loginAs(email, password) {
 
 async function login() {
   console.log("\n[AUTH]");
-  const { status, cookie } = await loginAs(EMAIL, PASSWORD);
-  if (status === 200 && cookie) {
+  const res = await fetch(`${BASE_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+  });
+  const json = await res.json();
+  const rawCookie = res.headers.get("set-cookie") || "";
+  const match = rawCookie.match(/auth_token=([^;]+)/);
+  const cookie = match ? `auth_token=${match[1]}` : "";
+
+  if (res.status === 200 && cookie) {
     authCookie = cookie;
     ok("POST /api/auth/login", 200);
     return true;
   }
-  bad("POST /api/auth/login", status, "could not obtain auth cookie — aborting");
+  bad("POST /api/auth/login", res.status, `aborting: ${JSON.stringify(json)}`);
   return false;
 }
 
@@ -277,6 +289,44 @@ async function testPayments() {
   }
 }
 
+async function testWebhooks() {
+  console.log("\n[WEBHOOKS]");
+  const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${WEBHOOK_TOKEN}` };
+
+  const qualifiedPayload = {
+    form_type: "quote_request",
+    name: "John Webhook",
+    email: `john-${Date.now()}@webhook.com`,
+    phone: "+123456789",
+    service: "SEO",
+    budget: "$1k",
+    details: "Test"
+  };
+
+  const generalPayload = {
+    name: "Jane Webhook",
+    email: `jane-${Date.now()}@webhook.com`,
+    phone: "+987654321",
+    business: "Acme",
+    service: "Strategy",
+    challenge: "None",
+    budget: "$2k"
+  };
+
+  const checkWebhook = async (label, path, body) => {
+    try {
+      const res = await fetch(`${BASE_URL}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+      const passed = res.status === 201;
+      passed ? ok(label, res.status) : bad(label, res.status);
+    } catch(err) {
+      bad(label, 0, err.message);
+    }
+  };
+
+  await checkWebhook("POST /api/webhooks/leads/qualified", "/api/webhooks/leads/qualified", qualifiedPayload);
+  await checkWebhook("POST /api/webhooks/leads/general", "/api/webhooks/leads/general", generalPayload);
+}
+
 async function testLogout() {
   console.log("\n[LOGOUT]");
   await check("POST /api/auth/logout", "POST", "/api/auth/logout", null, { expect: [200] });
@@ -300,6 +350,14 @@ async function testUnauthorized() {
   ];
   for (const [label, method, path] of routes) {
     await checkWith(`${label} → 401`, method, path, "", null, { expect: [401] });
+  }
+
+  // Webhooks unauthorized (missing token)
+  try {
+    const res = await fetch(`${BASE_URL}/api/webhooks/leads/qualified`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({name:"X", email:"x@x.com"}) });
+    res.status === 401 ? ok("POST /api/webhooks/leads/qualified (no token) → 401", res.status) : bad("POST /api/webhooks/leads/qualified (no token) → 401", res.status);
+  } catch(err) {
+    bad("POST /api/webhooks/leads/qualified (no token) → 401", 0, err.message);
   }
 }
 
@@ -341,6 +399,15 @@ async function testValidation() {
     "POST", "/api/members", {},
     { expect: [400] }
   );
+
+  // Webhooks validation
+  const whHeaders = { "Content-Type": "application/json", "Authorization": `Bearer ${WEBHOOK_TOKEN}` };
+  try {
+    const res = await fetch(`${BASE_URL}/api/webhooks/leads/qualified`, { method: "POST", headers: whHeaders, body: JSON.stringify({email:"invalid"}) });
+    res.status === 400 ? ok("POST /api/webhooks/leads/qualified (missing name) → 400", res.status) : bad("POST /api/webhooks/leads/qualified (missing name) → 400", res.status);
+  } catch(err) {
+    bad("POST /api/webhooks/leads/qualified (missing name) → 400", 0, err.message);
+  }
 }
 
 // 4. Non-existent resource IDs must return 404
@@ -437,6 +504,7 @@ async function run() {
   await testAnalytics();
   await testRevenue();
   await testPayments();
+  await testWebhooks();
 
   // ── edge cases (while still authenticated as admin) ──
   await testValidation();

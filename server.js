@@ -152,6 +152,9 @@ app.use('/api', (req, res, next) => {
             message: payload.message || (isSuccess ? apiResponseDefaults.successMessage : apiResponseDefaults.errorMessage)
         };
 
+        if (payload.details !== undefined) normalized.details = payload.details;
+        if (payload.error !== undefined) normalized.error = payload.error;
+
         return originalJson(normalized);
     };
 
