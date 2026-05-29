@@ -451,6 +451,86 @@ async function getTaskById(taskId) {
   }
 }
 
+const taskDetailLookupStages = [
+  {
+    $lookup: {
+      from: "users",
+      let: { taskAssigneeId: "$assigneeId" },
+      pipeline: [
+        { $match: { $expr: { $eq: ["$userId", "$$taskAssigneeId"] } } },
+        {
+          $project: {
+            _id: 0,
+            userId: 1,
+            firstName: 1,
+            lastName: 1,
+            fullName: 1,
+            email: 1,
+            role: 1,
+            job: 1,
+            status: 1,
+          },
+        },
+      ],
+      as: "assignee",
+    },
+  },
+  {
+    $set: {
+      assignee: { $ifNull: [{ $arrayElemAt: ["$assignee", 0] }, null] },
+    },
+  },
+  {
+    $lookup: {
+      from: "projects",
+      let: { taskProjectId: "$projectId" },
+      pipeline: [
+        { $match: { $expr: { $eq: ["$id", "$$taskProjectId"] } } },
+        {
+          $project: {
+            _id: 0,
+            id: 1,
+            name: 1,
+            clientId: 1,
+            description: 1,
+            deadline: 1,
+            budget: 1,
+            priority: 1,
+            status: 1,
+            progress: 1,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        },
+      ],
+      as: "project",
+    },
+  },
+  {
+    $set: {
+      project: { $ifNull: [{ $arrayElemAt: ["$project", 0] }, null] },
+    },
+  },
+];
+
+async function getTaskDetailById(taskId) {
+  try {
+    const [task] = await tasks
+      .aggregate([
+        { $match: { id: taskId } },
+        { $limit: 1 },
+        ...taskDetailLookupStages,
+        { $unset: "_id" },
+      ])
+      .toArray();
+
+    return task || null;
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function getTasks({ status, assigneeId, projectId, assignedTo, page = 1, limit = 20, projection } = {}) {
   try {
     const query = {};
@@ -1296,6 +1376,7 @@ module.exports = {
 
   addTask,
   getTaskById,
+  getTaskDetailById,
   getTasks,
   updateTaskById,
   deleteTaskById,

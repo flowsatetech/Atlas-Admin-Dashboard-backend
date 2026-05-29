@@ -197,7 +197,48 @@ router.post("/", middlewares.adminOnly, tasksRateLimiter, async (req, res) => {
 /**
  * @swagger
  * /api/tasks/{taskId}:
- * put:
+ * get:
+ * summary: Get full task details by ID
+ * tags: [Tasks]
+ * parameters:
+ * - in: path
+ * name: taskId
+ * required: true
+ * schema:
+ * type: string
+ * responses:
+ * 200:
+ * description: Task details fetched successfully
+ * 404:
+ * description: Task not found
+ */
+router.get("/:taskId", tasksRateLimiter, async (req, res) => {
+  try {
+    const task = await db.getTaskDetailById(req.params.taskId);
+    if (!task)
+      return clientError(res, 404, 'Task not found');
+
+    const now = Date.now();
+    return res.status(200).json({
+      success: true,
+      message: "Task details fetched successfully",
+      data: {
+        task: {
+          ...task,
+          isOverdue: task.dueDate ? task.dueDate < now && task.status !== "Done" : false,
+        },
+      },
+    });
+  } catch (error) {
+    logger("GET_TASK").error(error);
+    return serverError(res, error, 'Failed to fetch task.');
+  }
+});
+
+/**
+ * @swagger
+ * /api/tasks/{taskId}:
+ * patch:
  * summary: Update an existing task (Admin Only)
  * tags: [Tasks]
  * security:
@@ -221,7 +262,7 @@ router.post("/", middlewares.adminOnly, tasksRateLimiter, async (req, res) => {
  * 404:
  * description: Task not found
  */
-router.put(
+router.patch(
   "/:taskId",
   middlewares.adminOnly,
   tasksRateLimiter,

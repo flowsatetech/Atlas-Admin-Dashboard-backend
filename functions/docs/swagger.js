@@ -1687,9 +1687,24 @@ const options = {
                 }
             },
             "/api/tasks/{taskId}": {
-                put: {
+                get: {
                     tags: ["Tasks"],
-                    summary: "Update a task (admin only)",
+                    summary: "Get full task details by ID",
+                    security: [{ cookieAuth: [] }],
+                    parameters: [
+                        { name: "taskId", in: "path", required: true, schema: { type: "string" } }
+                    ],
+                    responses: {
+                        200: { description: "Task details fetched successfully, including assignee and project objects when available" },
+                        401: { $ref: "#/components/responses/Unauthorized" },
+                        404: { description: "Task not found" },
+                        429: { $ref: "#/components/responses/TooManyRequests" },
+                        500: { $ref: "#/components/responses/ServerError" }
+                    }
+                },
+                patch: {
+                    tags: ["Tasks"],
+                    summary: "Partially update a task (admin only)",
                     security: [{ cookieAuth: [] }],
                     parameters: [
                         { name: "taskId", in: "path", required: true, schema: { type: "string" } }

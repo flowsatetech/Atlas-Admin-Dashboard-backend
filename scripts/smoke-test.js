@@ -365,13 +365,37 @@ async function testTasks() {
     );
     const newTaskId = created?.data?.task?.id;
     if (newTaskId) {
-      await check("PUT  /api/tasks/:id", "PUT", `/api/tasks/${newTaskId}`, { status: "Done" });
+      const taskDetail = await check("GET  /api/tasks/:id", "GET", `/api/tasks/${newTaskId}`);
+      assertSmoke(
+        "GET  /api/tasks/:id returns assignee details",
+        taskDetail?.data?.task?.assignee?.userId === adminId,
+        `expected assignee.userId ${adminId}, received ${JSON.stringify(taskDetail?.data?.task?.assignee)}`
+      );
+      assertSmoke(
+        "GET  /api/tasks/:id returns project key even when unassigned",
+        Object.prototype.hasOwnProperty.call(taskDetail?.data?.task || {}, "project") && taskDetail.data.task.project === null,
+        `expected project null, received ${JSON.stringify(taskDetail?.data?.task?.project)}`
+      );
+      assertSmoke(
+        "GET  /api/tasks/:id hides MongoDB _id",
+        !Object.prototype.hasOwnProperty.call(taskDetail?.data?.task || {}, "_id"),
+        "task detail response exposed _id"
+      );
+      await check("PATCH /api/tasks/:id", "PATCH", `/api/tasks/${newTaskId}`, { status: "Done" });
+      const patchedTaskDetail = await check("GET  /api/tasks/:id after PATCH", "GET", `/api/tasks/${newTaskId}`);
+      assertSmoke(
+        "PATCH /api/tasks/:id persists changes",
+        patchedTaskDetail?.data?.task?.status === "Done",
+        `expected status Done, received ${patchedTaskDetail?.data?.task?.status}`
+      );
+      await check("PUT  /api/tasks/:id no longer allowed", "PUT", `/api/tasks/${newTaskId}`, { status: "InProgress" }, { expect: [404] });
       await check("DELETE /api/tasks/:id", "DELETE", `/api/tasks/${newTaskId}`);
     }
   }
 
   if (taskId) {
-    await check("PUT  /api/tasks/:id (existing)", "PUT", `/api/tasks/${taskId}`, { status: "InProgress" });
+    await check("GET  /api/tasks/:id (existing)", "GET", `/api/tasks/${taskId}`);
+    await check("PATCH /api/tasks/:id (existing)", "PATCH", `/api/tasks/${taskId}`, { status: "InProgress" });
   }
 }
 
@@ -590,6 +614,8 @@ async function testNotFound() {
   await check("GET  /api/clients/no-such-id → 404",   "GET", "/api/clients/no-such-id",   null, { expect: [404] });
   await check("GET  /api/leads/no-such-id → 404",     "GET", "/api/leads/no-such-id",     null, { expect: [404] });
   await check("GET  /api/payments/no-such-id → 404",  "GET", "/api/payments/no-such-id",  null, { expect: [404] });
+  await check("GET  /api/tasks/no-such-id → 404",     "GET", "/api/tasks/no-such-id",     null, { expect: [404] });
+  await check("PATCH /api/tasks/no-such-id → 404",   "PATCH", "/api/tasks/no-such-id", { status: "Done" }, { expect: [404] });
   await check("PUT  /api/members/no-such-id → 404",   "PUT", "/api/members/no-such-id", { job: "x" }, { expect: [404] });
 }
 
