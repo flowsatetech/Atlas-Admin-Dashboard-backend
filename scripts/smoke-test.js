@@ -79,6 +79,47 @@ async function checkWith(label, method, path, cookie, body = null, { expect = [2
   return json;
 }
 
+function assertSmoke(label, condition, note = "") {
+  condition ? ok(label, "ASSERT") : bad(label, "ASSERT", note);
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertProjectHasClientDetails(label, project, expectedClientId) {
+  const client = project?.client;
+  const issues = [];
+
+  if (!isPlainObject(project)) issues.push("project is not an object");
+  if (!isPlainObject(client)) issues.push("client is not an object");
+  if (typeof client === "string") issues.push("client is still a string id/name instead of detail object");
+  if (expectedClientId && project?.clientId !== expectedClientId) issues.push(`project.clientId expected ${expectedClientId}`);
+  if (expectedClientId && client?.id !== expectedClientId) issues.push(`client.id expected ${expectedClientId}`);
+  if (client && Object.prototype.hasOwnProperty.call(client, "_id")) issues.push("client exposes MongoDB _id");
+  if (client && !Array.isArray(client.tags)) issues.push("client.tags is not an array");
+
+  const requiredStringFields = ["id", "fullName", "companyName", "email", "phone", "status"];
+  const missingFields = requiredStringFields.filter((field) => typeof client?.[field] !== "string" || !client[field]);
+  if (missingFields.length) issues.push(`client missing required fields: ${missingFields.join(", ")}`);
+
+  assertSmoke(label, issues.length === 0, issues.join("; "));
+}
+
+function assertProjectHasNullClient(label, project, expectedClientId) {
+  const issues = [];
+
+  if (!isPlainObject(project)) issues.push("project is not an object");
+  if (expectedClientId && project?.clientId !== expectedClientId) issues.push(`project.clientId expected ${expectedClientId}`);
+  if (project?.client !== null) issues.push(`client expected null, received ${JSON.stringify(project?.client)}`);
+
+  assertSmoke(label, issues.length === 0, issues.join("; "));
+}
+
+function findProjectById(projects = [], projectId) {
+  return Array.isArray(projects) ? projects.find((project) => project?.id === projectId) : null;
+}
+
 // ─── auth helpers ─────────────────────────────────────────────────────────────
 
 async function loginAs(email, password) {
@@ -133,19 +174,146 @@ async function testDashboard() {
   await check("GET  /api/dashboard/activities", "GET", "/api/dashboard/activities");
 }
 
+async function testProjectClientPopulation() {
+  const suffix = Date.now();
+  let clientId = null;
+  let projectId = null;
+  let clientAlreadyDeleted = false;
+
+  const createdClient = await check(
+    "POST /api/clients (project client smoke fixture)",
+    "POST",
+    "/api/clients",
+    {
+      fullName: "Smoke Project Client",
+      companyName: `Smoke Client Co ${suffix}`,
+      email: `smoke-project-client-${suffix}@test.local`,
+      phone: "+2348000000000",
+      status: "Active",
+      tags: ["smoke", "project-client"],
+      notes: "Temporary client for project client population smoke coverage",
+    },
+    { expect: [201] }
+  );
+  clientId = createdClient?.data?.client?.id;
+
+  if (!clientId) {
+    bad("PROJECT CLIENT POPULATION fixture", "SKIP", "could not create client fixture");
+    return;
+  }
+
+  const createdProject = await check(
+    "POST /api/projects (client population fixture)",
+    "POST",
+    "/api/projects",
+    {
+      name: `Smoke Client Population ${suffix}`,
+      clientId,
+      description: "Temporary project for project client population smoke coverage",
+      deadline: Date.now() + 86400000,
+      budget: 1000,
+      priority: "Low",
+      status: "Planned",
+      teamIds: [],
+    },
+    { expect: [201] }
+  );
+  projectId = createdProject?.data?.project?.id;
+
+  if (!projectId) {
+    bad("PROJECT CLIENT POPULATION fixture", "SKIP", "could not create project fixture");
+    await check("DELETE /api/clients/:id (project fixture cleanup)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200] });
+    return;
+  }
+
+  const listRes = await check(
+    "GET  /api/projects includes populated client fixture",
+    "GET",
+    `/api/projects?status=Planned&limit=10`
+  );
+  const listProject = findProjectById(listRes?.data?.projects, projectId);
+  assertProjectHasClientDetails("GET  /api/projects client is full object", listProject, clientId);
+
+  const detailRes = await check(
+    "GET  /api/projects/:id includes populated client fixture",
+    "GET",
+    `/api/projects/${projectId}`
+  );
+  assertProjectHasClientDetails("GET  /api/projects/:id client is full object", detailRes?.data?.project, clientId);
+  assertSmoke(
+    "GET  /api/projects/:id comments are included from detail aggregate",
+    Array.isArray(detailRes?.data?.project?.comments),
+    "project detail response did not include comments array"
+  );
+
+  await check("DELETE /api/clients/:id (orphan project edge fixture)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200] });
+  clientAlreadyDeleted = true;
+
+  const orphanDetailRes = await check(
+    "GET  /api/projects/:id orphaned client edge",
+    "GET",
+    `/api/projects/${projectId}`
+  );
+  assertProjectHasNullClient("GET  /api/projects/:id missing client returns null", orphanDetailRes?.data?.project, clientId);
+
+  const orphanListRes = await check(
+    "GET  /api/projects orphaned client edge",
+    "GET",
+    `/api/projects?status=Planned&limit=10`
+  );
+  const orphanListProject = findProjectById(orphanListRes?.data?.projects, projectId);
+  assertProjectHasNullClient("GET  /api/projects missing client returns null", orphanListProject, clientId);
+
+  if (projectId) {
+    await check("DELETE /api/projects/:id (project fixture cleanup)", "DELETE", `/api/projects/${projectId}`, null, { expect: [204] });
+  }
+  if (clientId && !clientAlreadyDeleted) {
+    await check("DELETE /api/clients/:id (project fixture cleanup)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200] });
+  }
+}
+
 async function testProjects() {
   console.log("\n[PROJECTS]");
   await check("GET  /api/projects/stats", "GET", "/api/projects/stats");
   const res = await check("GET  /api/projects", "GET", "/api/projects");
   const projectId = res?.data?.projects?.[0]?.id;
+  const projectWithClient = res?.data?.projects?.find((project) => project?.clientId && project?.client);
+
+  if (projectWithClient) {
+    assertProjectHasClientDetails("GET  /api/projects existing row has populated client", projectWithClient, projectWithClient.clientId);
+  } else {
+    bad("GET  /api/projects existing row has populated client", "ASSERT", "no project with client details available in list response");
+  }
 
   if (projectId) {
-    await check(`GET  /api/projects/:id`, "GET", `/api/projects/${projectId}`);
+    const detail = await check(`GET  /api/projects/:id`, "GET", `/api/projects/${projectId}`);
+    if (detail?.data?.project?.clientId && detail?.data?.project?.client) {
+      assertProjectHasClientDetails("GET  /api/projects/:id existing row has populated client", detail.data.project, detail.data.project.clientId);
+    }
     await check("GET  /api/projects/:id/comments", "GET", `/api/projects/${projectId}/comments`);
   } else {
     bad("GET  /api/projects/:id", "SKIP", "no project ID available");
     bad("GET  /api/projects/:id/comments", "SKIP", "no project ID available");
   }
+
+  const emptyStatus = `smoke-empty-status-${Date.now()}`;
+  const emptyRes = await check(
+    "GET  /api/projects empty filtered list edge",
+    "GET",
+    `/api/projects?status=${encodeURIComponent(emptyStatus)}&limit=5`
+  );
+  assertSmoke(
+    "GET  /api/projects empty filter returns empty projects array",
+    Array.isArray(emptyRes?.data?.projects) && emptyRes.data.projects.length === 0,
+    `expected empty array, received ${JSON.stringify(emptyRes?.data?.projects)}`
+  );
+  assertSmoke(
+    "GET  /api/projects empty filter still returns global infoData",
+    typeof emptyRes?.data?.infoData?.totalProjects === "number",
+    "infoData.totalProjects missing or not numeric"
+  );
+
+  await testProjectClientPopulation();
 
   // PATCH — update progress on first project
   if (projectId) {
@@ -387,6 +555,11 @@ async function testValidation() {
   await check(
     "POST /api/leads (invalid email) → 400",
     "POST", "/api/leads", { firstName: "X", lastName: "Y", email: "not-an-email" },
+    { expect: [400] }
+  );
+  await check(
+    "GET  /api/projects (invalid pagination) → 400",
+    "GET", "/api/projects?limit=0", null,
     { expect: [400] }
   );
   await check(
