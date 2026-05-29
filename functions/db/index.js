@@ -590,6 +590,58 @@ async function upsertAnalyticsSnapshotByPeriod({ id, periodStart, periodEnd, ...
 
 /** PROJECTS LOGIC */
 
+const projectClientLookupStages = [
+  {
+    $lookup: {
+      from: "clients",
+      let: { projectClientId: "$clientId" },
+      pipeline: [
+        { $match: { $expr: { $eq: ["$id", "$$projectClientId"] } } },
+        {
+          $project: {
+            _id: 0,
+            id: 1,
+            fullName: 1,
+            companyName: 1,
+            email: 1,
+            phone: 1,
+            status: 1,
+            tags: 1,
+            assignedStaffId: 1,
+            leadSource: 1,
+            notes: 1,
+            projectsCount: 1,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        },
+      ],
+      as: "client",
+    },
+  },
+  {
+    $set: {
+      client: { $ifNull: [{ $arrayElemAt: ["$client", 0] }, null] },
+    },
+  },
+];
+
+const projectCommentsLookupStage = {
+  $lookup: {
+    from: "comments",
+    let: { projectId: "$id" },
+    pipeline: [
+      { $match: { $expr: { $eq: ["$projectId", "$$projectId"] } } },
+      { $sort: { createdAt: -1 } },
+    ],
+    as: "comments",
+  },
+};
+
+function getFacetCount(aggregationResult, facetName) {
+  return aggregationResult?.[facetName]?.[0]?.count || 0;
+}
+
 async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) {
   try {
     const skip = (page - 1) * limit;
@@ -597,17 +649,43 @@ async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) 
       ? { status }
       : {};
 
-    const [docs, filteredTotal, total, inProgress, onHold, completed] = await Promise.all([
-      projects.find(query).skip(skip).limit(limit).sort({ createdAt: -1 }).toArray(),
-      projects.countDocuments(query),
-      projects.countDocuments({}),
-      projects.countDocuments({ status: "InProgress" }),
-      projects.countDocuments({ status: "OnHold" }),
-      projects.countDocuments({ status: "Completed" }),
-    ]);
+    const [aggregationResult = {}] = await projects
+      .aggregate([
+        {
+          $facet: {
+            docs: [
+              { $match: query },
+              { $sort: { createdAt: -1 } },
+              { $skip: skip },
+              { $limit: limit },
+              ...projectClientLookupStages,
+            ],
+            filteredTotal: [
+              { $match: query },
+              { $count: "count" },
+            ],
+            total: [{ $count: "count" }],
+            inProgress: [
+              { $match: { status: "InProgress" } },
+              { $count: "count" },
+            ],
+            onHold: [
+              { $match: { status: "OnHold" } },
+              { $count: "count" },
+            ],
+            completed: [
+              { $match: { status: "Completed" } },
+              { $count: "count" },
+            ],
+          },
+        },
+      ])
+      .toArray();
+
+    const filteredTotal = getFacetCount(aggregationResult, "filteredTotal");
 
     return {
-      projects: docs,
+      projects: aggregationResult.docs || [],
       pagination: {
         total: filteredTotal,
         page,
@@ -615,10 +693,10 @@ async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) 
         totalPages: Math.ceil(filteredTotal / limit),
       },
       infoData: {
-        totalProjects: total,
-        totalInProgress: inProgress,
-        totalInReview: onHold,
-        totalCompleted: completed,
+        totalProjects: getFacetCount(aggregationResult, "total"),
+        totalInProgress: getFacetCount(aggregationResult, "inProgress"),
+        totalInReview: getFacetCount(aggregationResult, "onHold"),
+        totalCompleted: getFacetCount(aggregationResult, "completed"),
       },
     };
   } catch (err) {
@@ -630,6 +708,24 @@ async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) 
 async function getProjectById(projectId) {
   try {
     return await projects.findOne({ id: projectId });
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getProjectDetailById(projectId) {
+  try {
+    const [project] = await projects
+      .aggregate([
+        { $match: { id: projectId } },
+        { $limit: 1 },
+        ...projectClientLookupStages,
+        projectCommentsLookupStage,
+      ])
+      .toArray();
+
+    return project || null;
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -1175,6 +1271,7 @@ module.exports = {
   deleteUserById,
   getProjectsPaginated,
   getProjectById,
+  getProjectDetailById,
   addProject,
   updateProject,
   deleteProject,

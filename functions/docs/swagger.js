@@ -18,7 +18,7 @@ const options = {
 
 **Pagination:** List endpoints accept \`page\` (default 1) and \`limit\` (default 10, max 100) query params. Responses include a \`pagination\` object.
 
-**ID-only references:** Related entities are stored and returned as IDs (e.g. \`clientId\`, \`teamIds\`, \`authorId\`). Resolve via their respective endpoints.
+**Related entities:** Project list/detail responses include resolved \`client\` details alongside \`clientId\`. Other related entities are stored and returned as IDs (e.g. \`teamIds\`, \`authorId\`). Resolve via their respective endpoints.
 
 **Blog responses:** Blog endpoints omit MongoDB internal \`_id\` fields from response payloads.
 
@@ -75,12 +75,33 @@ const options = {
                         totalCompleted: { type: "integer" }
                     }
                 },
+                ProjectClient: {
+                    type: "object",
+                    nullable: true,
+                    description: "Resolved client details for project responses. Null when the referenced client cannot be found.",
+                    properties: {
+                        id: { type: "string" },
+                        fullName: { type: "string" },
+                        companyName: { type: "string" },
+                        email: { type: "string", format: "email" },
+                        phone: { type: "string" },
+                        status: { type: "string", enum: ["Lead", "Active", "Inactive", "Archived"] },
+                        tags: { type: "array", items: { type: "string" } },
+                        assignedStaffId: { type: "string", nullable: true },
+                        leadSource: { type: "string", nullable: true },
+                        notes: { type: "string" },
+                        projectsCount: { type: "integer" },
+                        createdAt: { type: "integer" },
+                        updatedAt: { type: "integer" }
+                    }
+                },
                 Project: {
                     type: "object",
                     properties: {
                         id: { type: "string" },
                         name: { type: "string" },
                         clientId: { type: "string" },
+                        client: { "$ref": "#/components/schemas/ProjectClient" },
                         description: { type: "string" },
                         deadline: { type: "integer" },
                         budget: { type: "number" },

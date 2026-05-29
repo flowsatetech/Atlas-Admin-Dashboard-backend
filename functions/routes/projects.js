@@ -66,13 +66,11 @@ router.get('/', projects, async (req, res) => {
 
 router.get('/:projectId', projects, async (req, res) => {
     try {
-        const project = await db.getProjectById(req.params.projectId);
+        const project = await db.getProjectDetailById(req.params.projectId);
 
         if (!project) {
             return clientError(res, 404, 'Project not found');
         }
-
-        const comments = await db.getCommentsByProjectId(project.id);
 
         res.status(200).json({
             success: true,
@@ -82,9 +80,10 @@ router.get('/:projectId', projects, async (req, res) => {
                     id: project.id,
                     name: project.name,
                     clientId: project.clientId,
+                    client: project.client || null,
                     description: project.description,
                     deadline: project.deadline,
-                    comments,
+                    comments: project.comments || [],
                     budget: project.budget,
                     priority: project.priority,
                     teamIds: project.teamIds,
