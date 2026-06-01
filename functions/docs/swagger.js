@@ -106,9 +106,11 @@ const options = {
                         deadline: { type: "integer" },
                         budget: { type: "number" },
                         priority: { type: "string", enum: ["Low", "Medium", "High", "Urgent"] },
-                        status: { type: "string", enum: ["Planned", "InProgress", "OnHold", "Completed", "Cancelled"] },
+                        status: { type: "string", enum: ["Planned", "InProgress", "OnHold", "Completed", "Cancelled"], description: "Derived from linked task completion unless the project is OnHold or Cancelled. Automatically becomes Completed when all linked tasks are Done." },
                         teamIds: { type: "array", items: { type: "string" } },
-                        progress: { type: "integer", minimum: 0, maximum: 100 },
+                        totalTasks: { type: "integer", minimum: 0, description: "Number of tasks linked to this project." },
+                        completedTasks: { type: "integer", minimum: 0, description: "Number of linked tasks with status Done." },
+                        progress: { type: "integer", minimum: 0, maximum: 100, description: "Task-completion percentage derived as completedTasks / totalTasks * 100. This value is not manually settable." },
                         files: { type: "array", items: { type: "string", format: "uri" } },
                         createdAt: { type: "integer" },
                         updatedAt: { type: "integer" }
@@ -1148,7 +1150,7 @@ const options = {
                 get: {
                     tags: ["Projects"],
                     summary: "Get project details",
-                    description: "Returns full project details including comments, team member IDs, and files.",
+                    description: "Returns full project details including comments, team member IDs, files, resolved client details, and task-derived progress/status.",
                     security: [{ cookieAuth: [] }],
                     parameters: [
                         { name: "projectId", in: "path", required: true, schema: { type: "string" } }
@@ -1180,7 +1182,7 @@ const options = {
                 patch: {
                     tags: ["Projects"],
                     summary: "Update a project (admin only)",
-                    description: "Partial update — all fields optional. The project id cannot be changed.",
+                    description: "Partial update — all fields optional. The project id cannot be changed. progress is derived from linked task completion and cannot be manually set.",
                     security: [{ cookieAuth: [] }],
                     parameters: [
                         { name: "projectId", in: "path", required: true, schema: { type: "string" } }
@@ -1247,7 +1249,7 @@ const options = {
                 put: {
                     tags: ["Projects"],
                     summary: "Update project status and financial fields (admin only)",
-                    description: "Used to update revenue recognition, assignees, and status. recognizedRevenue and recognizedAt must be provided together and are only allowed when status is Completed.",
+                    description: "Used to update revenue recognition, assignees, and status. recognizedRevenue and recognizedAt must be provided together and are only allowed when status is Completed. progress is derived from linked task completion and cannot be manually set.",
                     security: [{ cookieAuth: [] }],
                     parameters: [
                         { name: "projectId", in: "path", required: true, schema: { type: "string" } }
@@ -1265,7 +1267,6 @@ const options = {
                                         assignees: { type: "array", items: { type: "string" }, description: "Array of user IDs" },
                                         budget: { type: "number", minimum: 0 },
                                         status: { type: "string", enum: ["Planned", "InProgress", "OnHold", "Completed", "Cancelled"] },
-                                        progress: { type: "integer", minimum: 0, maximum: 100 },
                                         recognizedRevenue: { type: "number", minimum: 0, nullable: true },
                                         recognizedAt: { type: "integer", minimum: 0, nullable: true }
                                     }

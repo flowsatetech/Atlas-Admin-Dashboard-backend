@@ -120,6 +120,19 @@ function findProjectById(projects = [], projectId) {
   return Array.isArray(projects) ? projects.find((project) => project?.id === projectId) : null;
 }
 
+function assertProjectTaskProgress(label, project, expected) {
+  const issues = [];
+
+  if (!isPlainObject(project)) issues.push("project is not an object");
+  if (project?.totalTasks !== expected.totalTasks) issues.push(`totalTasks expected ${expected.totalTasks}, received ${project?.totalTasks}`);
+  if (project?.completedTasks !== expected.completedTasks) issues.push(`completedTasks expected ${expected.completedTasks}, received ${project?.completedTasks}`);
+  if (Number(project?.progress) !== expected.progress) issues.push(`progress expected ${expected.progress}, received ${project?.progress}`);
+  if (project?.status !== expected.status) issues.push(`status expected ${expected.status}, received ${project?.status}`);
+  if (Object.prototype.hasOwnProperty.call(project || {}, "percentage")) issues.push("project exposes duplicate percentage field; progress should be the canonical percentage");
+
+  assertSmoke(label, issues.length === 0, issues.join("; "));
+}
+
 // ─── auth helpers ─────────────────────────────────────────────────────────────
 
 async function loginAs(email, password) {
@@ -272,6 +285,149 @@ async function testProjectClientPopulation() {
   }
 }
 
+async function testProjectTaskDerivedProgress() {
+  const suffix = Date.now();
+  let clientId;
+  let projectId;
+  let firstTaskId;
+  let secondTaskId;
+
+  const adminRes = await req("GET", "/api/user/profile");
+  const adminId = adminRes.json?.data?.profile?.userId;
+
+  if (!adminId) {
+    bad("PROJECT TASK PROGRESS fixture", "SKIP", "could not resolve current admin user ID");
+    return;
+  }
+
+  const createdClient = await check(
+    "POST /api/clients (project task progress fixture)",
+    "POST",
+    "/api/clients",
+    {
+      fullName: "Smoke Progress Client",
+      companyName: `Smoke Progress Co ${suffix}`,
+      email: `smoke-project-progress-${suffix}@test.local`,
+      phone: "+2348000000001",
+      status: "Active",
+      tags: ["smoke", "project-progress"],
+      notes: "Temporary client for task-derived project progress smoke coverage",
+    },
+    { expect: [201] }
+  );
+  clientId = createdClient?.data?.client?.id;
+
+  if (!clientId) {
+    bad("PROJECT TASK PROGRESS fixture", "SKIP", "could not create client fixture");
+    return;
+  }
+
+  const createdProject = await check(
+    "POST /api/projects (task-derived progress fixture)",
+    "POST",
+    "/api/projects",
+    {
+      name: `Smoke Task Progress ${suffix}`,
+      clientId,
+      description: "Temporary project for task-derived progress smoke coverage",
+      deadline: Date.now() + 604800000,
+      budget: 2500,
+      priority: "Medium",
+      status: "Planned",
+      teamIds: [],
+    },
+    { expect: [201] }
+  );
+  projectId = createdProject?.data?.project?.id;
+
+  if (!projectId) {
+    bad("PROJECT TASK PROGRESS fixture", "SKIP", "could not create project fixture");
+    if (clientId) await check("DELETE /api/clients/:id (project progress fixture cleanup)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200] });
+    return;
+  }
+
+  const firstTask = await check(
+    "POST /api/tasks (project progress todo task)",
+    "POST",
+    "/api/tasks",
+    {
+      title: `Smoke progress todo ${suffix}`,
+      description: "Project progress should count this as incomplete",
+      assigneeId: adminId,
+      dueDate: Date.now() + 86400000,
+      status: "Todo",
+      projectId,
+      priority: "medium",
+    },
+    { expect: [201] }
+  );
+  firstTaskId = firstTask?.data?.task?.id;
+
+  const secondTask = await check(
+    "POST /api/tasks (project progress done task)",
+    "POST",
+    "/api/tasks",
+    {
+      title: `Smoke progress done ${suffix}`,
+      description: "Project progress should count this as complete",
+      assigneeId: adminId,
+      dueDate: Date.now() + 172800000,
+      status: "Done",
+      projectId,
+      priority: "medium",
+    },
+    { expect: [201] }
+  );
+  secondTaskId = secondTask?.data?.task?.id;
+
+  if (firstTaskId && secondTaskId) {
+    const halfCompleteDetail = await check(
+      "GET  /api/projects/:id task-derived progress half complete",
+      "GET",
+      `/api/projects/${projectId}`
+    );
+    assertProjectTaskProgress(
+      "GET  /api/projects/:id derives progress from completed/total tasks",
+      halfCompleteDetail?.data?.project,
+      { totalTasks: 2, completedTasks: 1, progress: 50, status: "InProgress" }
+    );
+
+    await check("PATCH /api/projects/:id rejects manual progress", "PATCH", `/api/projects/${projectId}`, { progress: 10 }, { expect: [400] });
+    await check("PUT  /api/projects/:id rejects manual progress", "PUT", `/api/projects/${projectId}`, { progress: 25 }, { expect: [400] });
+
+    await check("PATCH /api/tasks/:id completes remaining project task", "PATCH", `/api/tasks/${firstTaskId}`, { status: "Done" });
+    const completeDetail = await check(
+      "GET  /api/projects/:id task-derived progress complete",
+      "GET",
+      `/api/projects/${projectId}`
+    );
+    assertProjectTaskProgress(
+      "GET  /api/projects/:id auto-completes project at 100 percent",
+      completeDetail?.data?.project,
+      { totalTasks: 2, completedTasks: 2, progress: 100, status: "Completed" }
+    );
+
+    await check("PATCH /api/tasks/:id reopens project task", "PATCH", `/api/tasks/${secondTaskId}`, { status: "InProgress" });
+    const reopenedDetail = await check(
+      "GET  /api/projects/:id task-derived progress after reopen",
+      "GET",
+      `/api/projects/${projectId}`
+    );
+    assertProjectTaskProgress(
+      "GET  /api/projects/:id recalculates progress when a task is reopened",
+      reopenedDetail?.data?.project,
+      { totalTasks: 2, completedTasks: 1, progress: 50, status: "InProgress" }
+    );
+  } else {
+    bad("PROJECT TASK PROGRESS task fixtures", "SKIP", "could not create both linked tasks");
+  }
+
+  if (firstTaskId) await check("DELETE /api/tasks/:id (project progress fixture cleanup)", "DELETE", `/api/tasks/${firstTaskId}`);
+  if (secondTaskId) await check("DELETE /api/tasks/:id (project progress fixture cleanup)", "DELETE", `/api/tasks/${secondTaskId}`);
+  if (projectId) await check("DELETE /api/projects/:id (project progress fixture cleanup)", "DELETE", `/api/projects/${projectId}`, null, { expect: [204] });
+  if (clientId) await check("DELETE /api/clients/:id (project progress fixture cleanup)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200] });
+}
+
 async function testProjects() {
   console.log("\n[PROJECTS]");
   await check("GET  /api/projects/stats", "GET", "/api/projects/stats");
@@ -314,10 +470,11 @@ async function testProjects() {
   );
 
   await testProjectClientPopulation();
+  await testProjectTaskDerivedProgress();
 
-  // PATCH — update progress on first project
+  // PATCH — progress is derived from linked tasks and cannot be set manually
   if (projectId) {
-    await check("PATCH /api/projects/:id", "PATCH", `/api/projects/${projectId}`, { progress: 10 });
+    await check("PATCH /api/projects/:id rejects manual progress", "PATCH", `/api/projects/${projectId}`, { progress: 10 }, { expect: [400] });
   }
 }
 

@@ -242,7 +242,15 @@ async function updateProjectById(projectId, updateData) {
 
 async function countProjectsByFilter(filter = {}) {
   try {
-    return await projects.countDocuments(filter);
+    const [result] = await projects
+      .aggregate([
+        ...projectTaskProgressLookupStages,
+        { $match: filter },
+        { $count: "count" },
+      ])
+      .toArray();
+
+    return result?.count || 0;
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -252,10 +260,11 @@ async function countProjectsByFilter(filter = {}) {
 async function getProjectsCreatedBetween(from, to) {
   try {
     return await projects
-      .find(
-        { createdAt: { $gte: from, $lte: to } },
+      .aggregate([
+        ...projectTaskProgressLookupStages,
+        { $match: { createdAt: { $gte: from, $lte: to } } },
         {
-          projection: {
+          $project: {
             _id: 0,
             id: 1,
             name: 1,
@@ -263,13 +272,15 @@ async function getProjectsCreatedBetween(from, to) {
             client: 1,
             clientId: 1,
             budget: 1,
+            totalTasks: 1,
+            completedTasks: 1,
             progress: 1,
             status: 1,
             deadline: 1,
             dueTime: 1,
           },
         },
-      )
+      ])
       .toArray();
   } catch (err) {
     logger("DB").error(err);
@@ -280,14 +291,17 @@ async function getProjectsCreatedBetween(from, to) {
 async function getRecognizedRevenueProjectsBetween(from, to) {
   try {
     return await projects
-      .find(
+      .aggregate([
+        ...projectTaskProgressLookupStages,
         {
-          status: "Completed",
-          recognizedAt: { $gte: from, $lte: to },
-          recognizedRevenue: { $type: "number", $gt: 0 },
+          $match: {
+            status: "Completed",
+            recognizedAt: { $gte: from, $lte: to },
+            recognizedRevenue: { $type: "number", $gt: 0 },
+          },
         },
         {
-          projection: {
+          $project: {
             _id: 0,
             id: 1,
             name: 1,
@@ -302,7 +316,7 @@ async function getRecognizedRevenueProjectsBetween(from, to) {
             recognizedRevenue: 1,
           },
         },
-      )
+      ])
       .toArray();
   } catch (err) {
     logger("DB").error(err);
@@ -313,14 +327,17 @@ async function getRecognizedRevenueProjectsBetween(from, to) {
 async function getPendingRevenueProjectsBetween(from, to) {
   try {
     return await projects
-      .find(
+      .aggregate([
+        ...projectTaskProgressLookupStages,
         {
-          status: { $nin: ["Completed", "Cancelled"] },
-          createdAt: { $gte: from, $lte: to },
-          budget: { $type: "number", $gt: 0 },
+          $match: {
+            status: { $nin: ["Completed", "Cancelled"] },
+            createdAt: { $gte: from, $lte: to },
+            budget: { $type: "number", $gt: 0 },
+          },
         },
         {
-          projection: {
+          $project: {
             _id: 0,
             id: 1,
             name: 1,
@@ -328,10 +345,13 @@ async function getPendingRevenueProjectsBetween(from, to) {
             client: 1,
             clientId: 1,
             budget: 1,
+            totalTasks: 1,
+            completedTasks: 1,
+            progress: 1,
             createdAt: 1,
           },
         },
-      )
+      ])
       .toArray();
   } catch (err) {
     logger("DB").error(err);
@@ -342,16 +362,23 @@ async function getPendingRevenueProjectsBetween(from, to) {
 async function getInProgressProjects(limit = 4) {
   try {
     return await projects
-      .find(
+      .aggregate([
+        ...projectTaskProgressLookupStages,
         {
-          $or: [{ status: { $in: ["InProgress", "OnHold", "Planned"] } }, { status: { $exists: false } }],
+          $match: {
+            $or: [{ status: { $in: ["InProgress", "OnHold", "Planned"] } }, { status: { $exists: false } }],
+          },
         },
+        { $sort: { updatedAt: -1, createdAt: -1 } },
+        { $limit: limit },
         {
-          projection: {
+          $project: {
             _id: 0,
             id: 1,
             name: 1,
             status: 1,
+            totalTasks: 1,
+            completedTasks: 1,
             progress: 1,
             client: 1,
             clientId: 1,
@@ -359,9 +386,7 @@ async function getInProgressProjects(limit = 4) {
             dueTime: 1,
           },
         },
-      )
-      .sort({ updatedAt: -1, createdAt: -1 })
-      .limit(limit)
+      ])
       .toArray();
   } catch (err) {
     logger("DB").error(err);
@@ -486,6 +511,7 @@ const taskDetailLookupStages = [
       let: { taskProjectId: "$projectId" },
       pipeline: [
         { $match: { $expr: { $eq: ["$id", "$$taskProjectId"] } } },
+        ...buildProjectTaskProgressLookupStages(),
         {
           $project: {
             _id: 0,
@@ -497,6 +523,8 @@ const taskDetailLookupStages = [
             budget: 1,
             priority: 1,
             status: 1,
+            totalTasks: 1,
+            completedTasks: 1,
             progress: 1,
             createdAt: 1,
             updatedAt: 1,
@@ -670,6 +698,100 @@ async function upsertAnalyticsSnapshotByPeriod({ id, periodStart, periodEnd, ...
 
 /** PROJECTS LOGIC */
 
+function buildProjectTaskProgressLookupStages({ projectIdExpression = "$id" } = {}) {
+  return [
+    {
+      $lookup: {
+        from: "tasks",
+        let: { projectId: projectIdExpression },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$projectId", "$$projectId"] } } },
+          {
+            $group: {
+              _id: "$projectId",
+              totalTasks: { $sum: 1 },
+              completedTasks: {
+                $sum: {
+                  $cond: [{ $eq: ["$status", "Done"] }, 1, 0],
+                },
+              },
+            },
+          },
+        ],
+        as: "taskProgressStats",
+      },
+    },
+    {
+      $set: {
+        taskProgressStats: {
+          $ifNull: [
+            { $arrayElemAt: ["$taskProgressStats", 0] },
+            { totalTasks: 0, completedTasks: 0 },
+          ],
+        },
+      },
+    },
+    {
+      $set: {
+        totalTasks: "$taskProgressStats.totalTasks",
+        completedTasks: "$taskProgressStats.completedTasks",
+      },
+    },
+    {
+      $set: {
+        progress: {
+          $cond: [
+            { $eq: ["$totalTasks", 0] },
+            0,
+            {
+              $round: [
+                {
+                  $multiply: [
+                    { $divide: ["$completedTasks", "$totalTasks"] },
+                    100,
+                  ],
+                },
+                0,
+              ],
+            },
+          ],
+        },
+      },
+    },
+    {
+      $set: {
+        status: {
+          $switch: {
+            branches: [
+              {
+                case: {
+                  $and: [
+                    { $gt: ["$totalTasks", 0] },
+                    { $gte: ["$completedTasks", "$totalTasks"] },
+                  ],
+                },
+                then: "Completed",
+              },
+              {
+                case: { $in: ["$status", ["OnHold", "Cancelled"]] },
+                then: "$status",
+              },
+              {
+                case: { $gt: ["$completedTasks", 0] },
+                then: "InProgress",
+              },
+            ],
+            default: "Planned",
+          },
+        },
+      },
+    },
+    { $unset: "taskProgressStats" },
+  ];
+}
+
+const projectTaskProgressLookupStages = buildProjectTaskProgressLookupStages();
+
 const projectClientLookupStages = [
   {
     $lookup: {
@@ -734,6 +856,7 @@ async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) 
         {
           $facet: {
             docs: [
+              ...projectTaskProgressLookupStages,
               { $match: query },
               { $sort: { createdAt: -1 } },
               { $skip: skip },
@@ -741,19 +864,23 @@ async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) 
               ...projectClientLookupStages,
             ],
             filteredTotal: [
+              ...projectTaskProgressLookupStages,
               { $match: query },
               { $count: "count" },
             ],
             total: [{ $count: "count" }],
             inProgress: [
+              ...projectTaskProgressLookupStages,
               { $match: { status: "InProgress" } },
               { $count: "count" },
             ],
             onHold: [
+              ...projectTaskProgressLookupStages,
               { $match: { status: "OnHold" } },
               { $count: "count" },
             ],
             completed: [
+              ...projectTaskProgressLookupStages,
               { $match: { status: "Completed" } },
               { $count: "count" },
             ],
@@ -800,6 +927,7 @@ async function getProjectDetailById(projectId) {
       .aggregate([
         { $match: { id: projectId } },
         { $limit: 1 },
+        ...projectTaskProgressLookupStages,
         ...projectClientLookupStages,
         projectCommentsLookupStage,
       ])
@@ -846,7 +974,7 @@ async function addCampaignStat(campaignData) {
 async function updateProject(projectId, updateData) {
   try {
     await projects.updateOne({ id: projectId }, { $set: updateData });
-    return await projects.findOne({ id: projectId });
+    return await getProjectDetailById(projectId);
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -1177,15 +1305,31 @@ async function getClientStats() {
 
 async function getProjectStats() {
   try {
-    const [total, planned, inProgress, onHold, completed, cancelled] = await Promise.all([
-      projects.countDocuments({}),
-      projects.countDocuments({ status: 'Planned' }),
-      projects.countDocuments({ status: 'InProgress' }),
-      projects.countDocuments({ status: 'OnHold' }),
-      projects.countDocuments({ status: 'Completed' }),
-      projects.countDocuments({ status: 'Cancelled' }),
-    ]);
-    return { total, planned, inProgress, onHold, completed, cancelled };
+    const [stats = {}] = await projects
+      .aggregate([
+        ...projectTaskProgressLookupStages,
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            planned: { $sum: { $cond: [{ $eq: ["$status", "Planned"] }, 1, 0] } },
+            inProgress: { $sum: { $cond: [{ $eq: ["$status", "InProgress"] }, 1, 0] } },
+            onHold: { $sum: { $cond: [{ $eq: ["$status", "OnHold"] }, 1, 0] } },
+            completed: { $sum: { $cond: [{ $eq: ["$status", "Completed"] }, 1, 0] } },
+            cancelled: { $sum: { $cond: [{ $eq: ["$status", "Cancelled"] }, 1, 0] } },
+          },
+        },
+      ])
+      .toArray();
+
+    return {
+      total: stats.total || 0,
+      planned: stats.planned || 0,
+      inProgress: stats.inProgress || 0,
+      onHold: stats.onHold || 0,
+      completed: stats.completed || 0,
+      cancelled: stats.cancelled || 0,
+    };
   } catch (err) {
     logger('DB').error(err);
     throw err;

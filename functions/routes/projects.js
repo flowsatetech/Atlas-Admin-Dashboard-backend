@@ -89,6 +89,8 @@ router.get('/:projectId', projects, async (req, res) => {
                     teamIds: project.teamIds,
                     files: project.files,
                     status: project.status,
+                    totalTasks: project.totalTasks || 0,
+                    completedTasks: project.completedTasks || 0,
                     progress: project.progress,
                     createdAt: project.createdAt,
                     updatedAt: project.updatedAt,
@@ -103,6 +105,10 @@ router.get('/:projectId', projects, async (req, res) => {
 
 router.post('/', middlewares.adminOnly, projects, async (req, res) => {
     try {
+        if (Object.prototype.hasOwnProperty.call(req.body || {}, 'progress')) {
+            return clientError(res, 400, 'Project progress is derived from task completion and cannot be set manually.');
+        }
+
         const validData = models.project.createProjectSchema.safeParse({
             id: generateToken(),
             ...req.body,
@@ -172,6 +178,10 @@ router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) =>
             if (foundUsers.length !== validData.data.teamIds.length) {
                 return clientError(res, 404, 'One or more team members not found');
             }
+        }
+
+        if (Object.prototype.hasOwnProperty.call(req.body || {}, 'progress')) {
+            return clientError(res, 400, 'Project progress is derived from task completion and cannot be set manually.');
         }
 
         const updateData = {
@@ -266,6 +276,11 @@ router.get('/:projectId/comments', projects, async (req, res) => {
 router.put('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
     try {
         const { projectId } = req.params;
+
+        if (Object.prototype.hasOwnProperty.call(req.body || {}, 'progress')) {
+            return clientError(res, 400, 'Project progress is derived from task completion and cannot be set manually.');
+        }
+
         const validData = z.object({
             name: z.string().min(1).optional(),
             client: z.string().optional(),
@@ -273,7 +288,6 @@ router.put('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
             assignees: z.array(z.string()).optional(),
             budget: z.number().nonnegative().optional(),
             status: z.enum(['Planned', 'InProgress', 'OnHold', 'Completed', 'Cancelled']).optional(),
-            progress: z.number().min(0).max(100).optional(),
             recognizedRevenue: z.number().nonnegative().nullable().optional(),
             recognizedAt: z.number().int().nonnegative().nullable().optional()
         }).safeParse(req.body);

@@ -24,7 +24,7 @@ const createProjectSchema = projectSchema.omit({
     updatedAt: true
 });
 
-const updateProjectSchema = createProjectSchema.omit({ id: true }).partial();
+const updateProjectSchema = createProjectSchema.omit({ id: true, progress: true }).partial();
 
 module.exports = {
     projectStatusEnum,
