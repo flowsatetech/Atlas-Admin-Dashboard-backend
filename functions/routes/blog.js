@@ -19,12 +19,38 @@ const models = require('../models');
 const router = express.Router();
 const { blog: blogLimiter } = middlewares.rateLimiters;
 
+const blogStatusFilterSchema = z.union([models.blogPost.blogPostStatusEnum, z.literal('')]).optional().default('');
+const blogCategoryFilterSchema = z.union([models.blogPost.blogPostCategoryEnum, z.literal('')]).optional().default('');
+
+function hasOwn(object, key) {
+    return Object.prototype.hasOwnProperty.call(object || {}, key);
+}
+
+const serverManagedBlogFields = new Set(['id', 'slug', 'createdAt', 'updatedAt', 'views']);
+
+function sanitizeClientBlogPayload(input = {}) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+        return {};
+    }
+
+    return Object.entries(input).reduce((acc, [key, value]) => {
+        if (!serverManagedBlogFields.has(key)) {
+            acc[key] = value;
+        }
+        return acc;
+    }, {});
+}
+
+function normalizeSlug(value = '') {
+    return slugify(String(value || ''));
+}
+
 router.get('/', blogLimiter, middlewares.authMiddleware, async (req, res) => {
     try {
         const querySchema = models.common.paginationQuerySchema.extend({
-            status: z.string().optional().default(""),
-            category: z.string().optional().default(""),
-            search: z.string().optional().default(""),
+            status: blogStatusFilterSchema,
+            category: blogCategoryFilterSchema,
+            search: z.string().trim().optional().default(""),
         });
         const parsed = querySchema.safeParse(req.query);
 
@@ -83,22 +109,26 @@ router.get('/:postId', blogLimiter, middlewares.authMiddleware, async (req, res)
 router.post('/', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly, async (req, res) => {
     try {
         const now = Date.now();
-        const rawSlug = req.body.slug || req.body.title || '';
-        const generatedSlug = slugify(rawSlug);
+        const generatedSlug = normalizeSlug(req.body?.title || '');
+        if (!generatedSlug) {
+            return clientError(res, 400, 'A valid title is required to generate a blog post slug.');
+        }
 
         const validData = models.blogPost.createBlogPostSchema.safeParse({
             id: generateToken(),
-            ...req.body,
+            ...sanitizeClientBlogPayload(req.body),
             slug: generatedSlug,
-            createdAt: now,
-            updatedAt: now,
         });
 
         if (!validData.success) {
             return clientError(res, 400, 'Couldn\'t create blog post. Some fields are missing or invalid.', validData.error.issues.map(i => i.message));
         }
         
-        const data = validData.data;
+        const data = {
+            ...validData.data,
+            createdAt: now,
+            updatedAt: now,
+        };
 
         if (data.status === 'published' && !data.publishedAt) {
             data.publishedAt = now;
@@ -111,7 +141,7 @@ router.post('/', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly,
 
         const slugConflict = await db.getBlogPostBySlug(data.slug);
         if (slugConflict) {
-            return clientError(res, 409, 'A post with this slug already exists. Try a different title or provide a custom slug.');
+            return clientError(res, 409, 'A post with this slug already exists. Try a different title.');
         }
 
         const post = await db.addBlogPost({ ...data, views: 0 });
@@ -133,27 +163,55 @@ router.put('/:postId', blogLimiter, middlewares.authMiddleware, middlewares.admi
             return clientError(res, 404, 'Blog post not found');
         }
 
-        const validData = models.blogPost.updateBlogPostSchema.safeParse(req.body);
+        const incoming = sanitizeClientBlogPayload(req.body);
+
+        const validData = models.blogPost.updateBlogPostSchema.safeParse(incoming);
         if (!validData.success) {
             return clientError(res, 400, 'Invalid update data.', validData.error.issues.map(i => i.message));
         }
 
-        const updates = { ...validData.data, updatedAt: Date.now() };
+        const updates = Object.keys(incoming).reduce((acc, key) => {
+            if (hasOwn(validData.data, key)) {
+                acc[key] = validData.data[key];
+            }
+            return acc;
+        }, {});
 
-        if (updates.title && !req.body.slug) {
-            const newSlug = slugify(updates.title);
-            if (newSlug !== post.slug) {
-                const slugConflict = await db.getBlogPostBySlug(newSlug);
-                if (slugConflict) {
-                    return clientError(res, 409, 'A post with this slug already exists.');
-                }
+        if (updates.authorId) {
+            const author = await db.getUserById(updates.authorId);
+            if (!author) {
+                return clientError(res, 404, 'Author not found');
+            }
+        }
+
+        if (hasOwn(updates, 'title')) {
+            const newSlug = normalizeSlug(updates.title);
+            if (!newSlug) {
+                return clientError(res, 400, 'Title must contain at least one letter or number to generate a slug.');
             }
             updates.slug = newSlug;
+        }
+
+        if (updates.slug && updates.slug !== post.slug) {
+            const slugConflict = await db.getBlogPostBySlug(updates.slug);
+            if (slugConflict && slugConflict.id !== post.id) {
+                return clientError(res, 409, 'A post with this slug already exists.');
+            }
         }
 
         if (updates.status === 'published' && !post.publishedAt) {
             updates.publishedAt = Date.now();
         }
+
+        if (Object.keys(updates).length === 0) {
+            return res.status(200).json({
+                success: true,
+                message: 'Blog post updated',
+                data: { post: stripMongoId(post) },
+            });
+        }
+
+        updates.updatedAt = Date.now();
 
         const updated = await db.updateBlogPost(req.params.postId, updates);
         return res.status(200).json({
@@ -192,25 +250,26 @@ router.post(
         return clientError(res, 400, 'Invalid slug');
     }
 
-    const token = req.body?.token;
-        const isValidToken = await verifyAndConsumeTrackingToken({
-        token,
-        slug,
-        ip: req.ip,
-        userAgent: req.get('user-agent') || '',
-    });
-
-    if (!isValidToken) {
-        return res.status(200).json({ success: true });
-    }
-
     try {
+        const token = req.body?.token;
+        const isValidToken = await verifyAndConsumeTrackingToken({
+            token,
+            slug,
+            ip: req.ip,
+            userAgent: req.get('user-agent') || '',
+        });
+
+        if (!isValidToken) {
+            return res.status(200).json({ success: true });
+        }
+
         const post = await db.getBlogPostBySlug(slug);
         if (post && post.status === 'published') {
             await db.incrementBlogPostViews(slug);
         }
         return res.status(200).json({ success: true });
     } catch (e) {
+        logger('BLOG_TRACK_VIEW').error(e);
         return serverError(res, e, 'Failed to record page view.');
     }
 });

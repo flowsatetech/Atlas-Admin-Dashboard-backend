@@ -1,2159 +1,2855 @@
-const swaggerJSDoc = require("swagger-jsdoc");
-
 const serverUrl = process.env.SERVER_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
 
-const options = {
-    definition: {
-        openapi: "3.0.3",
-        info: {
-            title: "Atlas Africa Backend API",
-            version: "1.0.0",
-            description: `API documentation for the Atlas Africa admin backend.
+const enumValues = Object.freeze({
+    clientStatuses: ["Lead", "Active", "Inactive", "Archived"],
+    projectStatuses: ["Planned", "InProgress", "OnHold", "Completed", "Cancelled"],
+    projectPriorities: ["Low", "Medium", "High", "Urgent"],
+    taskStatuses: ["Todo", "InProgress", "Review", "Done", "Blocked"],
+    taskPriorities: ["low", "medium", "high"],
+    blogStatuses: ["draft", "published", "scheduled"],
+    blogCategories: ["Marketing", "SEO", "Branding", "Social Media", "Content Marketing", "Email Marketing", "Other"],
+    leadStatuses: ["new", "contacted", "qualified", "lost"],
+    paymentStatuses: ["Paid", "Pending", "Failed", "Cancelled"],
+    dashboardPeriods: ["3months", "6months", "12months"],
+    analyticsRanges: ["7d", "30d", "3months", "6months", "12months"],
+    trendDirections: ["up", "down", "flat"],
+    memberRoles: ["admin", "staff"],
+    userRoles: ["admin", "manager", "staff", "viewer"],
+    campaignSortFields: ["createdAt", "campaignName", "impressions", "clicks", "conversions", "conversionRate"],
+    sortOrders: ["asc", "desc"],
+    projectStatusLabels: ["Finishing", "On Track", "At Risk"]
+});
 
-**Authentication:** All protected routes require a valid \`auth_token\` HttpOnly cookie (set on login). In production the cookie is \`Secure\` and \`SameSite=Strict\`; in local development it uses localhost-friendly settings. The token stamp is verified against the database on every request for server-side session revocation.
+const ref = (name) => ({ $ref: `#/components/schemas/${name}` });
+const parameterRef = (name) => ({ $ref: `#/components/parameters/${name}` });
+const responseRef = (name) => ({ $ref: `#/components/responses/${name}` });
 
-**Authorization Levels:**
-- **Authenticated** — any logged-in user.
-- **Admin** — users with \`admin\` role (create/update/delete operations).
+const jsonContent = (schema, example, examples) => {
+    const content = { schema };
+    if (example !== undefined) content.example = example;
+    if (examples !== undefined) content.examples = examples;
+    return { "application/json": content };
+};
 
-**Pagination:** List endpoints accept \`page\` (default 1) and \`limit\` (default 10, max 100) query params. Responses include a \`pagination\` object.
+const jsonRequestBody = (schemaName, example, description, required = true) => ({
+    required,
+    description,
+    content: jsonContent(ref(schemaName), example)
+});
 
-**Related entities:** Project list/detail responses include resolved \`client\` details alongside \`clientId\`. Other related entities are stored and returned as IDs (e.g. \`teamIds\`, \`authorId\`). Resolve via their respective endpoints.
-
-**Blog responses:** Blog endpoints omit MongoDB internal \`_id\` fields from response payloads.
-
-**Rate Limiting:** All endpoints are rate-limited per-user (authenticated) or per-IP (anonymous). Auth endpoints have stricter limits per-email and per-IP.`
-        },
-        servers: [
-            {
-                url: serverUrl
+const successEnvelopeSchema = (dataSchema) => ({
+    allOf: [
+        ref("ApiSuccessEnvelope"),
+        {
+            type: "object",
+            properties: {
+                data: dataSchema
             }
-        ],
-        components: {
-            securitySchemes: {
-                cookieAuth: {
-                    type: "apiKey",
-                    in: "cookie",
-                    name: "auth_token",
-                    description: "Authenticate by calling POST /api/auth/login with email + password. The server sets an HttpOnly auth_token cookie automatically. All subsequent requests use that cookie."
+        }
+    ]
+});
+
+const successResponse = (description, dataSchema, dataExample, message = "Request successful", code = 200) => ({
+    description,
+    content: jsonContent(successEnvelopeSchema(dataSchema), {
+        status: "success",
+        code,
+        data: dataExample,
+        message
+    })
+});
+
+const emptySuccessResponse = (description, message = "Request successful", code = 200) => successResponse(
+    description,
+    { type: "object", nullable: true, additionalProperties: true },
+    null,
+    message,
+    code
+);
+
+const noContentResponse = (description) => ({ description });
+
+const textResponse = (description, example) => ({
+    description,
+    content: {
+        "text/plain": {
+            schema: { type: "string" },
+            example
+        }
+    }
+});
+
+const htmlResponse = (description, example = "<html><body>Rendered content</body></html>") => ({
+    description,
+    content: {
+        "text/html": {
+            schema: { type: "string" },
+            example
+        }
+    }
+});
+
+const redirectResponse = (description) => ({
+    description,
+    headers: {
+        Location: {
+            description: "Provider-hosted URL that the client is redirected to.",
+            schema: { type: "string", format: "uri" }
+        }
+    }
+});
+
+const errorResponse = (description, code, message, details) => ({
+    description,
+    content: jsonContent(ref("ApiErrorEnvelope"), {
+        status: "error",
+        code,
+        data: null,
+        message,
+        ...(details ? { details } : {})
+    })
+});
+
+const queryParam = (name, schema, description, example) => ({
+    name,
+    in: "query",
+    required: false,
+    description,
+    schema,
+    ...(example !== undefined ? { example } : {})
+});
+
+const pathParam = (name, description, example) => ({
+    name,
+    in: "path",
+    required: true,
+    description,
+    schema: { type: "string", minLength: 1 },
+    ...(example !== undefined ? { example } : {})
+});
+
+const examples = {
+    userId: "2854abb8528fe1806d4a75d4f81035ef",
+    adminUserId: "6d62ab4046f47a11a8e70b92a57a889c",
+    clientId: "client_atlas_001",
+    projectId: "project_brand_refresh_001",
+    taskId: "task_launch_plan_001",
+    paymentId: "payment_april_milestone_001",
+    postId: "post_digital_strategy_001",
+    slug: "getting-started-with-digital-marketing",
+    leadId: "lead_quote_request_001",
+    imageId: "8dce7fb2a3e34ad6b0a51d8f6e0c771c",
+    stringId: "home_hero_headline",
+    timestamp: 1775779200000,
+    createdAt: 1775600000000,
+    updatedAt: 1775686400000,
+    userProfile: {
+        userId: "2854abb8528fe1806d4a75d4f81035ef",
+        firstName: "Ada",
+        lastName: "Okafor",
+        email: "ada.okafor@atlas.example",
+        role: "admin"
+    },
+    member: {
+        userId: "2854abb8528fe1806d4a75d4f81035ef",
+        firstName: "Ada",
+        lastName: "Okafor",
+        fullName: "Ada Okafor",
+        email: "ada.okafor@atlas.example",
+        role: "admin",
+        job: "Operations Lead",
+        status: "active",
+        avatarUrl: null,
+        lastLogin: 1775600000000,
+        createdAt: 1775600000000,
+        updatedAt: 1775686400000
+    },
+    clientSummary: {
+        id: "client_atlas_001",
+        fullName: "Jane Doe",
+        company: "Acme Corporation",
+        status: "Active",
+        tags: ["enterprise", "fintech"],
+        manager: "Ada Okafor",
+        projectsCount: 3
+    },
+    clientDetail: {
+        id: "client_atlas_001",
+        fullName: "Jane Doe",
+        companyName: "Acme Corporation",
+        email: "jane.doe@acme.example",
+        phone: "+2348012345678",
+        status: "Active",
+        tags: ["enterprise", "fintech"],
+        manager: "Ada Okafor",
+        assignedStaffId: "2854abb8528fe1806d4a75d4f81035ef",
+        leadSource: "Referral",
+        notes: "Met at Lagos Tech Summit.",
+        projectsCount: 3,
+        createdAt: 1775600000000,
+        updatedAt: 1775686400000
+    },
+    comment: {
+        id: "comment_001",
+        projectId: "project_brand_refresh_001",
+        authorId: "2854abb8528fe1806d4a75d4f81035ef",
+        content: "Client approved the revised brand direction.",
+        createdAt: 1775600000000,
+        updatedAt: 1775600000000
+    },
+    project: {
+        id: "project_brand_refresh_001",
+        name: "Website Redesign",
+        clientId: "client_atlas_001",
+        client: {
+            id: "client_atlas_001",
+            fullName: "Jane Doe",
+            companyName: "Acme Corporation",
+            email: "jane.doe@acme.example",
+            phone: "+2348012345678",
+            status: "Active",
+            tags: ["enterprise", "fintech"],
+            assignedStaffId: "2854abb8528fe1806d4a75d4f81035ef",
+            leadSource: "Referral",
+            notes: "Met at Lagos Tech Summit.",
+            projectsCount: 3,
+            createdAt: 1775600000000,
+            updatedAt: 1775686400000
+        },
+        description: "Refresh the public website, messaging, and conversion pages.",
+        deadline: 1775779200000,
+        budget: 45000,
+        recognizedRevenue: null,
+        recognizedAt: null,
+        priority: "High",
+        status: "InProgress",
+        teamIds: ["2854abb8528fe1806d4a75d4f81035ef"],
+        files: ["https://res.cloudinary.com/demo/project-brief.pdf"],
+        totalTasks: 12,
+        completedTasks: 7,
+        progress: 58,
+        createdAt: 1775600000000,
+        updatedAt: 1775686400000
+    },
+    task: {
+        id: "task_launch_plan_001",
+        title: "Prepare launch checklist",
+        description: "Confirm copy, analytics, redirects, and deployment plan.",
+        status: "InProgress",
+        assigneeId: "2854abb8528fe1806d4a75d4f81035ef",
+        dueDate: 1775779200000,
+        projectId: "project_brand_refresh_001",
+        priority: "high",
+        isOverdue: false,
+        createdAt: 1775600000000,
+        updatedAt: 1775686400000
+    },
+    blogPost: {
+        id: "post_digital_strategy_001",
+        title: "Getting Started with Digital Marketing",
+        slug: "getting-started-with-digital-marketing",
+        excerpt: "A practical guide to building your digital marketing strategy from the ground up.",
+        content: "## Introduction\nDigital marketing works best when goals, channels, and measurement are aligned.",
+        category: "Marketing",
+        authorId: "2854abb8528fe1806d4a75d4f81035ef",
+        tags: ["marketing", "digital", "strategy"],
+        status: "published",
+        isFeatured: true,
+        views: 1240,
+        publishedAt: 1775600000000,
+        scheduledAt: null,
+        createdAt: 1775520000000,
+        updatedAt: 1775686400000
+    },
+    lead: {
+        id: "lead_quote_request_001",
+        firstName: "Kemi",
+        lastName: "Adebayo",
+        fullName: "Kemi Adebayo",
+        email: "kemi@brightfoods.example",
+        phone: "+2348098765432",
+        company: "Bright Foods Ltd",
+        status: "qualified",
+        stage: "Discovery Call",
+        contactPerson: "Kemi Adebayo",
+        value: 25000,
+        source: "Website",
+        notes: "Interested in a full funnel marketing package.",
+        assignedTo: "2854abb8528fe1806d4a75d4f81035ef",
+        createdAt: 1775600000000,
+        updatedAt: 1775686400000
+    },
+    payment: {
+        id: "payment_april_milestone_001",
+        clientId: "client_atlas_001",
+        client: "Acme Corporation",
+        clientName: "Acme Corporation",
+        projectId: "project_brand_refresh_001",
+        project: "Website Redesign",
+        projectName: "Website Redesign",
+        amount: 15000,
+        status: "Paid",
+        date: 1775779200000,
+        source: "Website",
+        notes: "April milestone payment",
+        createdAt: 1775600000000,
+        updatedAt: 1775686400000
+    },
+    mediaImage: {
+        id: "8dce7fb2a3e34ad6b0a51d8f6e0c771c",
+        url: "https://res.cloudinary.com/atlas/image/upload/v1775600000/dashboard/hero.png"
+    },
+    mediaString: {
+        id: "home_hero_headline",
+        string: "Grow your business with data-backed marketing."
+    }
+};
+
+const swaggerSpec = {
+    openapi: "3.0.3",
+    info: {
+        title: "Atlas Admin Dashboard Backend API",
+        version: "1.0.0",
+        description: `Comprehensive OpenAPI documentation for the Atlas Admin Dashboard backend.
+
+This file is intentionally route-focused: every documented path maps to a mounted route in this repository.
+
+## How to use these docs
+1. Start with **Auth > Login user** and send an email/password payload.
+2. The server sets an HttpOnly \`auth_token\` cookie. Swagger UI can reuse it when the browser accepts the cookie for this API host.
+3. Protected routes declare the **cookieAuth** security requirement. Admin-only routes additionally require a user whose role is \`admin\`.
+4. Webhook routes use a separate bearer token from \`WEBHOOK_BEARER_TOKEN\` and declare **webhookBearer**.
+
+## Response envelope
+Most JSON responses under \`/api\` are normalized by the Express middleware into:
+\`{ status, code, data, message }\`.
+
+A few endpoints intentionally return non-JSON responses and are documented as such:
+- \`GET /api/media/images/{imageId}\` redirects to the provider URL.
+- \`GET /api/media/strings/{stringId}\` returns raw text.
+- \`GET /embed/{slug}\` returns HTML.
+- Some write operations return \`204 No Content\`.
+
+## Timestamps and dates
+Most persisted dates are Unix timestamps in milliseconds. Payment date input is more flexible and accepts either a Unix millisecond timestamp, a numeric string, or a parseable date string such as \`2026-04-10\`.
+
+## Swagger UI payload helpers
+Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dropdowns where possible. Request schemas include examples and defaults to make payload construction easier.`,
+        contact: {
+            name: "Atlas Backend Team"
+        }
+    },
+    servers: [
+        {
+            url: serverUrl,
+            description: "Configured API server. Set SERVER_BASE_URL to change this value."
+        }
+    ],
+    tags: [
+        { name: "Auth", description: "Cookie-based authentication and session lifecycle." },
+        { name: "User", description: "Current authenticated user profile." },
+        { name: "Dashboard", description: "Admin dashboard KPI cards, charts, in-progress projects, and activity feed." },
+        { name: "Analytics", description: "Website analytics summaries, traffic charts, sources, campaigns, and distribution widgets." },
+        { name: "Revenue", description: "Revenue time series and revenue dashboard aggregations." },
+        { name: "Payments", description: "Payment records for clients and projects." },
+        { name: "Clients", description: "Client CRM records, status cards, details, and admin mutations." },
+        { name: "Projects", description: "Projects, derived progress, comments, revenue recognition, and project status management." },
+        { name: "Tasks", description: "Task assignment, filtering, task details, and task lifecycle operations." },
+        { name: "Members", description: "Staff account management. These routes are admin-only." },
+        { name: "Media", description: "Image uploads/replacement and editable media strings." },
+        { name: "Blog", description: "Authenticated blog administration, public embed rendering, and view tracking." },
+        { name: "Leads", description: "Lead pipeline records used by the admin dashboard." },
+        { name: "Webhooks", description: "Bearer-token protected public lead ingestion endpoints." },
+        { name: "Health", description: "Service health and maintenance endpoints." },
+        { name: "Docs", description: "Swagger UI and raw OpenAPI specification endpoints." }
+    ],
+    components: {
+        securitySchemes: {
+            cookieAuth: {
+                type: "apiKey",
+                in: "cookie",
+                name: "auth_token",
+                description: "HttpOnly JWT cookie set by POST /api/auth/login. The JWT includes a server-side stamp so sessions can be revoked by clearing the user's stored stamp."
+            },
+            webhookBearer: {
+                type: "http",
+                scheme: "bearer",
+                bearerFormat: "WEBHOOK_BEARER_TOKEN",
+                description: "Shared bearer token required by /api/webhooks/* routes. Send Authorization: Bearer <WEBHOOK_BEARER_TOKEN>."
+            }
+        },
+        parameters: {
+            Page: queryParam("page", { type: "integer", minimum: 1, default: 1 }, "1-based page number for paginated endpoints.", 1),
+            Limit10: queryParam("limit", { type: "integer", minimum: 1, maximum: 100, default: 10 }, "Maximum number of records to return.", 10),
+            Limit8: queryParam("limit", { type: "integer", minimum: 1, maximum: 100, default: 8 }, "Maximum number of payment records to return.", 8),
+            Limit20: queryParam("limit", { type: "integer", minimum: 1, maximum: 100, default: 20 }, "Maximum number of task records to return.", 20),
+            ActivityLimit: queryParam("limit", { type: "integer", minimum: 1, maximum: 50, default: 10 }, "Maximum number of activity rows to return.", 10),
+            InProgressLimit: queryParam("limit", { type: "integer", minimum: 1, maximum: 20, default: 4 }, "Maximum number of in-progress projects to return.", 4),
+            Search: queryParam("search", { type: "string" }, "Case-insensitive search text where supported by the endpoint.", "acme"),
+            ClientStatus: queryParam("status", { type: "string", enum: enumValues.clientStatuses }, "Filter clients by lifecycle status.", "Active"),
+            ProjectStatus: queryParam("status", { type: "string", enum: enumValues.projectStatuses }, "Filter projects by project status.", "InProgress"),
+            TaskStatus: queryParam("status", { type: "string", enum: enumValues.taskStatuses }, "Filter tasks by workflow status.", "InProgress"),
+            BlogStatus: queryParam("status", { type: "string", enum: enumValues.blogStatuses }, "Filter blog posts by publishing status.", "published"),
+            BlogCategory: queryParam("category", { type: "string", enum: enumValues.blogCategories }, "Filter blog posts by category.", "Marketing"),
+            LeadStatus: queryParam("status", { type: "string", enum: enumValues.leadStatuses }, "Filter leads by pipeline status.", "qualified"),
+            PaymentStatus: queryParam("status", { type: "string", enum: enumValues.paymentStatuses }, "Filter payments by payment status.", "Paid"),
+            FromDate: queryParam("from", { type: "string" }, "Inclusive payment date filter. Use YYYY-MM-DD, ISO date, or a Unix millisecond timestamp string.", "2026-04-01"),
+            ToDate: queryParam("to", { type: "string" }, "Inclusive payment date filter. The backend expands date-only values to the end of the UTC day.", "2026-04-30"),
+            DashboardPeriod: queryParam("period", { type: "string", enum: enumValues.dashboardPeriods, default: "6months" }, "Time period bucket selection. Swagger UI renders this as a dropdown.", "6months"),
+            AnalyticsRange7d: queryParam("range", { type: "string", enum: enumValues.analyticsRanges, default: "7d" }, "Analytics range. Swagger UI renders this as a dropdown.", "30d"),
+            AnalyticsRange30d: queryParam("range", { type: "string", enum: enumValues.analyticsRanges, default: "30d" }, "Analytics range. Swagger UI renders this as a dropdown.", "30d"),
+            CampaignSortBy: queryParam("sortBy", { type: "string", enum: enumValues.campaignSortFields, default: "createdAt" }, "Campaign table sort field.", "createdAt"),
+            SortOrder: queryParam("order", { type: "string", enum: enumValues.sortOrders, default: "desc" }, "Sort direction.", "desc"),
+            AssigneeId: queryParam("assigneeId", { type: "string" }, "Filter tasks assigned to a userId.", examples.userId),
+            AssignedTo: queryParam("assignedTo", { type: "string" }, "Legacy alias for assigneeId supported by the backend.", examples.userId),
+            ProjectIdQuery: queryParam("projectId", { type: "string" }, "Filter tasks by project ID.", examples.projectId),
+            ClientIdPath: pathParam("id", "Client custom ID token.", examples.clientId),
+            ProjectIdPath: pathParam("projectId", "Project custom ID token.", examples.projectId),
+            TaskIdPath: pathParam("taskId", "Task custom ID token.", examples.taskId),
+            PaymentIdPath: pathParam("paymentId", "Payment custom ID token.", examples.paymentId),
+            PostIdPath: pathParam("postId", "Blog post custom ID token.", examples.postId),
+            BlogSlugPath: pathParam("slug", "URL-safe blog slug. The embed route only accepts lowercase letters, numbers, and hyphens.", examples.slug),
+            LeadIdPath: pathParam("leadId", "Lead custom ID token.", examples.leadId),
+            MemberIdPath: pathParam("id", "Staff userId. Used for update and delete operations.", examples.userId),
+            ImageIdPath: pathParam("imageId", "Media image ID token.", examples.imageId),
+            StringIdPath: pathParam("stringId", "Media string ID token.", examples.stringId)
+        },
+        schemas: {
+            Timestamp: {
+                type: "integer",
+                format: "int64",
+                minimum: 0,
+                description: "Unix timestamp in milliseconds.",
+                example: examples.timestamp
+            },
+            ApiSuccessEnvelope: {
+                type: "object",
+                required: ["status", "code", "data", "message"],
+                properties: {
+                    status: { type: "string", enum: ["success"], example: "success" },
+                    code: { type: "integer", example: 200 },
+                    data: {
+                        description: "Endpoint-specific payload. Null when an operation has no response body data.",
+                        nullable: true,
+                        oneOf: [
+                            { type: "object", additionalProperties: true },
+                            { type: "array", items: { type: "object", additionalProperties: true } },
+                            { type: "string" },
+                            { type: "number" },
+                            { type: "boolean" }
+                        ]
+                    },
+                    message: { type: "string", example: "Request successful" }
                 }
             },
-            schemas: {
-                ApiSuccessResponse: {
-                    type: "object",
-                    properties: {
-                        status: { type: "string", example: "success" },
-                        code: { type: "integer", example: 200 },
-                        data: { nullable: true },
-                        message: { type: "string", example: "Request successful" }
+            ApiErrorEnvelope: {
+                type: "object",
+                required: ["status", "code", "data", "message"],
+                properties: {
+                    status: { type: "string", enum: ["error"], example: "error" },
+                    code: { type: "integer", minimum: 400, example: 400 },
+                    data: { type: "object", nullable: true, additionalProperties: true, example: null },
+                    message: { type: "string", example: "Invalid request parameters" },
+                    details: {
+                        type: "array",
+                        nullable: true,
+                        description: "Validation details are included in non-production environments when supplied by the route.",
+                        items: { type: "string" },
+                        example: ["email: Invalid email address"]
                     },
-                    required: ["status", "code", "data", "message"]
-                },
-                ErrorResponse: {
-                    type: "object",
-                    properties: {
-                        success: { type: "boolean", example: false },
-                        message: { type: "string", example: "An unknown error occurred" }
+                    error: {
+                        type: "object",
+                        nullable: true,
+                        description: "Server error object can be included outside production.",
+                        additionalProperties: true
                     }
+                }
+            },
+            Pagination: {
+                type: "object",
+                required: ["page", "limit", "total", "totalPages"],
+                properties: {
+                    page: { type: "integer", minimum: 1, example: 1 },
+                    limit: { type: "integer", minimum: 1, example: 10 },
+                    total: { type: "integer", minimum: 0, example: 42 },
+                    totalPages: { type: "integer", minimum: 0, example: 5 }
+                }
+            },
+            TrendMetric: {
+                type: "object",
+                required: ["value", "changePct", "direction"],
+                properties: {
+                    value: { type: "number", example: 2550 },
+                    changePct: { type: "number", example: 12.5 },
+                    direction: { type: "string", enum: enumValues.trendDirections, example: "up" },
+                    compareLabel: { type: "string", example: "Vs last month" }
+                }
+            },
+            UserProfile: {
+                type: "object",
+                required: ["userId", "firstName", "lastName", "email", "role"],
+                properties: {
+                    userId: { type: "string", example: examples.userId },
+                    firstName: { type: "string", example: "Ada" },
+                    lastName: { type: "string", example: "Okafor" },
+                    email: { type: "string", format: "email", example: "ada.okafor@atlas.example" },
+                    role: { type: "string", enum: enumValues.userRoles, example: "admin" }
                 },
-                Pagination: {
-                    type: "object",
-                    properties: {
-                        total: { type: "integer" },
-                        page: { type: "integer" },
-                        limit: { type: "integer" },
-                        totalPages: { type: "integer" }
+                example: examples.userProfile
+            },
+            LoginRequest: {
+                type: "object",
+                required: ["email", "password"],
+                properties: {
+                    email: { type: "string", format: "email", example: "admin@atlas.example" },
+                    password: { type: "string", minLength: 8, format: "password", example: "StrongPass123" },
+                    rememberMe: { type: "boolean", default: false, description: "If true, the JWT cookie lasts 30 days. Otherwise it lasts one hour.", example: true }
+                }
+            },
+            Member: {
+                type: "object",
+                properties: {
+                    userId: { type: "string", example: examples.userId },
+                    firstName: { type: "string", example: "Ada" },
+                    lastName: { type: "string", example: "Okafor" },
+                    fullName: { type: "string", example: "Ada Okafor" },
+                    email: { type: "string", format: "email", example: "ada.okafor@atlas.example" },
+                    role: { type: "string", enum: enumValues.memberRoles, example: "admin" },
+                    job: { type: "string", nullable: true, example: "Operations Lead" },
+                    status: { type: "string", nullable: true, example: "active" },
+                    avatarUrl: { type: "string", format: "uri", nullable: true, example: null },
+                    lastLogin: { allOf: [ref("Timestamp")], nullable: true },
+                    createdAt: ref("Timestamp"),
+                    updatedAt: ref("Timestamp")
+                },
+                example: examples.member
+            },
+            CreateMemberRequest: {
+                type: "object",
+                required: ["firstName", "lastName", "email", "password", "role"],
+                properties: {
+                    firstName: { type: "string", minLength: 1, example: "Ada" },
+                    lastName: { type: "string", minLength: 1, example: "Okafor" },
+                    email: { type: "string", format: "email", example: "ada.okafor@atlas.example" },
+                    password: { type: "string", minLength: 8, format: "password", example: "StrongPass123" },
+                    role: { type: "string", enum: enumValues.memberRoles, default: "staff", example: "staff" },
+                    job: { type: "string", example: "Account Manager" }
+                }
+            },
+            UpdateMemberRequest: {
+                type: "object",
+                description: "All fields are optional. Use the role dropdown to grant or remove admin privileges.",
+                properties: {
+                    firstName: { type: "string", example: "Ada" },
+                    lastName: { type: "string", example: "Okafor" },
+                    role: { type: "string", enum: enumValues.memberRoles, example: "admin" },
+                    job: { type: "string", example: "Operations Lead" },
+                    status: { type: "string", example: "active" }
+                }
+            },
+            ClientSummary: {
+                type: "object",
+                required: ["id", "fullName", "company", "status", "tags", "manager", "projectsCount"],
+                properties: {
+                    id: { type: "string", example: examples.clientId },
+                    fullName: { type: "string", example: "Jane Doe" },
+                    company: { type: "string", example: "Acme Corporation" },
+                    status: { type: "string", enum: enumValues.clientStatuses, example: "Active" },
+                    tags: { type: "array", items: { type: "string" }, example: ["enterprise", "fintech"] },
+                    manager: { type: "string", example: "Ada Okafor" },
+                    projectsCount: { type: "integer", minimum: 0, example: 3 }
+                },
+                example: examples.clientSummary
+            },
+            ClientDetail: {
+                type: "object",
+                required: ["id", "fullName", "companyName", "email", "phone", "status"],
+                properties: {
+                    id: { type: "string", example: examples.clientId },
+                    fullName: { type: "string", example: "Jane Doe" },
+                    companyName: { type: "string", example: "Acme Corporation" },
+                    email: { type: "string", format: "email", example: "jane.doe@acme.example" },
+                    phone: { type: "string", minLength: 3, example: "+2348012345678" },
+                    status: { type: "string", enum: enumValues.clientStatuses, default: "Lead", example: "Active" },
+                    tags: { type: "array", items: { type: "string" }, default: [], example: ["enterprise", "fintech"] },
+                    manager: { type: "string", example: "Ada Okafor" },
+                    assignedStaffId: { type: "string", nullable: true, example: examples.userId },
+                    leadSource: { type: "string", nullable: true, example: "Referral" },
+                    notes: { type: "string", default: "", example: "Met at Lagos Tech Summit." },
+                    projectsCount: { type: "integer", minimum: 0, default: 0, example: 3 },
+                    createdAt: ref("Timestamp"),
+                    updatedAt: ref("Timestamp")
+                },
+                example: examples.clientDetail
+            },
+            CreateClientRequest: {
+                type: "object",
+                required: ["fullName", "companyName", "email", "phone"],
+                properties: {
+                    fullName: { type: "string", minLength: 1, example: "Jane Doe" },
+                    companyName: { type: "string", minLength: 1, example: "Acme Corporation" },
+                    email: { type: "string", format: "email", example: "jane.doe@acme.example" },
+                    phone: { type: "string", minLength: 3, example: "+2348012345678" },
+                    status: { type: "string", enum: enumValues.clientStatuses, default: "Lead", example: "Lead" },
+                    tags: { type: "array", items: { type: "string", minLength: 1 }, default: [], example: ["enterprise", "fintech"] },
+                    assignedStaffId: { type: "string", nullable: true, description: "Existing staff userId. Leave null to keep the client unassigned.", example: examples.userId },
+                    leadSource: { type: "string", nullable: true, example: "Referral" },
+                    notes: { type: "string", default: "", example: "Met at Lagos Tech Summit." }
+                }
+            },
+            UpdateClientRequest: {
+                type: "object",
+                description: "Partial update. All fields are optional.",
+                properties: {
+                    fullName: { type: "string", minLength: 1, example: "Jane A. Doe" },
+                    companyName: { type: "string", minLength: 1, example: "Acme Corporation" },
+                    email: { type: "string", format: "email", example: "jane@acme.example" },
+                    phone: { type: "string", minLength: 3, example: "+2348012345678" },
+                    status: { type: "string", enum: enumValues.clientStatuses, example: "Active" },
+                    tags: { type: "array", items: { type: "string", minLength: 1 }, example: ["enterprise", "priority"] },
+                    assignedStaffId: { type: "string", nullable: true, description: "Existing staff userId or null to unassign.", example: examples.adminUserId },
+                    leadSource: { type: "string", nullable: true, example: "Website" },
+                    notes: { type: "string", example: "Updated after discovery call." }
+                }
+            },
+            ClientStats: {
+                type: "object",
+                properties: {
+                    totalClients: { type: "integer", minimum: 0, example: 30 },
+                    activeClients: { type: "integer", minimum: 0, example: 21 },
+                    inactiveClients: { type: "integer", minimum: 0, example: 2 },
+                    leadClients: { type: "integer", minimum: 0, example: 7 }
+                }
+            },
+            ProjectClient: {
+                type: "object",
+                nullable: true,
+                description: "Resolved client details included by project detail/list helpers when available.",
+                properties: {
+                    id: { type: "string", example: examples.clientId },
+                    fullName: { type: "string", example: "Jane Doe" },
+                    companyName: { type: "string", example: "Acme Corporation" },
+                    email: { type: "string", format: "email", example: "jane.doe@acme.example" },
+                    phone: { type: "string", example: "+2348012345678" },
+                    status: { type: "string", enum: enumValues.clientStatuses, example: "Active" },
+                    tags: { type: "array", items: { type: "string" }, example: ["enterprise"] },
+                    assignedStaffId: { type: "string", nullable: true, example: examples.userId },
+                    leadSource: { type: "string", nullable: true, example: "Referral" },
+                    notes: { type: "string", example: "Met at Lagos Tech Summit." },
+                    projectsCount: { type: "integer", minimum: 0, example: 3 },
+                    createdAt: ref("Timestamp"),
+                    updatedAt: ref("Timestamp")
+                }
+            },
+            Project: {
+                type: "object",
+                required: ["id", "name", "clientId", "deadline", "budget", "priority", "status"],
+                properties: {
+                    id: { type: "string", example: examples.projectId },
+                    name: { type: "string", example: "Website Redesign" },
+                    clientId: { type: "string", example: examples.clientId },
+                    client: ref("ProjectClient"),
+                    description: { type: "string", default: "", example: "Refresh the public website, messaging, and conversion pages." },
+                    deadline: ref("Timestamp"),
+                    budget: { type: "number", minimum: 0, default: 0, example: 45000 },
+                    recognizedRevenue: { type: "number", nullable: true, minimum: 0, default: null, example: null },
+                    recognizedAt: { allOf: [ref("Timestamp")], nullable: true, example: null },
+                    priority: { type: "string", enum: enumValues.projectPriorities, default: "Medium", example: "High" },
+                    status: {
+                        type: "string",
+                        enum: enumValues.projectStatuses,
+                        default: "Planned",
+                        example: "InProgress",
+                        description: "Progress is derived from linked tasks. Completed can be automatic when linked tasks are all Done. OnHold and Cancelled are preserved."
+                    },
+                    teamIds: { type: "array", items: { type: "string" }, default: [], example: [examples.userId] },
+                    files: { type: "array", items: { type: "string", format: "uri" }, default: [], example: ["https://res.cloudinary.com/demo/project-brief.pdf"] },
+                    totalTasks: { type: "integer", minimum: 0, readOnly: true, example: 12 },
+                    completedTasks: { type: "integer", minimum: 0, readOnly: true, example: 7 },
+                    progress: { type: "number", minimum: 0, maximum: 100, readOnly: true, description: "Derived from linked task completion and cannot be manually set.", example: 58 },
+                    createdAt: ref("Timestamp"),
+                    updatedAt: ref("Timestamp")
+                },
+                example: examples.project
+            },
+            ProjectDetail: {
+                allOf: [
+                    ref("Project"),
+                    {
+                        type: "object",
+                        properties: {
+                            comments: { type: "array", items: ref("Comment"), example: [examples.comment] }
+                        }
                     }
+                ]
+            },
+            ProjectStats: {
+                type: "object",
+                properties: {
+                    total: { type: "integer", minimum: 0, example: 24 },
+                    planned: { type: "integer", minimum: 0, example: 4 },
+                    inProgress: { type: "integer", minimum: 0, example: 10 },
+                    onHold: { type: "integer", minimum: 0, example: 2 },
+                    completed: { type: "integer", minimum: 0, example: 7 },
+                    cancelled: { type: "integer", minimum: 0, example: 1 }
+                }
+            },
+            ProjectInfoData: {
+                type: "object",
+                description: "Global project counts returned with the project list; not filtered by the current list status filter.",
+                properties: {
+                    totalProjects: { type: "integer", minimum: 0, example: 24 },
+                    totalInProgress: { type: "integer", minimum: 0, example: 10 },
+                    totalInReview: { type: "integer", minimum: 0, example: 3 },
+                    totalCompleted: { type: "integer", minimum: 0, example: 7 }
+                }
+            },
+            CreateProjectRequest: {
+                type: "object",
+                required: ["name", "clientId", "deadline"],
+                properties: {
+                    name: { type: "string", minLength: 1, example: "Website Redesign" },
+                    clientId: { type: "string", minLength: 1, description: "Must match an existing client id.", example: examples.clientId },
+                    description: { type: "string", default: "", example: "Refresh website messaging and conversion pages." },
+                    deadline: ref("Timestamp"),
+                    budget: { type: "number", minimum: 0, default: 0, example: 45000 },
+                    recognizedRevenue: { type: "number", nullable: true, minimum: 0, default: null, example: null },
+                    recognizedAt: { allOf: [ref("Timestamp")], nullable: true, default: null, example: null },
+                    priority: { type: "string", enum: enumValues.projectPriorities, default: "Medium", example: "High" },
+                    status: { type: "string", enum: enumValues.projectStatuses, default: "Planned", example: "Planned" },
+                    teamIds: { type: "array", items: { type: "string", minLength: 1 }, default: [], description: "Each id must match an existing user.", example: [examples.userId] },
+                    files: { type: "array", items: { type: "string", format: "uri" }, default: [], example: [] }
+                }
+            },
+            UpdateProjectRequest: {
+                type: "object",
+                description: "Partial update. Do not include progress; it is derived from task completion and will be rejected.",
+                properties: {
+                    name: { type: "string", minLength: 1, example: "Website Redesign Phase 2" },
+                    clientId: { type: "string", minLength: 1, example: examples.clientId },
+                    description: { type: "string", example: "Updated scope after kickoff." },
+                    deadline: ref("Timestamp"),
+                    budget: { type: "number", minimum: 0, example: 50000 },
+                    recognizedRevenue: { type: "number", nullable: true, minimum: 0, example: null },
+                    recognizedAt: { allOf: [ref("Timestamp")], nullable: true, example: null },
+                    priority: { type: "string", enum: enumValues.projectPriorities, example: "Urgent" },
+                    status: { type: "string", enum: enumValues.projectStatuses, example: "InProgress" },
+                    teamIds: { type: "array", items: { type: "string" }, example: [examples.userId, examples.adminUserId] },
+                    files: { type: "array", items: { type: "string", format: "uri" }, example: ["https://res.cloudinary.com/demo/updated-brief.pdf"] }
+                }
+            },
+            UpdateProjectFinancialRequest: {
+                type: "object",
+                description: "Admin project update route for revenue recognition, assignees, and status. recognizedRevenue and recognizedAt must be sent together and are only valid when the final status is Completed.",
+                properties: {
+                    name: { type: "string", minLength: 1, example: "Website Redesign" },
+                    client: { type: "string", description: "Legacy client field supported by this route.", example: examples.clientId },
+                    dueTime: { allOf: [ref("Timestamp")], description: "Legacy due timestamp field supported by this route." },
+                    assignees: { type: "array", items: { type: "string" }, description: "Array of existing user IDs.", example: [examples.userId] },
+                    budget: { type: "number", minimum: 0, example: 45000 },
+                    status: { type: "string", enum: enumValues.projectStatuses, example: "Completed" },
+                    recognizedRevenue: { type: "number", minimum: 0, nullable: true, example: 45000 },
+                    recognizedAt: { allOf: [ref("Timestamp")], nullable: true, example: 1775779200000 }
                 },
-                ProjectInfoData: {
-                    type: "object",
-                    description: "Global project counts — always unfiltered.",
-                    properties: {
-                        totalProjects: { type: "integer" },
-                        totalInProgress: { type: "integer" },
-                        totalInReview: { type: "integer" },
-                        totalCompleted: { type: "integer" }
+                example: {
+                    status: "Completed",
+                    recognizedRevenue: 45000,
+                    recognizedAt: 1775779200000
+                }
+            },
+            Comment: {
+                type: "object",
+                properties: {
+                    id: { type: "string", example: "comment_001" },
+                    projectId: { type: "string", example: examples.projectId },
+                    authorId: { type: "string", example: examples.userId },
+                    content: { type: "string", example: "Client approved the revised brand direction." },
+                    createdAt: ref("Timestamp"),
+                    updatedAt: ref("Timestamp")
+                },
+                example: examples.comment
+            },
+            CreateProjectCommentRequest: {
+                type: "object",
+                required: ["comment"],
+                properties: {
+                    comment: { type: "string", minLength: 1, example: "Client approved the revised brand direction." }
+                }
+            },
+            Task: {
+                type: "object",
+                required: ["id", "title", "status", "assigneeId", "dueDate"],
+                properties: {
+                    id: { type: "string", example: examples.taskId },
+                    title: { type: "string", example: "Prepare launch checklist" },
+                    description: { type: "string", default: "", example: "Confirm copy, analytics, redirects, and deployment plan." },
+                    status: { type: "string", enum: enumValues.taskStatuses, default: "Todo", example: "InProgress" },
+                    assigneeId: { type: "string", example: examples.userId },
+                    dueDate: ref("Timestamp"),
+                    projectId: { type: "string", nullable: true, example: examples.projectId },
+                    priority: { type: "string", enum: enumValues.taskPriorities, default: "medium", example: "high" },
+                    isOverdue: { type: "boolean", readOnly: true, example: false },
+                    createdAt: ref("Timestamp"),
+                    updatedAt: ref("Timestamp")
+                },
+                example: examples.task
+            },
+            TaskDetail: {
+                allOf: [
+                    ref("Task"),
+                    {
+                        type: "object",
+                        description: "Task detail may include enriched assignee or project objects from the database helper when available.",
+                        additionalProperties: true
                     }
+                ]
+            },
+            CreateTaskRequest: {
+                type: "object",
+                required: ["title", "assigneeId"],
+                properties: {
+                    title: { type: "string", minLength: 1, example: "Prepare launch checklist" },
+                    description: { type: "string", example: "Confirm copy, analytics, redirects, and deployment plan." },
+                    assigneeId: { type: "string", description: "Required unless using the legacy assignedTo alias. Must match an existing user.", example: examples.userId },
+                    assignedTo: { type: "string", description: "Legacy alias for assigneeId.", example: examples.userId },
+                    dueDate: ref("Timestamp"),
+                    status: { type: "string", enum: enumValues.taskStatuses, default: "Todo", example: "Todo" },
+                    projectId: { type: "string", description: "Optional existing project id.", example: examples.projectId },
+                    priority: { type: "string", enum: enumValues.taskPriorities, default: "medium", example: "high" }
+                }
+            },
+            UpdateTaskRequest: {
+                type: "object",
+                description: "Partial update. All fields are optional.",
+                properties: {
+                    title: { type: "string", minLength: 1, example: "Prepare updated launch checklist" },
+                    description: { type: "string", example: "Add QA sign-off and analytics verification." },
+                    assigneeId: { type: "string", example: examples.adminUserId },
+                    assignedTo: { type: "string", description: "Legacy alias for assigneeId.", example: examples.adminUserId },
+                    dueDate: ref("Timestamp"),
+                    status: { type: "string", enum: enumValues.taskStatuses, example: "Review" },
+                    projectId: { type: "string", example: examples.projectId },
+                    priority: { type: "string", enum: enumValues.taskPriorities, example: "medium" }
+                }
+            },
+            BlogPost: {
+                type: "object",
+                required: ["id", "title", "slug", "excerpt", "category", "authorId", "status"],
+                description: "Blog responses are stripped of MongoDB internal _id fields.",
+                properties: {
+                    id: { type: "string", example: examples.postId },
+                    title: { type: "string", example: "Getting Started with Digital Marketing" },
+                    slug: { type: "string", example: examples.slug },
+                    excerpt: { type: "string", example: "A practical guide to building your digital marketing strategy from the ground up." },
+                    content: { type: "string", description: "Markdown content. The embed route renders Markdown to sanitized HTML.", example: "## Introduction\nDigital marketing works best when goals, channels, and measurement are aligned." },
+                    category: { type: "string", enum: enumValues.blogCategories, example: "Marketing" },
+                    authorId: { type: "string", example: examples.userId },
+                    tags: { type: "array", items: { type: "string" }, default: [], example: ["marketing", "digital", "strategy"] },
+                    status: { type: "string", enum: enumValues.blogStatuses, default: "draft", example: "published" },
+                    isFeatured: { type: "boolean", default: false, example: true },
+                    views: { type: "integer", minimum: 0, readOnly: true, example: 1240 },
+                    publishedAt: { allOf: [ref("Timestamp")], nullable: true, example: 1775600000000 },
+                    scheduledAt: { allOf: [ref("Timestamp")], nullable: true, example: null },
+                    createdAt: ref("Timestamp"),
+                    updatedAt: ref("Timestamp")
                 },
-                ProjectClient: {
-                    type: "object",
-                    nullable: true,
-                    description: "Resolved client details for project responses. Null when the referenced client cannot be found.",
-                    properties: {
-                        id: { type: "string" },
-                        fullName: { type: "string" },
-                        companyName: { type: "string" },
-                        email: { type: "string", format: "email" },
-                        phone: { type: "string" },
-                        status: { type: "string", enum: ["Lead", "Active", "Inactive", "Archived"] },
-                        tags: { type: "array", items: { type: "string" } },
-                        assignedStaffId: { type: "string", nullable: true },
-                        leadSource: { type: "string", nullable: true },
-                        notes: { type: "string" },
-                        projectsCount: { type: "integer" },
-                        createdAt: { type: "integer" },
-                        updatedAt: { type: "integer" }
+                example: examples.blogPost
+            },
+            CreateBlogPostRequest: {
+                type: "object",
+                description: "Client payload for creating a blog post. Do not send slug; the backend generates it from title.",
+                required: ["title", "excerpt", "category", "authorId"],
+                properties: {
+                    title: { type: "string", minLength: 1, description: "Used by the backend to generate the canonical slug.", example: "Getting Started with Digital Marketing" },
+                    excerpt: { type: "string", minLength: 1, example: "A practical guide to building your digital marketing strategy from the ground up." },
+                    content: { type: "string", default: "", example: "## Introduction\nDigital marketing works best when goals, channels, and measurement are aligned." },
+                    category: { type: "string", enum: enumValues.blogCategories, example: "Marketing" },
+                    authorId: { type: "string", description: "Must match an existing userId.", example: examples.userId },
+                    tags: { type: "array", items: { type: "string", minLength: 1 }, default: [], example: ["marketing", "digital", "strategy"] },
+                    status: { type: "string", enum: enumValues.blogStatuses, default: "draft", example: "draft" },
+                    isFeatured: { type: "boolean", default: false, example: false },
+                    publishedAt: { allOf: [ref("Timestamp")], nullable: true, example: null },
+                    scheduledAt: { allOf: [ref("Timestamp")], nullable: true, description: "Use when status is scheduled.", example: null }
+                }
+            },
+            UpdateBlogPostRequest: {
+                type: "object",
+                description: "Partial update. Do not send slug; if title changes, the backend regenerates the slug from title. Set status to published to publish; set isFeatured to control featured state.",
+                properties: {
+                    title: { type: "string", minLength: 1, description: "When changed, the backend regenerates slug from this title.", example: "10 SEO Tips for 2026" },
+                    excerpt: { type: "string", example: "A concise summary of practical SEO improvements." },
+                    content: { type: "string", example: "## SEO tips\nFocus on search intent, performance, and helpful content." },
+                    category: { type: "string", enum: enumValues.blogCategories, example: "SEO" },
+                    authorId: { type: "string", example: examples.userId },
+                    tags: { type: "array", items: { type: "string" }, example: ["SEO", "Marketing"] },
+                    status: { type: "string", enum: enumValues.blogStatuses, example: "published" },
+                    isFeatured: { type: "boolean", example: true },
+                    publishedAt: { allOf: [ref("Timestamp")], nullable: true, example: 1775600000000 },
+                    scheduledAt: { allOf: [ref("Timestamp")], nullable: true, example: null }
+                }
+            },
+            BlogStats: {
+                type: "object",
+                properties: {
+                    total: { type: "integer", minimum: 0, example: 42 },
+                    published: { type: "integer", minimum: 0, example: 28 },
+                    draft: { type: "integer", minimum: 0, example: 10 },
+                    scheduled: { type: "integer", minimum: 0, example: 4 },
+                    totalViews: { type: "integer", minimum: 0, example: 38000 }
+                }
+            },
+            TrackBlogViewRequest: {
+                type: "object",
+                required: ["token"],
+                properties: {
+                    token: { type: "string", description: "Short-lived signed token generated inside the /embed/{slug} HTML page.", example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.track-token" }
+                }
+            },
+            Lead: {
+                type: "object",
+                required: ["id", "firstName", "lastName", "email"],
+                properties: {
+                    id: { type: "string", example: examples.leadId },
+                    firstName: { type: "string", example: "Kemi" },
+                    lastName: { type: "string", example: "Adebayo" },
+                    fullName: { type: "string", default: "", example: "Kemi Adebayo" },
+                    email: { type: "string", format: "email", example: "kemi@brightfoods.example" },
+                    phone: { type: "string", default: "", example: "+2348098765432" },
+                    company: { type: "string", default: "", example: "Bright Foods Ltd" },
+                    status: { type: "string", enum: enumValues.leadStatuses, default: "new", example: "qualified" },
+                    stage: { type: "string", default: "", example: "Discovery Call" },
+                    contactPerson: { type: "string", default: "", example: "Kemi Adebayo" },
+                    value: { type: "number", minimum: 0, default: 0, example: 25000 },
+                    source: { type: "string", default: "", example: "Website" },
+                    notes: { type: "string", default: "", example: "Interested in a full funnel marketing package." },
+                    assignedTo: { type: "string", default: "", example: examples.userId },
+                    createdAt: ref("Timestamp"),
+                    updatedAt: ref("Timestamp")
+                },
+                example: examples.lead
+            },
+            CreateLeadRequest: {
+                type: "object",
+                required: ["firstName", "lastName", "email"],
+                properties: {
+                    firstName: { type: "string", minLength: 1, example: "Kemi" },
+                    lastName: { type: "string", minLength: 1, example: "Adebayo" },
+                    fullName: { type: "string", example: "Kemi Adebayo" },
+                    email: { type: "string", format: "email", example: "kemi@brightfoods.example" },
+                    phone: { type: "string", example: "+2348098765432" },
+                    company: { type: "string", example: "Bright Foods Ltd" },
+                    status: { type: "string", enum: enumValues.leadStatuses, default: "new", example: "new" },
+                    stage: { type: "string", example: "New Inquiry" },
+                    contactPerson: { type: "string", example: "Kemi Adebayo" },
+                    value: { type: "number", minimum: 0, default: 0, example: 25000 },
+                    source: { type: "string", example: "Website" },
+                    notes: { type: "string", example: "Interested in brand strategy and paid ads." },
+                    assignedTo: { type: "string", example: examples.userId }
+                }
+            },
+            UpdateLeadRequest: {
+                type: "object",
+                description: "Partial lead update. All fields are optional.",
+                properties: {
+                    firstName: { type: "string", example: "Kemi" },
+                    lastName: { type: "string", example: "Adebayo" },
+                    fullName: { type: "string", example: "Kemi Adebayo" },
+                    email: { type: "string", format: "email", example: "kemi@brightfoods.example" },
+                    phone: { type: "string", example: "+2348098765432" },
+                    company: { type: "string", example: "Bright Foods Ltd" },
+                    status: { type: "string", enum: enumValues.leadStatuses, example: "contacted" },
+                    stage: { type: "string", example: "Discovery Call" },
+                    contactPerson: { type: "string", example: "Kemi Adebayo" },
+                    value: { type: "number", minimum: 0, example: 30000 },
+                    source: { type: "string", example: "Referral" },
+                    notes: { type: "string", example: "Call scheduled for next week." },
+                    assignedTo: { type: "string", example: examples.adminUserId }
+                }
+            },
+            Payment: {
+                type: "object",
+                required: ["id", "clientName", "projectName", "amount", "status", "date"],
+                properties: {
+                    id: { type: "string", example: examples.paymentId },
+                    clientId: { type: "string", nullable: true, example: examples.clientId },
+                    client: { type: "string", description: "Alias returned for clientName for frontend compatibility.", example: "Acme Corporation" },
+                    clientName: { type: "string", example: "Acme Corporation" },
+                    projectId: { type: "string", nullable: true, example: examples.projectId },
+                    project: { type: "string", description: "Alias returned for projectName for frontend compatibility.", example: "Website Redesign" },
+                    projectName: { type: "string", example: "Website Redesign" },
+                    amount: { type: "number", minimum: 0, exclusiveMinimum: true, example: 15000 },
+                    status: { type: "string", enum: enumValues.paymentStatuses, default: "Pending", example: "Paid" },
+                    date: ref("Timestamp"),
+                    source: { type: "string", nullable: true, example: "Website" },
+                    notes: { type: "string", default: "", example: "April milestone payment" },
+                    createdAt: ref("Timestamp"),
+                    updatedAt: ref("Timestamp")
+                },
+                example: examples.payment
+            },
+            PaymentDateInput: {
+                oneOf: [
+                    { type: "integer", format: "int64", minimum: 0, example: 1775779200000 },
+                    { type: "string", example: "2026-04-10" }
+                ],
+                description: "Accepted payment date input: Unix milliseconds, numeric string, or parseable date string. The backend stores Unix milliseconds."
+            },
+            CreatePaymentRequest: {
+                type: "object",
+                required: ["clientName", "amount", "date"],
+                anyOf: [
+                    { required: ["projectName"] },
+                    { required: ["project"] }
+                ],
+                properties: {
+                    clientId: { type: "string", nullable: true, description: "Optional existing client id. If supplied, the backend verifies it and can fill clientName.", example: examples.clientId },
+                    clientName: { type: "string", minLength: 1, example: "Acme Corporation" },
+                    projectId: { type: "string", nullable: true, description: "Optional existing project id. If supplied, the backend verifies it and can fill projectName/client fields.", example: examples.projectId },
+                    project: { type: "string", minLength: 1, description: "Accepted alias for projectName.", example: "Website Redesign" },
+                    projectName: { type: "string", minLength: 1, example: "Website Redesign" },
+                    amount: { type: "number", minimum: 0, exclusiveMinimum: true, example: 15000 },
+                    status: { type: "string", enum: enumValues.paymentStatuses, default: "Pending", example: "Paid" },
+                    date: ref("PaymentDateInput"),
+                    source: { type: "string", nullable: true, example: "Website" },
+                    notes: { type: "string", default: "", example: "April milestone payment" }
+                },
+                example: {
+                    clientName: "Acme Corporation",
+                    project: "Website Redesign",
+                    amount: 15000,
+                    status: "Paid",
+                    date: "2026-04-10",
+                    source: "Website",
+                    notes: "April milestone payment"
+                }
+            },
+            UpdatePaymentRequest: {
+                type: "object",
+                description: "Partial payment update. All fields are optional.",
+                properties: {
+                    clientId: { type: "string", nullable: true, example: examples.clientId },
+                    clientName: { type: "string", minLength: 1, example: "Acme Corporation" },
+                    projectId: { type: "string", nullable: true, example: examples.projectId },
+                    project: { type: "string", minLength: 1, description: "Accepted alias for projectName.", example: "Website Redesign" },
+                    projectName: { type: "string", minLength: 1, example: "Website Redesign" },
+                    amount: { type: "number", minimum: 0, exclusiveMinimum: true, example: 18000 },
+                    status: { type: "string", enum: enumValues.paymentStatuses, example: "Pending" },
+                    date: ref("PaymentDateInput"),
+                    source: { type: "string", nullable: true, example: "Referral" },
+                    notes: { type: "string", example: "Updated payment status after bank confirmation." }
+                }
+            },
+            MediaImage: {
+                type: "object",
+                properties: {
+                    id: { type: "string", example: examples.imageId },
+                    url: { type: "string", format: "uri", example: "https://res.cloudinary.com/atlas/image/upload/v1775600000/dashboard/hero.png" }
+                },
+                example: examples.mediaImage
+            },
+            MediaString: {
+                type: "object",
+                properties: {
+                    id: { type: "string", example: examples.stringId },
+                    string: { type: "string", example: "Grow your business with data-backed marketing." }
+                },
+                example: examples.mediaString
+            },
+            MediaStringRequest: {
+                type: "object",
+                required: ["string"],
+                properties: {
+                    string: { type: "string", example: "Grow your business with data-backed marketing." }
+                }
+            },
+            DashboardMetrics: {
+                type: "object",
+                properties: {
+                    totalClients: ref("TrendMetric"),
+                    activeProjects: ref("TrendMetric"),
+                    pendingTasks: ref("TrendMetric"),
+                    newLeads: ref("TrendMetric")
+                }
+            },
+            DashboardPerformance: {
+                type: "object",
+                properties: {
+                    period: { type: "string", enum: enumValues.dashboardPeriods, example: "6months" },
+                    labels: { type: "array", items: { type: "string" }, example: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"] },
+                    revenueSeries: { type: "array", items: { type: "number" }, example: [20000, 36000, 54000, 50000, 72000, 56000] },
+                    newClientSeries: { type: "array", items: { type: "number" }, example: [16, 23, 34, 27, 42, 34] }
+                }
+            },
+            DashboardInProgressProject: {
+                type: "object",
+                properties: {
+                    id: { type: "string", example: examples.projectId },
+                    name: { type: "string", example: "Brand Strategy" },
+                    clientName: { type: "string", example: "Acme Corporation" },
+                    statusLabel: { type: "string", enum: enumValues.projectStatusLabels, example: "On Track" },
+                    progress: { type: "number", minimum: 0, maximum: 100, example: 60 }
+                }
+            },
+            DashboardActivities: {
+                type: "object",
+                properties: {
+                    items: {
+                        type: "array",
+                        items: ref("DashboardActivityItem")
+                    },
+                    pagination: ref("Pagination")
+                }
+            },
+            DashboardActivityItem: {
+                type: "object",
+                properties: {
+                    id: { type: "string", example: "activity_001" },
+                    title: { type: "string", example: "New Client Added" },
+                    description: { type: "string", example: "Jane Doe was added as a new client" },
+                    actorName: { type: "string", example: "Ada Okafor" },
+                    createdAt: ref("Timestamp"),
+                    timeAgo: { type: "string", example: "2 mins ago" }
+                }
+            },
+            AnalyticsOverview: {
+                type: "object",
+                properties: {
+                    websiteVisitors: ref("TrendMetric"),
+                    pageViews: ref("TrendMetric"),
+                    conversionRate: ref("TrendMetric"),
+                    topTrafficSource: {
+                        type: "object",
+                        properties: {
+                            name: { type: "string", example: "Google" },
+                            changePct: { type: "number", example: 8 },
+                            direction: { type: "string", enum: enumValues.trendDirections, example: "up" }
+                        }
                     }
-                },
-                Project: {
-                    type: "object",
-                    properties: {
-                        id: { type: "string" },
-                        name: { type: "string" },
-                        clientId: { type: "string" },
-                        client: { "$ref": "#/components/schemas/ProjectClient" },
-                        description: { type: "string" },
-                        deadline: { type: "integer" },
-                        budget: { type: "number" },
-                        priority: { type: "string", enum: ["Low", "Medium", "High", "Urgent"] },
-                        status: { type: "string", enum: ["Planned", "InProgress", "OnHold", "Completed", "Cancelled"], description: "Derived from linked task completion unless the project is OnHold or Cancelled. Automatically becomes Completed when all linked tasks are Done." },
-                        teamIds: { type: "array", items: { type: "string" } },
-                        totalTasks: { type: "integer", minimum: 0, description: "Number of tasks linked to this project." },
-                        completedTasks: { type: "integer", minimum: 0, description: "Number of linked tasks with status Done." },
-                        progress: { type: "integer", minimum: 0, maximum: 100, description: "Task-completion percentage derived as completedTasks / totalTasks * 100. This value is not manually settable." },
-                        files: { type: "array", items: { type: "string", format: "uri" } },
-                        createdAt: { type: "integer" },
-                        updatedAt: { type: "integer" }
-                    }
-                },
-                ProjectDetail: {
-                    allOf: [
-                        { "$ref": "#/components/schemas/Project" },
-                        {
+                }
+            },
+            AnalyticsTraffic: {
+                type: "object",
+                properties: {
+                    range: { type: "string", enum: enumValues.analyticsRanges, example: "30d" },
+                    labels: { type: "array", items: { type: "string" }, example: ["Week 1", "Week 2", "Week 3", "Week 4"] },
+                    visitsSeries: { type: "array", items: { type: "number" }, example: [8500, 9200, 10100, 9800] },
+                    pageViewsSeries: { type: "array", items: { type: "number" }, example: [18500, 20300, 21900, 21000] },
+                    conversionRateSeries: { type: "array", items: { type: "number" }, example: [4.8, 5.1, 5.6, 5.2] }
+                }
+            },
+            AnalyticsSources: {
+                type: "object",
+                properties: {
+                    sources: {
+                        type: "array",
+                        items: {
                             type: "object",
                             properties: {
-                                comments: {
-                                    type: "array",
-                                    items: { "$ref": "#/components/schemas/Comment" }
-                                }
+                                source: { type: "string", example: "Google" },
+                                percentage: { type: "number", minimum: 0, maximum: 100, example: 42.5 }
                             }
                         }
-                    ]
-                },
-                Comment: {
-                    type: "object",
-                    properties: {
-                        id: { type: "string" },
-                        projectId: { type: "string" },
-                        authorId: { type: "string" },
-                        content: { type: "string" },
-                        createdAt: { type: "integer" },
-                        updatedAt: { type: "integer" }
-                    }
-                },
-                BlogPost: {
-                    type: "object",
-                    properties: {
-                        id: { type: "string" },
-                        title: { type: "string" },
-                        slug: { type: "string" },
-                        excerpt: { type: "string" },
-                        content: { type: "string", description: "HTML content of the post" },
-                        category: { type: "string", enum: ["Marketing", "SEO", "Branding", "Social Media", "Content Marketing", "Email Marketing", "Other"] },
-                        authorId: { type: "string" },
-                        tags: { type: "array", items: { type: "string" } },
-                        status: { type: "string", enum: ["draft", "published", "scheduled"] },
-                        isFeatured: { type: "boolean" },
-                        views: { type: "integer", minimum: 0 },
-                        publishedAt: { type: "integer", nullable: true },
-                        scheduledAt: { type: "integer", nullable: true },
-                        createdAt: { type: "integer" },
-                        updatedAt: { type: "integer" }
-                    }
-                },
-                CreateBlogPostBody: {
-                    type: "object",
-                    required: ["title", "excerpt", "category", "authorId", "status"],
-                    properties: {
-                        title: { type: "string", example: "Getting Started with Digital Marketing" },
-                        slug: { type: "string", description: "Optional — auto-generated from title if omitted", example: "getting-started-with-digital-marketing" },
-                        excerpt: { type: "string", example: "A practical guide to building your digital marketing strategy from the ground up." },
-                        content: { type: "string", description: "Body content of the post.", example: "Digital marketing encompasses all marketing efforts that use the internet or an electronic device." },
-                        category: { type: "string", enum: ["Marketing", "SEO", "Branding", "Social Media", "Content Marketing", "Email Marketing", "Other"], example: "Marketing" },
-                        authorId: { type: "string", description: "userId of an existing user. Must match a user in the database.", example: "2854abb8528fe1806d4a75d4f81035ef" },
-                        tags: { type: "array", items: { type: "string" }, example: ["marketing", "digital", "strategy"] },
-                        status: { type: "string", enum: ["draft", "published", "scheduled"], example: "draft" },
-                        isFeatured: { type: "boolean", default: false, example: false },
-                        scheduledAt: { type: "integer", nullable: true, description: "Unix ms timestamp for scheduled publish. Required when status is 'scheduled'.", example: null }
-                    },
-                    example: {
-                        title: "Getting Started with Digital Marketing",
-                        excerpt: "A practical guide to building your digital marketing strategy from the ground up.",
-                        content: "Digital marketing encompasses all marketing efforts that use the internet or an electronic device.",
-                        category: "Marketing",
-                        authorId: "2854abb8528fe1806d4a75d4f81035ef",
-                        tags: ["marketing", "digital", "strategy"],
-                        status: "draft",
-                        isFeatured: false
-                    }
-                },
-                UpdateBlogPostBody: {
-                    type: "object",
-                    properties: {
-                        title: { type: "string", example: "10 SEO Tips for 2026" },
-                        slug: { type: "string", description: "Optional — auto-generated from title if omitted", example: "10-seo-tips-for-2026" },
-                        excerpt: { type: "string", example: "A concise summary of the post." },
-                        content: { type: "string", description: "Markdown body content. The backend stores markdown and renders HTML in /embed/{slug}." },
-                        category: { type: "string", enum: ["Marketing", "SEO", "Branding", "Social Media", "Content Marketing", "Email Marketing", "Other"] },
-                        authorId: { type: "string" },
-                        tags: { type: "array", items: { type: "string" }, example: ["SEO", "Marketing"] },
-                        status: { type: "string", enum: ["draft", "published", "scheduled"] },
-                        isFeatured: { type: "boolean" },
-                        scheduledAt: { type: "integer", nullable: true, description: "Unix ms timestamp for scheduled publish" }
-                    }
-                },
-                BlogStats: {
-                    type: "object",
-                    properties: {
-                        total: { type: "integer" },
-                        published: { type: "integer" },
-                        draft: { type: "integer" },
-                        scheduled: { type: "integer" },
-                        totalViews: { type: "integer" }
                     }
                 }
             },
-            responses: {
-                BadRequest: {
-                    description: "Invalid request parameters",
-                    content: {
-                        "application/json": {
-                            schema: { $ref: "#/components/schemas/ErrorResponse" },
-                            example: {
-                                status: "error",
-                                code: 400,
-                                data: null,
-                                message: "Invalid request parameters"
+            AnalyticsCampaign: {
+                type: "object",
+                properties: {
+                    id: { type: "string", example: "campaign_001" },
+                    campaignName: { type: "string", example: "Q2 Growth Campaign" },
+                    impressions: { type: "integer", minimum: 0, example: 125000 },
+                    clicks: { type: "integer", minimum: 0, example: 5300 },
+                    conversions: { type: "integer", minimum: 0, example: 420 },
+                    conversionRate: { type: "number", minimum: 0, maximum: 100, example: 7.92 }
+                }
+            },
+            AnalyticsDistribution: {
+                type: "object",
+                properties: {
+                    distribution: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                label: { type: "string", example: "Page Views" },
+                                value: { type: "number", minimum: 0, example: 78540 }
                             }
                         }
                     }
-                },
-                Unauthorized: {
-                    description: "Authentication required or session invalid",
-                    content: {
-                        "application/json": {
-                            schema: { $ref: "#/components/schemas/ErrorResponse" },
-                            example: {
-                                status: "error",
-                                code: 401,
-                                data: null,
-                                message: "Access denied. Please sign in."
+                }
+            },
+            RevenueSummaryMetric: {
+                allOf: [
+                    ref("TrendMetric"),
+                    {
+                        type: "object",
+                        properties: {
+                            compareLabel: { type: "string", example: "vs previous period" }
+                        }
+                    }
+                ]
+            },
+            RevenueSeries: {
+                type: "object",
+                properties: {
+                    period: { type: "string", enum: enumValues.dashboardPeriods, example: "6months" },
+                    labels: { type: "array", items: { type: "string" }, example: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"] },
+                    revenueSeries: { type: "array", items: { type: "number" }, example: [45000, 52000, 48000, 61000, 55000, 68000] }
+                }
+            },
+            RevenueDashboard: {
+                type: "object",
+                properties: {
+                    summary: {
+                        type: "object",
+                        properties: {
+                            totalRevenue: ref("RevenueSummaryMetric"),
+                            monthlyRevenue: ref("RevenueSummaryMetric"),
+                            growthRate: ref("RevenueSummaryMetric"),
+                            pendingPayments: ref("RevenueSummaryMetric")
+                        }
+                    },
+                    revenueOverTime: {
+                        type: "object",
+                        properties: {
+                            labels: { type: "array", items: { type: "string" }, example: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"] },
+                            series: { type: "array", items: { type: "number" }, example: [45000, 52000, 48000, 61000, 55000, 68000] }
+                        }
+                    },
+                    revenueBySource: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                source: { type: "string", example: "Website" },
+                                amount: { type: "number", example: 120000 }
+                            }
+                        }
+                    },
+                    revenueByService: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                service: { type: "string", example: "Consulting" },
+                                amount: { type: "number", example: 180000 },
+                                percentage: { type: "number", example: 38 }
+                            }
+                        }
+                    },
+                    topClients: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                clientId: { type: "string", example: examples.clientId },
+                                clientName: { type: "string", example: "Acme Corporation" },
+                                amount: { type: "number", example: 85000 },
+                                percentage: { type: "number", example: 18 },
+                                logoUrl: { type: "string", format: "uri", nullable: true, example: null }
                             }
                         }
                     }
-                },
-                Forbidden: {
-                    description: "Authenticated user does not have permission",
-                    content: {
-                        "application/json": {
-                            schema: { $ref: "#/components/schemas/ErrorResponse" },
-                            example: {
-                                status: "error",
-                                code: 403,
-                                data: null,
-                                message: "Access denied. Admins only."
-                            }
-                        }
-                    }
-                },
-                NotFound: {
-                    description: "Resource not found",
-                    content: {
-                        "application/json": {
-                            schema: { $ref: "#/components/schemas/ErrorResponse" },
-                            example: {
-                                status: "error",
-                                code: 404,
-                                data: null,
-                                message: "Resource not found"
-                            }
-                        }
-                    }
-                },
-                TooManyRequests: {
-                    description: "Rate limit exceeded",
-                    content: {
-                        "application/json": {
-                            schema: { $ref: "#/components/schemas/ErrorResponse" },
-                            example: {
-                                status: "error",
-                                code: 429,
-                                data: null,
-                                message: "Too many requests. Please slow down."
-                            }
-                        }
-                    }
-                },
-                ServerError: {
-                    description: "Internal server error",
-                    content: {
-                        "application/json": {
-                            schema: { $ref: "#/components/schemas/ErrorResponse" },
-                            example: {
-                                status: "error",
-                                code: 500,
-                                data: null,
-                                message: "An unknown error occurred"
-                            }
-                        }
-                    }
+                }
+            },
+            QualifiedWebhookLeadRequest: {
+                type: "object",
+                required: ["name", "email"],
+                properties: {
+                    form_type: { type: "string", example: "quote_request" },
+                    name: { type: "string", minLength: 1, example: "Kemi Adebayo" },
+                    email: { type: "string", format: "email", example: "kemi@brightfoods.example" },
+                    phone: { type: "string", default: "", example: "+2348098765432" },
+                    service: { type: "string", default: "", example: "Growth Marketing" },
+                    budget: { type: "string", default: "", example: "$10,000 - $25,000" },
+                    details: { type: "string", default: "", example: "We need help launching a new food product line." }
+                }
+            },
+            GeneralWebhookLeadRequest: {
+                type: "object",
+                required: ["name", "email"],
+                properties: {
+                    name: { type: "string", minLength: 1, example: "Tunde Bello" },
+                    email: { type: "string", format: "email", example: "tunde@northstar.example" },
+                    phone: { type: "string", default: "", example: "+2348011122233" },
+                    business: { type: "string", default: "", example: "Northstar Logistics" },
+                    service: { type: "string", default: "", example: "Brand Strategy" },
+                    challenge: { type: "string", default: "", example: "Low lead quality from current campaigns." },
+                    budget: { type: "string", default: "", example: "$5,000 - $10,000" }
+                }
+            },
+            HealthData: {
+                type: "object",
+                nullable: true,
+                description: "Health route sends raw success/message fields, which the /api response normalizer converts to data: null.",
+                example: null
+            }
+        },
+        responses: {
+            BadRequest: errorResponse("Bad request or validation error.", 400, "Invalid request parameters", ["One or more fields are invalid."]),
+            Unauthorized: errorResponse("Authentication is required, invalid, expired, or revoked.", 401, "Access denied. Please sign in."),
+            Forbidden: errorResponse("The authenticated user does not have permission for this operation.", 403, "Access denied. Admins only."),
+            NotFound: errorResponse("The requested resource was not found.", 404, "Resource not found"),
+            Conflict: errorResponse("A unique constraint or duplicate value conflict occurred.", 409, "A resource with this value already exists."),
+            TooManyRequests: errorResponse("Rate limit exceeded.", 429, "Too many requests. Please slow down."),
+            ServerError: errorResponse("Internal server error.", 500, "An unknown error occurred"),
+            ServiceUnavailable: errorResponse("Dependency unavailable.", 503, "Service temporarily unavailable")
+        }
+    },
+    paths: {
+        "/api/auth/login": {
+            post: {
+                tags: ["Auth"],
+                operationId: "loginUser",
+                summary: "Login user",
+                description: "Authenticates an admin/staff user with email and password, sets the HttpOnly auth_token cookie, stores a fresh stamp on the user record, and returns the authenticated user profile. The cookie is Secure; SameSite is strict in production and none outside production.",
+                requestBody: jsonRequestBody("LoginRequest", {
+                    email: "admin@atlas.example",
+                    password: "StrongPass123",
+                    rememberMe: true
+                }, "Login credentials. Use rememberMe to request a longer-lived cookie."),
+                responses: {
+                    200: successResponse("Signed in successfully. auth_token cookie is set by Set-Cookie.", {
+                        type: "object",
+                        properties: { user: ref("UserProfile") }
+                    }, { user: examples.userProfile }, "Signed in successfully"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
                 }
             }
         },
-        paths: {
-            "/api/auth/login": {
-                post: {
-                    tags: ["Auth"],
-                    summary: "Login user",
-                    description: "Authenticates via email/password. Sets an HttpOnly, Secure, SameSite=Strict auth_token cookie. Stamp is stored in DB for server-side session revocation.",
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    required: ["email", "password"],
-                                    properties: {
-                                        email: { type: "string", format: "email" },
-                                        password: { type: "string", minLength: 8 },
-                                        rememberMe: { type: "boolean", description: "If true, cookie lasts 30 days; otherwise 1 hour." }
-                                    }
+        "/api/auth/logout": {
+            post: {
+                tags: ["Auth"],
+                operationId: "logoutUser",
+                summary: "Logout user",
+                description: "Clears the auth_token cookie and nullifies the current user's session stamp in the database, revoking active sessions for that user.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: emptySuccessResponse("Logged out successfully.", "Logged out successfully"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/user/profile": {
+            get: {
+                tags: ["User"],
+                operationId: "getCurrentUserProfile",
+                summary: "Get current user profile",
+                description: "Returns the profile of the authenticated user resolved by auth_token. The backend verifies the token stamp against the database before reaching this route.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Current profile returned.", {
+                        type: "object",
+                        properties: { profile: ref("UserProfile") }
+                    }, { profile: examples.userProfile }, "Fetch profile success"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/dashboard/metrics": {
+            get: {
+                tags: ["Dashboard"],
+                operationId: "getDashboardMetrics",
+                summary: "Get dashboard KPI cards",
+                description: "Returns total clients, active projects, pending tasks, and new leads with month-over-month trend metadata.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Dashboard metrics returned.", ref("DashboardMetrics"), {
+                        totalClients: { value: 2550, changePct: 12.5, direction: "up", compareLabel: "Vs last month" },
+                        activeProjects: { value: 140, changePct: 8.2, direction: "up", compareLabel: "Vs last month" },
+                        pendingTasks: { value: 65, changePct: -3.5, direction: "down", compareLabel: "Vs last month" },
+                        newLeads: { value: 200, changePct: 12.5, direction: "up", compareLabel: "Vs last month" }
+                    }),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/dashboard/performance": {
+            get: {
+                tags: ["Dashboard"],
+                operationId: "getDashboardPerformance",
+                summary: "Get dashboard performance chart data",
+                description: "Returns labels plus revenue and new-client series for the selected period. The period query uses an enum so Swagger UI renders a dropdown.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("DashboardPeriod")],
+                responses: {
+                    200: successResponse("Performance chart data returned.", ref("DashboardPerformance"), {
+                        period: "6months",
+                        labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+                        revenueSeries: [20000, 36000, 54000, 50000, 72000, 56000],
+                        newClientSeries: [16, 23, 34, 27, 42, 34]
+                    }),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/dashboard/projects/in-progress": {
+            get: {
+                tags: ["Dashboard"],
+                operationId: "getDashboardInProgressProjects",
+                summary: "Get in-progress projects widget data",
+                description: "Returns active projects with display status labels derived from project status, progress, and deadline. Limit is capped at 20.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("InProgressLimit")],
+                responses: {
+                    200: successResponse("In-progress project widget data returned.", {
+                        type: "object",
+                        properties: {
+                            projects: { type: "array", items: ref("DashboardInProgressProject") },
+                            totalActiveProjects: { type: "integer", minimum: 0, example: 4 }
+                        }
+                    }, {
+                        projects: [
+                            { id: "project_brand_refresh_001", name: "Brand Strategy", clientName: "Acme Corporation", statusLabel: "On Track", progress: 60 },
+                            { id: "project_market_analysis_001", name: "Market Analysis", clientName: "Apex Group", statusLabel: "Finishing", progress: 92 }
+                        ],
+                        totalActiveProjects: 4
+                    }),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/dashboard/activities": {
+            get: {
+                tags: ["Dashboard"],
+                operationId: "getDashboardActivities",
+                summary: "Get recent activity feed",
+                description: "Returns paginated activity feed items. Activity titles are normalized from stored activity type values such as client.created or payment.updated.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("Page"), parameterRef("ActivityLimit")],
+                responses: {
+                    200: successResponse("Recent activity feed returned.", ref("DashboardActivities"), {
+                        items: [
+                            {
+                                id: "activity_001",
+                                title: "New Client Added",
+                                description: "Jane Doe was added as a new client",
+                                actorName: "Ada Okafor",
+                                createdAt: 1775600000000,
+                                timeAgo: "2 mins ago"
+                            }
+                        ],
+                        pagination: { page: 1, limit: 10, total: 24, totalPages: 3 }
+                    }),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/analytics/overview": {
+            get: {
+                tags: ["Analytics"],
+                operationId: "getAnalyticsOverview",
+                summary: "Get analytics overview cards",
+                description: "Returns visitors, page views, conversion rate, and top traffic source with trend metadata for dashboard analytics cards.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Analytics overview returned.", ref("AnalyticsOverview"), {
+                        websiteVisitors: { value: 35000, changePct: 15, direction: "up" },
+                        pageViews: { value: 78222, changePct: 15, direction: "up" },
+                        conversionRate: { value: 7.6, changePct: -1.2, direction: "down" },
+                        topTrafficSource: { name: "Google", changePct: 8, direction: "up" }
+                    }),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/analytics/traffic": {
+            get: {
+                tags: ["Analytics"],
+                operationId: "getAnalyticsTraffic",
+                summary: "Get analytics traffic time-series",
+                description: "Returns visits, page views, and conversion-rate series for the selected analytics range.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("AnalyticsRange7d")],
+                responses: {
+                    200: successResponse("Traffic overview returned.", ref("AnalyticsTraffic"), {
+                        range: "30d",
+                        labels: ["Week 1", "Week 2", "Week 3", "Week 4"],
+                        visitsSeries: [8500, 9200, 10100, 9800],
+                        pageViewsSeries: [18500, 20300, 21900, 21000],
+                        conversionRateSeries: [4.8, 5.1, 5.6, 5.2]
+                    }),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/analytics/sources": {
+            get: {
+                tags: ["Analytics"],
+                operationId: "getAnalyticsSources",
+                summary: "Get normalized traffic sources",
+                description: "Returns traffic source percentages normalized across analytics snapshots for the selected range.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("AnalyticsRange30d")],
+                responses: {
+                    200: successResponse("Traffic sources returned.", ref("AnalyticsSources"), {
+                        sources: [
+                            { source: "Google", percentage: 42.5 },
+                            { source: "Direct", percentage: 26.2 },
+                            { source: "Referral", percentage: 18.4 }
+                        ]
+                    }),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/analytics/campaigns": {
+            get: {
+                tags: ["Analytics"],
+                operationId: "getAnalyticsCampaigns",
+                summary: "Get campaign performance table",
+                description: "Returns campaign performance rows with pagination. sortBy and order are enums so Swagger UI renders dropdowns.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("Page"), parameterRef("Limit10"), parameterRef("CampaignSortBy"), parameterRef("SortOrder")],
+                responses: {
+                    200: successResponse("Campaign performance returned.", {
+                        type: "object",
+                        properties: {
+                            campaigns: { type: "array", items: ref("AnalyticsCampaign") },
+                            pagination: ref("Pagination")
+                        }
+                    }, {
+                        campaigns: [
+                            { id: "campaign_001", campaignName: "Q2 Growth Campaign", impressions: 125000, clicks: 5300, conversions: 420, conversionRate: 7.92 }
+                        ],
+                        pagination: { page: 1, limit: 10, total: 1, totalPages: 1 }
+                    }),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/analytics/distribution": {
+            get: {
+                tags: ["Analytics"],
+                operationId: "getAnalyticsDistribution",
+                summary: "Get analytics distribution pie data",
+                description: "Returns values used by distribution widgets: page views, visitors, leads, and active clients.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Distribution data returned.", ref("AnalyticsDistribution"), {
+                        distribution: [
+                            { label: "Page Views", value: 78540 },
+                            { label: "Website Visitors", value: 35280 },
+                            { label: "Leads", value: 4820 },
+                            { label: "Customers", value: 690 }
+                        ]
+                    }),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/revenue": {
+            get: {
+                tags: ["Revenue"],
+                operationId: "getRevenueSeries",
+                summary: "Get revenue time series",
+                description: "Returns recognized revenue labels and values for the selected period.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("DashboardPeriod")],
+                responses: {
+                    200: successResponse("Revenue series returned.", ref("RevenueSeries"), {
+                        period: "6months",
+                        labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+                        revenueSeries: [45000, 52000, 48000, 61000, 55000, 68000]
+                    }),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/revenue/dashboard": {
+            get: {
+                tags: ["Revenue"],
+                operationId: "getRevenueDashboard",
+                summary: "Get revenue dashboard aggregate data",
+                description: "Returns revenue KPI cards, revenue-over-time chart data, source/service groupings, and top clients for the selected period.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("DashboardPeriod")],
+                responses: {
+                    200: successResponse("Revenue dashboard returned.", ref("RevenueDashboard"), {
+                        summary: {
+                            totalRevenue: { value: 346000, changePct: 15, direction: "up", compareLabel: "vs previous period" },
+                            monthlyRevenue: { value: 68000, changePct: 12, direction: "up", compareLabel: "vs last month" },
+                            growthRate: { value: 18.5, changePct: 3, direction: "up", compareLabel: "vs last quarter" },
+                            pendingPayments: { value: 30000, changePct: -8, direction: "down", compareLabel: "vs last month" }
+                        },
+                        revenueOverTime: {
+                            labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+                            series: [45000, 52000, 48000, 61000, 55000, 68000]
+                        },
+                        revenueBySource: [
+                            { source: "Website", amount: 120000 },
+                            { source: "Referral", amount: 180000 }
+                        ],
+                        revenueByService: [
+                            { service: "Consulting", amount: 180000, percentage: 38 },
+                            { service: "Design Services", amount: 140000, percentage: 30 }
+                        ],
+                        topClients: [
+                            { clientId: examples.clientId, clientName: "Acme Corporation", amount: 85000, percentage: 18, logoUrl: null }
+                        ]
+                    }, "Revenue dashboard fetched successfully"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/payments": {
+            get: {
+                tags: ["Payments"],
+                operationId: "listPayments",
+                summary: "List payments with filtering and pagination",
+                description: "Returns payment rows, supports search, payment status dropdown, and from/to date filtering. Date filters accept YYYY-MM-DD, ISO dates, or timestamp strings.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("Page"), parameterRef("Limit8"), parameterRef("Search"), parameterRef("PaymentStatus"), parameterRef("FromDate"), parameterRef("ToDate")],
+                responses: {
+                    200: successResponse("Payments returned.", {
+                        type: "object",
+                        properties: {
+                            payments: { type: "array", items: ref("Payment") },
+                            pagination: ref("Pagination")
+                        }
+                    }, {
+                        payments: [examples.payment],
+                        pagination: { page: 1, limit: 8, total: 1, totalPages: 1 }
+                    }, "Fetch payments success"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            post: {
+                tags: ["Payments"],
+                operationId: "createPayment",
+                summary: "Create a payment",
+                description: "Admin-only. Creates a payment and logs a payment.created activity. clientId/projectId are optional, but when supplied they must exist. You can send projectName or the accepted project alias.",
+                security: [{ cookieAuth: [] }],
+                requestBody: jsonRequestBody("CreatePaymentRequest", {
+                    clientName: "Acme Corporation",
+                    project: "Website Redesign",
+                    amount: 15000,
+                    status: "Paid",
+                    date: "2026-04-10",
+                    source: "Website",
+                    notes: "April milestone payment"
+                }, "Payment payload. Use status dropdown and flexible date input."),
+                responses: {
+                    201: successResponse("Payment created.", {
+                        type: "object",
+                        properties: { payment: ref("Payment") }
+                    }, { payment: examples.payment }, "Payment created successfully", 201),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Client or project referenced by the payload was not found.", 404, "Client not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/payments/{paymentId}": {
+            get: {
+                tags: ["Payments"],
+                operationId: "getPayment",
+                summary: "Get a payment",
+                description: "Returns one formatted payment by id.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("PaymentIdPath")],
+                responses: {
+                    200: successResponse("Payment returned.", {
+                        type: "object",
+                        properties: { payment: ref("Payment") }
+                    }, { payment: examples.payment }, "Fetch payment success"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Payment not found.", 404, "Payment not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            patch: {
+                tags: ["Payments"],
+                operationId: "updatePayment",
+                summary: "Update a payment",
+                description: "Admin-only partial update. The backend verifies existing payment first, validates provided fields, enriches client/project names where IDs are supplied, and logs payment.updated.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("PaymentIdPath")],
+                requestBody: jsonRequestBody("UpdatePaymentRequest", {
+                    status: "Pending",
+                    amount: 18000,
+                    notes: "Awaiting bank confirmation."
+                }, "Payment patch payload. All fields are optional."),
+                responses: {
+                    200: successResponse("Payment updated.", {
+                        type: "object",
+                        properties: { payment: ref("Payment") }
+                    }, { payment: { ...examples.payment, status: "Pending", amount: 18000, notes: "Awaiting bank confirmation." } }, "Payment updated successfully"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Payment, client, or project not found.", 404, "Payment not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            delete: {
+                tags: ["Payments"],
+                operationId: "deletePayment",
+                summary: "Delete a payment",
+                description: "Admin-only. Deletes a payment and logs payment.deleted.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("PaymentIdPath")],
+                responses: {
+                    200: emptySuccessResponse("Payment deleted.", "Payment deleted successfully"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Payment not found.", 404, "Payment not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/clients/stats": {
+            get: {
+                tags: ["Clients"],
+                operationId: "getClientStats",
+                summary: "Get client dashboard metrics cards",
+                description: "Returns aggregate client counts for total, active, inactive, and lead clients.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Client stats returned.", ref("ClientStats"), {
+                        totalClients: 30,
+                        activeClients: 21,
+                        inactiveClients: 2,
+                        leadClients: 7
+                    }, "Fetch client stats success"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/clients": {
+            get: {
+                tags: ["Clients"],
+                operationId: "listClients",
+                summary: "List clients with optional status and pagination",
+                description: "Returns formatted client summary cards with assigned manager names. The status query uses the client status enum dropdown.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ClientStatus"), parameterRef("Page"), parameterRef("Limit10")],
+                responses: {
+                    200: successResponse("Clients returned.", {
+                        type: "object",
+                        properties: {
+                            clients: { type: "array", items: ref("ClientSummary") },
+                            pagination: ref("Pagination")
+                        }
+                    }, {
+                        clients: [examples.clientSummary],
+                        pagination: { page: 1, limit: 10, total: 1, totalPages: 1 }
+                    }, "Fetch clients success"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            post: {
+                tags: ["Clients"],
+                operationId: "createClient",
+                summary: "Create a new client",
+                description: "Admin-only. Creates a client, verifies assignedStaffId when provided, logs client.created, and records an analytics event.",
+                security: [{ cookieAuth: [] }],
+                requestBody: jsonRequestBody("CreateClientRequest", {
+                    fullName: "Jane Doe",
+                    companyName: "Acme Corporation",
+                    email: "jane.doe@acme.example",
+                    phone: "+2348012345678",
+                    status: "Lead",
+                    tags: ["enterprise", "fintech"],
+                    assignedStaffId: examples.userId,
+                    leadSource: "Referral",
+                    notes: "Met at Lagos Tech Summit."
+                }, "Client creation payload. status is a dropdown and defaults to Lead."),
+                responses: {
+                    201: successResponse("Client added successfully.", {
+                        type: "object",
+                        properties: { client: ref("ClientSummary") }
+                    }, { client: examples.clientSummary }, "Client added successfully", 201),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("assignedStaffId does not match an existing user.", 404, "Assigned staff member not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/clients/{id}": {
+            get: {
+                tags: ["Clients"],
+                operationId: "getClientById",
+                summary: "Get detailed client profile",
+                description: "Returns one client profile with contact details, status, tags, assignment, lead source, notes, counts, and timestamps.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ClientIdPath")],
+                responses: {
+                    200: successResponse("Client details returned.", {
+                        type: "object",
+                        properties: { client: ref("ClientDetail") }
+                    }, { client: examples.clientDetail }, "Fetch client details success"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Client not found.", 404, "Client not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            patch: {
+                tags: ["Clients"],
+                operationId: "updateClient",
+                summary: "Update an individual client",
+                description: "Admin-only partial update. If assignedStaffId is provided, it must match an existing user.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ClientIdPath")],
+                requestBody: jsonRequestBody("UpdateClientRequest", {
+                    status: "Active",
+                    tags: ["enterprise", "priority"],
+                    notes: "Updated after discovery call."
+                }, "Client patch payload. All fields are optional."),
+                responses: {
+                    200: emptySuccessResponse("Client updated successfully.", "Client updated successfully"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Client or assigned staff member not found.", 404, "Client not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            delete: {
+                tags: ["Clients"],
+                operationId: "deleteClient",
+                summary: "Delete an individual client",
+                description: "Admin-only. Deletes a client profile and logs client.deleted.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ClientIdPath")],
+                responses: {
+                    200: emptySuccessResponse("Client deleted successfully.", "Client profile successfully deleted"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Client not found.", 404, "Client not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/projects/stats": {
+            get: {
+                tags: ["Projects"],
+                operationId: "getProjectStats",
+                summary: "Get project counts by status",
+                description: "Returns project totals by status for project overview cards.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Project stats returned.", {
+                        type: "object",
+                        properties: { stats: ref("ProjectStats") }
+                    }, { stats: { total: 24, planned: 4, inProgress: 10, onHold: 2, completed: 7, cancelled: 1 } }, "Fetch project stats success"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/projects": {
+            get: {
+                tags: ["Projects"],
+                operationId: "listProjects",
+                summary: "List projects",
+                description: "Returns paginated projects with optional status filter and an infoData object containing global project counts. Project progress is derived from linked tasks.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("Page"), parameterRef("Limit10"), parameterRef("ProjectStatus")],
+                responses: {
+                    200: successResponse("Projects returned.", {
+                        type: "object",
+                        properties: {
+                            projects: { type: "array", items: ref("Project") },
+                            pagination: ref("Pagination"),
+                            infoData: ref("ProjectInfoData")
+                        }
+                    }, {
+                        projects: [examples.project],
+                        pagination: { page: 1, limit: 10, total: 1, totalPages: 1 },
+                        infoData: { totalProjects: 24, totalInProgress: 10, totalInReview: 3, totalCompleted: 7 }
+                    }, "Fetch projects success"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            post: {
+                tags: ["Projects"],
+                operationId: "createProject",
+                summary: "Create a new project",
+                description: "Admin-only. Creates a project after verifying clientId and teamIds. Do not include progress; project progress is derived from linked task completion and will be rejected.",
+                security: [{ cookieAuth: [] }],
+                requestBody: jsonRequestBody("CreateProjectRequest", {
+                    name: "Website Redesign",
+                    clientId: examples.clientId,
+                    description: "Refresh website messaging and conversion pages.",
+                    deadline: 1775779200000,
+                    budget: 45000,
+                    priority: "High",
+                    status: "Planned",
+                    teamIds: [examples.userId],
+                    files: []
+                }, "Project creation payload. priority and status are dropdowns."),
+                responses: {
+                    201: successResponse("Project created successfully.", {
+                        type: "object",
+                        properties: { project: ref("Project") }
+                    }, { project: examples.project }, "Project created successfully", 201),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Client or one or more team members not found.", 404, "Client not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/projects/{projectId}": {
+            get: {
+                tags: ["Projects"],
+                operationId: "getProjectById",
+                summary: "Get project details",
+                description: "Returns full project details including comments, resolved client where available, team IDs, files, and task-derived progress/status fields.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ProjectIdPath")],
+                responses: {
+                    200: successResponse("Project details returned.", {
+                        type: "object",
+                        properties: { project: ref("ProjectDetail") }
+                    }, { project: { ...examples.project, comments: [examples.comment] } }, "Fetch project success"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Project not found.", 404, "Project not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            patch: {
+                tags: ["Projects"],
+                operationId: "patchProject",
+                summary: "Partially update a project",
+                description: "Admin-only partial update using the project model schema. clientId and teamIds are verified when provided. progress is rejected because it is derived.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ProjectIdPath")],
+                requestBody: jsonRequestBody("UpdateProjectRequest", {
+                    status: "InProgress",
+                    priority: "Urgent",
+                    budget: 50000,
+                    teamIds: [examples.userId, examples.adminUserId]
+                }, "Project patch payload. All fields are optional."),
+                responses: {
+                    200: successResponse("Project updated successfully.", {
+                        type: "object",
+                        properties: { project: ref("Project") }
+                    }, { project: { ...examples.project, priority: "Urgent", budget: 50000 } }, "Project updated successfully"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Project, client, or one or more team members not found.", 404, "Project not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            put: {
+                tags: ["Projects"],
+                operationId: "updateProjectFinancialsAndStatus",
+                summary: "Update project status, assignees, and revenue recognition",
+                description: "Admin-only update route for legacy fields, status, assignees, budget, and revenue recognition. recognizedRevenue and recognizedAt must be provided together and are only allowed when status resolves to Completed.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ProjectIdPath")],
+                requestBody: jsonRequestBody("UpdateProjectFinancialRequest", {
+                    status: "Completed",
+                    recognizedRevenue: 45000,
+                    recognizedAt: 1775779200000
+                }, "Project status/revenue update payload."),
+                responses: {
+                    200: emptySuccessResponse("Project updated successfully.", "Project updated successfully"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Project or assignee not found.", 404, "Project not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            delete: {
+                tags: ["Projects"],
+                operationId: "deleteProject",
+                summary: "Delete a project",
+                description: "Admin-only. Deletes a project. The route returns 204 No Content on success.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ProjectIdPath")],
+                responses: {
+                    204: noContentResponse("Project deleted successfully. No response body."),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Project not found.", 404, "Project not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/projects/{projectId}/comments": {
+            get: {
+                tags: ["Projects"],
+                operationId: "listProjectComments",
+                summary: "Get comments for a project",
+                description: "Verifies the project exists, then returns all comments associated with that project.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ProjectIdPath")],
+                responses: {
+                    200: successResponse("Project comments returned.", {
+                        type: "object",
+                        properties: { comments: { type: "array", items: ref("Comment") } }
+                    }, { comments: [examples.comment] }, "Fetch comments success"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Project not found.", 404, "Project not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            post: {
+                tags: ["Projects"],
+                operationId: "addProjectComment",
+                summary: "Add a comment to a project",
+                description: "Adds a comment authored by the authenticated user's userId. The route returns 204 No Content when the comment is created.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ProjectIdPath")],
+                requestBody: jsonRequestBody("CreateProjectCommentRequest", { comment: "Client approved the revised brand direction." }, "Comment payload."),
+                responses: {
+                    204: noContentResponse("Comment added successfully. No response body."),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Project not found.", 404, "Project not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/tasks": {
+            get: {
+                tags: ["Tasks"],
+                operationId: "listTasks",
+                summary: "List tasks with filtering and pagination",
+                description: "Returns task cards with derived isOverdue. Supports status, assigneeId/assignedTo, projectId, page, and limit filters.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("TaskStatus"), parameterRef("AssigneeId"), parameterRef("AssignedTo"), parameterRef("ProjectIdQuery"), parameterRef("Page"), parameterRef("Limit20")],
+                responses: {
+                    200: successResponse("Tasks returned.", {
+                        type: "object",
+                        properties: {
+                            tasks: { type: "array", items: ref("Task") },
+                            pagination: ref("Pagination")
+                        }
+                    }, {
+                        tasks: [examples.task],
+                        pagination: { page: 1, limit: 20, total: 1, totalPages: 1 }
+                    }, "Tasks fetched successfully"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            post: {
+                tags: ["Tasks"],
+                operationId: "createTask",
+                summary: "Create a new task",
+                description: "Admin-only. Creates a task after verifying assigneeId and optional projectId. Logs task.created and records an analytics event.",
+                security: [{ cookieAuth: [] }],
+                requestBody: jsonRequestBody("CreateTaskRequest", {
+                    title: "Prepare launch checklist",
+                    description: "Confirm copy, analytics, redirects, and deployment plan.",
+                    assigneeId: examples.userId,
+                    dueDate: 1775779200000,
+                    status: "Todo",
+                    projectId: examples.projectId,
+                    priority: "high"
+                }, "Task creation payload. status and priority render as dropdowns."),
+                responses: {
+                    201: successResponse("Task created successfully.", {
+                        type: "object",
+                        properties: { task: ref("Task") }
+                    }, { task: examples.task }, "Task created successfully", 201),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Assignee or project not found.", 404, "Assignee not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/tasks/{taskId}": {
+            get: {
+                tags: ["Tasks"],
+                operationId: "getTaskById",
+                summary: "Get full task details by ID",
+                description: "Returns task details by ID with isOverdue derived at request time. The database helper may include related assignee/project detail objects.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("TaskIdPath")],
+                responses: {
+                    200: successResponse("Task details returned.", {
+                        type: "object",
+                        properties: { task: ref("TaskDetail") }
+                    }, { task: examples.task }, "Task details fetched successfully"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Task not found.", 404, "Task not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            patch: {
+                tags: ["Tasks"],
+                operationId: "updateTask",
+                summary: "Partially update a task",
+                description: "Admin-only partial update. Verifies task exists and validates optional assignee/project references before writing changes.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("TaskIdPath")],
+                requestBody: jsonRequestBody("UpdateTaskRequest", {
+                    status: "Review",
+                    priority: "medium",
+                    description: "Add QA sign-off and analytics verification."
+                }, "Task patch payload. All fields are optional."),
+                responses: {
+                    200: emptySuccessResponse("Task updated successfully.", "Task updated successfully"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Task, assignee, or project not found.", 404, "Task not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            delete: {
+                tags: ["Tasks"],
+                operationId: "deleteTask",
+                summary: "Delete a task",
+                description: "Admin-only. Deletes a task and logs task.deleted.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("TaskIdPath")],
+                responses: {
+                    200: emptySuccessResponse("Task deleted successfully.", "Task deleted successfully"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Task not found.", 404, "Task not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/members": {
+            get: {
+                tags: ["Members"],
+                operationId: "listMembers",
+                summary: "List staff members",
+                description: "Admin-only. Returns paginated staff accounts. Password hashes are never returned.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("Page"), parameterRef("Limit10"), parameterRef("Search")],
+                responses: {
+                    200: successResponse("Staff members returned.", {
+                        type: "object",
+                        properties: {
+                            members: { type: "array", items: ref("Member") },
+                            pagination: ref("Pagination")
+                        }
+                    }, {
+                        members: [examples.member],
+                        pagination: { page: 1, limit: 10, total: 1, totalPages: 1 }
+                    }, "Staff members fetched successfully"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            post: {
+                tags: ["Members"],
+                operationId: "createMember",
+                summary: "Add a new staff member",
+                description: "Admin-only. Creates a new Atlas-auth user account with a hashed password. The admin remains logged in; no cookie is set for the newly created member.",
+                security: [{ cookieAuth: [] }],
+                requestBody: jsonRequestBody("CreateMemberRequest", {
+                    firstName: "Ada",
+                    lastName: "Okafor",
+                    email: "ada.okafor@atlas.example",
+                    password: "StrongPass123",
+                    role: "staff",
+                    job: "Account Manager"
+                }, "New staff member payload. role renders as a dropdown."),
+                responses: {
+                    201: successResponse("Member added successfully.", {
+                        type: "object",
+                        properties: { user: ref("UserProfile") }
+                    }, { user: examples.userProfile }, "Member added successfully", 201),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    409: errorResponse("A member with this email already exists.", 409, "A member with this email already exists"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/members/{id}": {
+            put: {
+                tags: ["Members"],
+                operationId: "updateMember",
+                summary: "Update a staff member",
+                description: "Admin-only. Updates profile/admin fields for a staff account. The actual Express routes use :id for update and :memberId for delete; both map to this same URL shape.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("MemberIdPath")],
+                requestBody: jsonRequestBody("UpdateMemberRequest", {
+                    role: "admin",
+                    job: "Operations Lead",
+                    status: "active"
+                }, "Staff member patch payload. role renders as a dropdown."),
+                responses: {
+                    200: emptySuccessResponse("Member updated successfully.", "Member updated successfully"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Member not found.", 404, "Member not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            delete: {
+                tags: ["Members"],
+                operationId: "deleteMember",
+                summary: "Remove a staff member",
+                description: "Admin-only. Deletes a staff user by userId.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("MemberIdPath")],
+                responses: {
+                    200: emptySuccessResponse("Staff account removed successfully.", "Staff member removed successfully"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Staff member not found.", 404, "Staff member not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/media/images/all": {
+            get: {
+                tags: ["Media"],
+                operationId: "listMediaImages",
+                summary: "List image resources",
+                description: "Returns uploaded image IDs and URLs. If a stored URL is missing, the backend falls back to /api/media/images/{id}.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Media images returned.", {
+                        type: "object",
+                        properties: { images: { type: "array", items: ref("MediaImage") } }
+                    }, { images: [examples.mediaImage] }, "Fetch media success"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/media/images/{imageId}": {
+            get: {
+                tags: ["Media"],
+                operationId: "redirectToMediaImage",
+                summary: "Fetch image by ID",
+                description: "Looks up an image record and redirects to the stored provider URL. This endpoint returns 302 instead of a JSON envelope on success.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ImageIdPath")],
+                responses: {
+                    302: redirectResponse("Redirect to image URL."),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Image ID not found.", 404, "Image Id not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/media/images/new": {
+            post: {
+                tags: ["Media"],
+                operationId: "uploadMediaImage",
+                summary: "Upload a new image",
+                description: "Uploads one image file to the configured provider using multipart/form-data field name image. The multer middleware allows image/* files up to 10 MB.",
+                security: [{ cookieAuth: [] }],
+                requestBody: {
+                    required: true,
+                    description: "Multipart payload with one image file.",
+                    content: {
+                        "multipart/form-data": {
+                            schema: {
+                                type: "object",
+                                required: ["image"],
+                                properties: {
+                                    image: { type: "string", format: "binary", description: "Image file. Must have an image/* MIME type and be <= 10 MB." }
                                 }
                             }
                         }
-                    },
-                    responses: {
-                        200: { description: "Signed in successfully. auth_token cookie is set. Response includes user object with userId, firstName, lastName, email, and role (admin|staff)." },
-                        400: { description: "Validation error" },
-                        401: { description: "Invalid email or password" },
-                        429: { description: "Rate limited (per-email and per-IP)" }
-                    }
-                }
-            },
-            "/api/auth/logout": {
-                post: {
-                    tags: ["Auth"],
-                    summary: "Logout user",
-                    description: "Clears auth_token cookie and nullifies the user's stamp in DB, invalidating all sessions.",
-                    security: [{ cookieAuth: [] }],
-                    responses: {
-                        200: { description: "Logged out successfully" },
-                        500: { description: "Server error during logout" }
-                    }
-                }
-            },
-            "/api/user/profile": {
-                get: {
-                    tags: ["User"],
-                    summary: "Get current user profile",
-                    security: [{ cookieAuth: [] }],
-                    responses: {
-                        200: { description: "Fetch profile success. Response includes userId, firstName, lastName, email, and role (admin|staff)." },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/dashboard/metrics": {
-                get: {
-                    tags: ["Dashboard"],
-                    summary: "Get dashboard KPI cards",
-                    security: [{ cookieAuth: [] }],
-                    description: "Requires `auth_token` cookie. Returns total clients, active projects, pending tasks, and new leads with trend metadata.",
-                    responses: {
-                        200: {
-                            description: "Dashboard metrics returned",
-                            content: {
-                                "application/json": {
-                                    example: {
-                                        status: "success",
-                                        code: 200,
-                                        data: {
-                                            totalClients: { value: 2550, changePct: 12.5, direction: "up", compareLabel: "Vs last month" },
-                                            activeProjects: { value: 140, changePct: 8.2, direction: "up", compareLabel: "Vs last month" },
-                                            pendingTasks: { value: 65, changePct: -3.5, direction: "down", compareLabel: "Vs last month" },
-                                            newLeads: { value: 200, changePct: 12.5, direction: "up", compareLabel: "Vs last month" }
-                                        },
-                                        message: "Request successful"
-                                    }
-                                }
-                            }
-                        },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/dashboard/performance": {
-                get: {
-                    tags: ["Dashboard"],
-                    summary: "Get dashboard performance chart data",
-                    security: [{ cookieAuth: [] }],
-                    description: "Requires `auth_token` cookie. Returns revenue and new-client series grouped by period buckets.",
-                    parameters: [
-                        {
-                            name: "period",
-                            in: "query",
-                            required: false,
-                            schema: { type: "string", enum: ["3months", "6months", "12months"], default: "6months" }
-                        }
-                    ],
-                    responses: {
-                        200: {
-                            description: "Performance chart data returned",
-                            content: {
-                                "application/json": {
-                                    example: {
-                                        status: "success",
-                                        code: 200,
-                                        data: {
-                                            period: "6months",
-                                            labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-                                            revenueSeries: [20, 36, 54, 50, 72, 56],
-                                            newClientSeries: [16, 23, 34, 27, 42, 34]
-                                        },
-                                        message: "Request successful"
-                                    }
-                                }
-                            }
-                        },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/dashboard/projects/in-progress": {
-                get: {
-                    tags: ["Dashboard"],
-                    summary: "Get in-progress projects widget data",
-                    security: [{ cookieAuth: [] }],
-                    description: "Requires `auth_token` cookie. Returns active projects with status labels and progress percentages.",
-                    parameters: [
-                        {
-                            name: "limit",
-                            in: "query",
-                            required: false,
-                            schema: { type: "integer", minimum: 1, maximum: 20, default: 4 }
-                        }
-                    ],
-                    responses: {
-                        200: {
-                            description: "In-progress projects returned",
-                            content: {
-                                "application/json": {
-                                    example: {
-                                        status: "success",
-                                        code: 200,
-                                        data: {
-                                            projects: [
-                                                { id: "p1", name: "Brand Strategy", clientName: "Rivera Group", statusLabel: "Finishing", progress: 92 },
-                                                { id: "p2", name: "Market Analysis", clientName: "Apex Group", statusLabel: "On Track", progress: 60 }
-                                            ],
-                                            totalActiveProjects: 4
-                                        },
-                                        message: "Request successful"
-                                    }
-                                }
-                            }
-                        },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/dashboard/activities": {
-                get: {
-                    tags: ["Dashboard"],
-                    summary: "Get recent activity feed",
-                    security: [{ cookieAuth: [] }],
-                    description: "Requires `auth_token` cookie. Returns paginated activity feed for dashboard list.",
-                    parameters: [
-                        {
-                            name: "page",
-                            in: "query",
-                            required: false,
-                            schema: { type: "integer", minimum: 1, default: 1 }
-                        },
-                        {
-                            name: "limit",
-                            in: "query",
-                            required: false,
-                            schema: { type: "integer", minimum: 1, maximum: 50, default: 10 }
-                        }
-                    ],
-                    responses: {
-                        200: {
-                            description: "Recent activities returned",
-                            content: {
-                                "application/json": {
-                                    example: {
-                                        status: "success",
-                                        code: 200,
-                                        data: {
-                                            items: [
-                                                {
-                                                    id: "a1",
-                                                    title: "New Client Added",
-                                                    description: "David Paith was added as a new client",
-                                                    actorName: "Admin User",
-                                                    createdAt: 1713211200000,
-                                                    timeAgo: "2 mins ago"
-                                                }
-                                            ],
-                                            pagination: { page: 1, limit: 10, total: 24, totalPages: 3 }
-                                        },
-                                        message: "Request successful"
-                                    }
-                                }
-                            }
-                        },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/revenue": {
-                get: {
-                    tags: ["Revenue"],
-                    summary: "Get revenue time series",
-                    security: [{ cookieAuth: [] }],
-                    description: "Returns a revenue time series (labels + values) for the requested period.",
-                    parameters: [
-                        {
-                            name: "period",
-                            in: "query",
-                            required: false,
-                            schema: { type: "string", enum: ["3months", "6months", "12months"], default: "6months" }
-                        }
-                    ],
-                    responses: {
-                        200: {
-                            description: "Revenue series returned",
-                            content: {
-                                "application/json": {
-                                    example: {
-                                        status: "success",
-                                        code: 200,
-                                        data: {
-                                            period: "6months",
-                                            labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-                                            revenueSeries: [45000, 52000, 48000, 61000, 55000, 68000]
-                                        },
-                                        message: "Request successful"
-                                    }
-                                }
-                            }
-                        },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/revenue/dashboard": {
-                get: {
-                    tags: ["Revenue"],
-                    summary: "Get revenue dashboard aggregate data",
-                    security: [{ cookieAuth: [] }],
-                    description: "Requires `auth_token` cookie. Returns revenue KPI cards, revenue-over-time series, revenue by source, revenue by service, and top clients.",
-                    parameters: [
-                        {
-                            name: "period",
-                            in: "query",
-                            required: false,
-                            schema: { type: "string", enum: ["3months", "6months", "12months"], default: "6months" }
-                        }
-                    ],
-                    responses: {
-                        200: {
-                            description: "Revenue dashboard returned",
-                            content: {
-                                "application/json": {
-                                    example: {
-                                        status: "success",
-                                        code: 200,
-                                        data: {
-                                            summary: {
-                                                totalRevenue: { value: 346000, changePct: 15, direction: "up", compareLabel: "vs previous period" },
-                                                monthlyRevenue: { value: 68000, changePct: 12, direction: "up", compareLabel: "vs last month" },
-                                                growthRate: { value: 18.5, changePct: 3, direction: "up", compareLabel: "vs last quarter" },
-                                                pendingPayments: { value: 30000, changePct: -8, direction: "down", compareLabel: "vs last month" }
-                                            },
-                                            revenueOverTime: {
-                                                labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-                                                series: [45000, 52000, 48000, 61000, 55000, 68000]
-                                            },
-                                            revenueBySource: [
-                                                { source: "Website", amount: 120000 },
-                                                { source: "Referral", amount: 180000 }
-                                            ],
-                                            revenueByService: [
-                                                { service: "Consulting", amount: 180000, percentage: 38 },
-                                                { service: "Design Services", amount: 140000, percentage: 30 }
-                                            ],
-                                            topClients: [
-                                                { clientId: "abc", clientName: "Global Solutions", amount: 85000, percentage: 18, logoUrl: null }
-                                            ]
-                                        },
-                                        message: "Revenue dashboard fetched successfully"
-                                    }
-                                }
-                            }
-                        },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/payments": {
-                get: {
-                    tags: ["Payments"],
-                    summary: "List payments with filtering and pagination",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "page", in: "query", required: false, schema: { type: "integer", default: 1, minimum: 1 } },
-                        { name: "limit", in: "query", required: false, schema: { type: "integer", default: 8, minimum: 1, maximum: 100 } },
-                        { name: "search", in: "query", required: false, schema: { type: "string" } },
-                        { name: "status", in: "query", required: false, schema: { type: "string", enum: ["Paid", "Pending", "Failed", "Cancelled"] } },
-                        { name: "from", in: "query", required: false, schema: { type: "string", example: "2026-04-01" } },
-                        { name: "to", in: "query", required: false, schema: { type: "string", example: "2026-04-30" } }
-                    ],
-                    responses: {
-                        200: {
-                            description: "Payments returned",
-                            content: {
-                                "application/json": {
-                                    example: {
-                                        status: "success",
-                                        code: 200,
-                                        data: {
-                                            payments: [
-                                                {
-                                                    id: "pay_123",
-                                                    clientId: "client_123",
-                                                    client: "Acme Corporation",
-                                                    clientName: "Acme Corporation",
-                                                    projectId: "project_123",
-                                                    project: "Website Redesign",
-                                                    projectName: "Website Redesign",
-                                                    amount: 15000,
-                                                    status: "Paid",
-                                                    date: 1775779200000,
-                                                    source: "Website",
-                                                    notes: "",
-                                                    createdAt: 1775600000000,
-                                                    updatedAt: 1775600000000
-                                                }
-                                            ],
-                                            pagination: { page: 1, limit: 8, total: 1, totalPages: 1 }
-                                        },
-                                        message: "Fetch payments success"
-                                    }
-                                }
-                            }
-                        },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
                     }
                 },
-                post: {
-                    tags: ["Payments"],
-                    summary: "Create a payment (Admin Only)",
-                    security: [{ cookieAuth: [] }],
-                    requestBody: {
-                        required: true,
+                responses: {
+                    201: successResponse("Image uploaded successfully.", ref("MediaImage"), examples.mediaImage, "Image uploaded successfully", 201),
+                    400: errorResponse("No image file uploaded or invalid file type/size.", 400, "No image file uploaded"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/media/images/{imageId}/replace": {
+            put: {
+                tags: ["Media"],
+                operationId: "replaceMediaImage",
+                summary: "Replace an existing image",
+                description: "Uploads a replacement image, deletes the old provider resource when a public_id exists, and updates the stored image URL.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ImageIdPath")],
+                requestBody: {
+                    required: true,
+                    description: "Multipart payload with replacement image file.",
+                    content: {
+                        "multipart/form-data": {
+                            schema: {
+                                type: "object",
+                                required: ["image"],
+                                properties: {
+                                    image: { type: "string", format: "binary", description: "Replacement image file. Must have an image/* MIME type and be <= 10 MB." }
+                                }
+                            }
+                        }
+                    }
+                },
+                responses: {
+                    200: successResponse("Image replaced successfully.", ref("MediaImage"), examples.mediaImage, "Image replaced successfully"),
+                    400: errorResponse("No image file uploaded or invalid file type/size.", 400, "No image file uploaded"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Image ID not found.", 404, "Image Id not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/media/strings/all": {
+            get: {
+                tags: ["Media"],
+                operationId: "listMediaStrings",
+                summary: "List all media strings",
+                description: "Returns editable string resources.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Media strings returned.", {
+                        type: "object",
+                        properties: { strings: { type: "array", items: ref("MediaString") } }
+                    }, { strings: [examples.mediaString] }, "Fetch media strings success"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/media/strings/new": {
+            post: {
+                tags: ["Media"],
+                operationId: "createMediaString",
+                summary: "Create a new media string",
+                description: "Stores a new editable string and returns its generated ID.",
+                security: [{ cookieAuth: [] }],
+                requestBody: jsonRequestBody("MediaStringRequest", { string: "Grow your business with data-backed marketing." }, "String payload."),
+                responses: {
+                    201: successResponse("String stored successfully.", {
+                        type: "object",
+                        properties: { id: { type: "string", example: examples.stringId } }
+                    }, { id: examples.stringId }, "String stored successfully", 201),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/media/strings/{stringId}/replace": {
+            put: {
+                tags: ["Media"],
+                operationId: "replaceMediaString",
+                summary: "Replace an existing media string",
+                description: "Updates the stored string for a media string ID.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("StringIdPath")],
+                requestBody: jsonRequestBody("MediaStringRequest", { string: "Scale faster with measurable marketing systems." }, "Replacement string payload."),
+                responses: {
+                    200: emptySuccessResponse("Media string replaced successfully.", "Replace media string success"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    404: responseRef("NotFound"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/media/strings/{stringId}": {
+            get: {
+                tags: ["Media"],
+                operationId: "getRawMediaString",
+                summary: "Get raw media string by ID",
+                description: "Returns the raw string content using text/plain via res.end(), not the normalized JSON envelope.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("StringIdPath")],
+                responses: {
+                    200: textResponse("Raw string content.", "Grow your business with data-backed marketing."),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("String ID not found.", 404, "String Id not found"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/blog": {
+            get: {
+                tags: ["Blog"],
+                operationId: "listBlogPosts",
+                summary: "List blog posts",
+                description: "Authenticated route. Returns paginated blog posts with optional status, category, and text search filters.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("Page"), parameterRef("Limit10"), parameterRef("BlogStatus"), parameterRef("BlogCategory"), parameterRef("Search")],
+                responses: {
+                    200: successResponse("Blog posts returned.", {
+                        type: "object",
+                        properties: {
+                            posts: { type: "array", items: ref("BlogPost") },
+                            pagination: ref("Pagination")
+                        }
+                    }, {
+                        posts: [examples.blogPost],
+                        pagination: { page: 1, limit: 10, total: 1, totalPages: 1 }
+                    }, "Fetch blog posts success"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            post: {
+                tags: ["Blog"],
+                operationId: "createBlogPost",
+                summary: "Create a new blog post",
+                description: "Admin-only. Creates a blog post, generates slug server-side from title, verifies authorId, rejects duplicate generated slugs, and sets publishedAt automatically when status is published.",
+                security: [{ cookieAuth: [] }],
+                requestBody: jsonRequestBody("CreateBlogPostRequest", {
+                    title: "Getting Started with Digital Marketing",
+                    excerpt: "A practical guide to building your digital marketing strategy from the ground up.",
+                    content: "## Introduction\nDigital marketing works best when goals, channels, and measurement are aligned.",
+                    category: "Marketing",
+                    authorId: examples.userId,
+                    tags: ["marketing", "digital", "strategy"],
+                    status: "draft",
+                    isFeatured: false
+                }, "Blog post payload. category and status are dropdowns."),
+                responses: {
+                    201: successResponse("Blog post created.", {
+                        type: "object",
+                        properties: { post: ref("BlogPost") }
+                    }, { post: examples.blogPost }, "Blog post created", 201),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Author not found.", 404, "Author not found"),
+                    409: errorResponse("Slug conflict.", 409, "A post with this slug already exists. Try a different title."),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/blog/stats": {
+            get: {
+                tags: ["Blog"],
+                operationId: "getBlogStats",
+                summary: "Get aggregate blog stats",
+                description: "Authenticated route. Returns total, published, draft, scheduled, and total view counts.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Blog statistics returned.", ref("BlogStats"), {
+                        total: 42,
+                        published: 28,
+                        draft: 10,
+                        scheduled: 4,
+                        totalViews: 38000
+                    }, "Fetch blog stats success"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/blog/{postId}": {
+            get: {
+                tags: ["Blog"],
+                operationId: "getBlogPostById",
+                summary: "Get a single blog post by ID",
+                description: "Authenticated route.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("PostIdPath")],
+                responses: {
+                    200: successResponse("Blog post returned.", {
+                        type: "object",
+                        properties: { post: ref("BlogPost") }
+                    }, { post: examples.blogPost }, "Fetch blog post success"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Blog post not found.", 404, "Blog post not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            put: {
+                tags: ["Blog"],
+                operationId: "updateBlogPost",
+                summary: "Update a blog post",
+                description: "Admin-only. Updates a post. Client-sent slug is ignored; when title changes, a new slug is generated server-side from title. Publishing an unpublished post sets publishedAt automatically.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("PostIdPath")],
+                requestBody: jsonRequestBody("UpdateBlogPostRequest", {
+                    title: "10 SEO Tips for 2026",
+                    category: "SEO",
+                    status: "published",
+                    isFeatured: true,
+                    tags: ["SEO", "Marketing"]
+                }, "Blog post update payload. All fields are optional."),
+                responses: {
+                    200: successResponse("Blog post updated.", {
+                        type: "object",
+                        properties: { post: ref("BlogPost") }
+                    }, { post: { ...examples.blogPost, title: "10 SEO Tips for 2026", category: "SEO" } }, "Blog post updated"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Blog post not found.", 404, "Blog post not found"),
+                    409: errorResponse("Slug conflict.", 409, "A post with this slug already exists."),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            delete: {
+                tags: ["Blog"],
+                operationId: "deleteBlogPost",
+                summary: "Delete a blog post",
+                description: "Admin-only. Deletes a blog post by id.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("PostIdPath")],
+                responses: {
+                    200: emptySuccessResponse("Blog post deleted.", "Blog post deleted"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Blog post not found.", 404, "Blog post not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/blog/track/{slug}": {
+            post: {
+                tags: ["Blog"],
+                operationId: "trackBlogView",
+                summary: "Increment view count for an embedded post",
+                description: "Public endpoint used by the embed page. Requires a short-lived signed tracking token generated by /embed/{slug}. Invalid, expired, or replayed tokens are accepted with success but do not increment views.",
+                parameters: [parameterRef("BlogSlugPath")],
+                requestBody: jsonRequestBody("TrackBlogViewRequest", { token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.track-token" }, "Tracking token payload."),
+                responses: {
+                    200: emptySuccessResponse("Accepted. View is counted only when token is valid.", "Request successful"),
+                    400: errorResponse("Invalid slug.", 400, "Invalid slug"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/embed/{slug}": {
+            get: {
+                tags: ["Blog"],
+                operationId: "getBlogEmbedPage",
+                summary: "Serve rendered HTML embed page for a published blog post",
+                description: "Public route. Returns a standalone HTML page suitable for iframes. The route renders Markdown content, generates a short-lived tracking token, injects the tracking script, and sets frame/CORS headers for embedding.",
+                parameters: [parameterRef("BlogSlugPath")],
+                responses: {
+                    200: htmlResponse("Rendered HTML embed page."),
+                    404: htmlResponse("Post not found, unpublished, or slug format invalid.", "<p>Post not found.</p>"),
+                    500: htmlResponse("Unexpected render error.", "<p>An error occurred.</p>"),
+                    503: htmlResponse("Embed template file is missing or unavailable.", "<p>Service temporarily unavailable.</p>")
+                }
+            }
+        },
+        "/api/leads": {
+            get: {
+                tags: ["Leads"],
+                operationId: "listLeads",
+                summary: "List leads",
+                description: "Returns paginated leads with optional search and status filtering.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("Page"), parameterRef("Limit10"), parameterRef("Search"), parameterRef("LeadStatus")],
+                responses: {
+                    200: successResponse("Leads returned.", {
+                        type: "object",
+                        additionalProperties: true,
+                        properties: {
+                            leads: { type: "array", items: ref("Lead") },
+                            pagination: ref("Pagination")
+                        }
+                    }, {
+                        leads: [examples.lead],
+                        pagination: { page: 1, limit: 10, total: 1, totalPages: 1 }
+                    }, "Leads fetched successfully"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            post: {
+                tags: ["Leads"],
+                operationId: "createLead",
+                summary: "Add a new lead",
+                description: "Creates a new lead. This route is protected by auth at the router mount but does not require adminOnly.",
+                security: [{ cookieAuth: [] }],
+                requestBody: jsonRequestBody("CreateLeadRequest", {
+                    firstName: "Kemi",
+                    lastName: "Adebayo",
+                    fullName: "Kemi Adebayo",
+                    email: "kemi@brightfoods.example",
+                    phone: "+2348098765432",
+                    company: "Bright Foods Ltd",
+                    status: "new",
+                    stage: "New Inquiry",
+                    source: "Website",
+                    value: 25000,
+                    notes: "Interested in brand strategy and paid ads."
+                }, "Lead creation payload. status renders as a dropdown."),
+                responses: {
+                    201: successResponse("Lead added successfully.", {
+                        type: "object",
+                        properties: { lead: ref("Lead") }
+                    }, { lead: examples.lead }, "Lead added successfully", 201),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/leads/{leadId}": {
+            get: {
+                tags: ["Leads"],
+                operationId: "getLeadById",
+                summary: "Get detailed lead information",
+                description: "Returns one lead by id.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("LeadIdPath")],
+                responses: {
+                    200: successResponse("Lead detail returned.", {
+                        type: "object",
+                        properties: { lead: ref("Lead") }
+                    }, { lead: examples.lead }, "Lead details fetched successfully"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Lead not found.", 404, "Lead not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            patch: {
+                tags: ["Leads"],
+                operationId: "updateLead",
+                summary: "Update an individual lead",
+                description: "Partial lead update. Validates provided fields and sets updatedAt.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("LeadIdPath")],
+                requestBody: jsonRequestBody("UpdateLeadRequest", {
+                    status: "contacted",
+                    stage: "Discovery Call",
+                    value: 30000,
+                    notes: "Call scheduled for next week."
+                }, "Lead patch payload. All fields are optional."),
+                responses: {
+                    200: emptySuccessResponse("Lead updated successfully.", "Lead updated successfully"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Lead not found.", 404, "Lead not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            delete: {
+                tags: ["Leads"],
+                operationId: "deleteLead",
+                summary: "Delete an individual lead",
+                description: "Deletes a lead by id.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("LeadIdPath")],
+                responses: {
+                    200: emptySuccessResponse("Lead deleted successfully.", "Lead deleted successfully"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Lead not found.", 404, "Lead not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/health": {
+            get: {
+                tags: ["Health"],
+                operationId: "getHealth",
+                summary: "Basic health check endpoint",
+                description: "Public endpoint. The route emits success, message, timestamp, and uptime, but the /api JSON normalizer keeps the standard envelope and data:null.",
+                responses: {
+                    200: emptySuccessResponse("Service is healthy.", "Atlas Admin Server is healthy")
+                }
+            }
+        },
+        "/api/health/redis/flush": {
+            post: {
+                tags: ["Health"],
+                operationId: "flushRedisCache",
+                summary: "Flush Redis cache",
+                description: "Admin-only maintenance endpoint. Clears the active Redis database using FLUSHDB. Intended for controlled maintenance operations only.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: emptySuccessResponse("Redis cache flushed successfully.", "Redis cache flushed successfully"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError"),
+                    503: errorResponse("Redis client is not connected.", 503, "Redis is not connected")
+                }
+            }
+        },
+        "/api/webhooks/leads/qualified": {
+            post: {
+                tags: ["Webhooks"],
+                operationId: "ingestQualifiedLeadWebhook",
+                summary: "Ingest qualified lead webhook",
+                description: "Bearer-token protected public ingestion route. Converts name into firstName/lastName, stores a qualified lead with source quote_request, and places service/budget/details in notes.",
+                security: [{ webhookBearer: [] }],
+                requestBody: jsonRequestBody("QualifiedWebhookLeadRequest", {
+                    form_type: "quote_request",
+                    name: "Kemi Adebayo",
+                    email: "kemi@brightfoods.example",
+                    phone: "+2348098765432",
+                    service: "Growth Marketing",
+                    budget: "$10,000 - $25,000",
+                    details: "We need help launching a new food product line."
+                }, "Qualified lead webhook payload."),
+                responses: {
+                    201: emptySuccessResponse("Lead received and stored.", "Lead received", 201),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/webhooks/leads/general": {
+            post: {
+                tags: ["Webhooks"],
+                operationId: "ingestGeneralLeadWebhook",
+                summary: "Ingest general lead webhook",
+                description: "Bearer-token protected public ingestion route. Converts name into firstName/lastName, stores a new lead with source book_a_call, and places service/budget/challenge in notes.",
+                security: [{ webhookBearer: [] }],
+                requestBody: jsonRequestBody("GeneralWebhookLeadRequest", {
+                    name: "Tunde Bello",
+                    email: "tunde@northstar.example",
+                    phone: "+2348011122233",
+                    business: "Northstar Logistics",
+                    service: "Brand Strategy",
+                    challenge: "Low lead quality from current campaigns.",
+                    budget: "$5,000 - $10,000"
+                }, "General lead webhook payload."),
+                responses: {
+                    201: emptySuccessResponse("Lead received and stored.", "Lead received", 201),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/docs": {
+            get: {
+                tags: ["Docs"],
+                operationId: "getSwaggerUi",
+                summary: "Open Swagger UI",
+                description: "Serves the interactive Swagger UI configured in server.js. Authorization persistence is enabled in Swagger UI options.",
+                responses: {
+                    200: htmlResponse("Swagger UI HTML application.", "<html><body>Swagger UI</body></html>")
+                }
+            }
+        },
+        "/api/docs.json": {
+            get: {
+                tags: ["Docs"],
+                operationId: "getOpenApiJson",
+                summary: "Get raw OpenAPI specification",
+                description: "Returns this OpenAPI specification as application/json. This route bypasses response-envelope normalization.",
+                responses: {
+                    200: {
+                        description: "OpenAPI specification JSON.",
                         content: {
                             "application/json": {
-                                schema: {
-                                    type: "object",
-                                    required: ["clientName", "project", "amount", "status", "date"],
-                                    properties: {
-                                        clientId: { type: "string", nullable: true },
-                                        clientName: { type: "string" },
-                                        projectId: { type: "string", nullable: true },
-                                        project: { type: "string", description: "Alias for projectName" },
-                                        projectName: { type: "string" },
-                                        amount: { type: "number", minimum: 0 },
-                                        status: { type: "string", enum: ["Paid", "Pending", "Failed", "Cancelled"] },
-                                        date: { oneOf: [{ type: "integer" }, { type: "string", example: "2026-04-10" }] },
-                                        source: { type: "string", nullable: true },
-                                        notes: { type: "string" }
-                                    }
-                                },
+                                schema: { type: "object", additionalProperties: true },
                                 example: {
-                                    clientName: "Acme Corporation",
-                                    project: "Website Redesign",
-                                    amount: 15000,
-                                    status: "Paid",
-                                    date: "2026-04-10",
-                                    source: "Website",
-                                    notes: "April milestone payment"
+                                    openapi: "3.0.3",
+                                    info: { title: "Atlas Admin Dashboard Backend API", version: "1.0.0" },
+                                    paths: { "/api/auth/login": { post: { summary: "Login user" } } }
                                 }
                             }
                         }
-                    },
-                    responses: {
-                        201: { description: "Payment created" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        404: { description: "Client or project not found" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/payments/{paymentId}": {
-                get: {
-                    tags: ["Payments"],
-                    summary: "Get a payment",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "paymentId", in: "path", required: true, schema: { type: "string" } }
-                    ],
-                    responses: {
-                        200: { description: "Payment returned" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        404: { description: "Payment not found" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                },
-                patch: {
-                    tags: ["Payments"],
-                    summary: "Update a payment (Admin Only)",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "paymentId", in: "path", required: true, schema: { type: "string" } }
-                    ],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    properties: {
-                                        clientId: { type: "string", nullable: true },
-                                        clientName: { type: "string" },
-                                        projectId: { type: "string", nullable: true },
-                                        project: { type: "string" },
-                                        projectName: { type: "string" },
-                                        amount: { type: "number", minimum: 0 },
-                                        status: { type: "string", enum: ["Paid", "Pending", "Failed", "Cancelled"] },
-                                        date: { oneOf: [{ type: "integer" }, { type: "string", example: "2026-04-10" }] },
-                                        source: { type: "string", nullable: true },
-                                        notes: { type: "string" }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        200: { description: "Payment updated" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        403: { description: "Admins only" },
-                        404: { description: "Payment, client, or project not found" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                },
-                delete: {
-                    tags: ["Payments"],
-                    summary: "Delete a payment (Admin Only)",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "paymentId", in: "path", required: true, schema: { type: "string" } }
-                    ],
-                    responses: {
-                        200: { description: "Payment deleted" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        403: { description: "Admins only" },
-                        404: { description: "Payment not found" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/analytics/overview": {
-                get: {
-                    tags: ["Analytics"],
-                    summary: "Get analytics overview cards",
-                    security: [{ cookieAuth: [] }],
-                    description: "Requires `auth_token` cookie. Returns visitors, page views, conversion rate, and top traffic source with trends.",
-                    responses: {
-                        200: {
-                            description: "Analytics overview returned",
-                            content: {
-                                "application/json": {
-                                    example: {
-                                        status: "success",
-                                        code: 200,
-                                        data: {
-                                            websiteVisitors: { value: 35000, changePct: 15, direction: "up" },
-                                            pageViews: { value: 78222, changePct: 15, direction: "up" },
-                                            conversionRate: { value: 7.6, changePct: -1.2, direction: "down" },
-                                            topTrafficSource: { name: "Google", changePct: 8, direction: "up" }
-                                        },
-                                        message: "Request successful"
-                                    }
-                                }
-                            }
-                        },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/analytics/traffic": {
-                get: {
-                    tags: ["Analytics"],
-                    summary: "Get analytics traffic time-series",
-                    security: [{ cookieAuth: [] }],
-                    description: "Requires `auth_token` cookie. Returns visits, page views, and conversion-rate series.",
-                    parameters: [
-                        {
-                            name: "range",
-                            in: "query",
-                            required: false,
-                            schema: { type: "string", enum: ["7d", "30d", "3months", "6months", "12months"], default: "7d" }
-                        }
-                    ],
-                    responses: {
-                        200: { description: "Traffic overview returned" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/analytics/sources": {
-                get: {
-                    tags: ["Analytics"],
-                    summary: "Get normalized traffic sources",
-                    security: [{ cookieAuth: [] }],
-                    description: "Requires `auth_token` cookie. Returns traffic source percentages for source bars.",
-                    parameters: [
-                        {
-                            name: "range",
-                            in: "query",
-                            required: false,
-                            schema: { type: "string", enum: ["7d", "30d", "3months", "6months", "12months"], default: "30d" }
-                        }
-                    ],
-                    responses: {
-                        200: { description: "Traffic sources returned" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/analytics/campaigns": {
-                get: {
-                    tags: ["Analytics"],
-                    summary: "Get campaign performance table",
-                    security: [{ cookieAuth: [] }],
-                    description: "Requires `auth_token` cookie. Returns campaign rows with impressions, clicks, conversions, conversion rate, and pagination.",
-                    parameters: [
-                        { name: "page", in: "query", required: false, schema: { type: "integer", minimum: 1, default: 1 } },
-                        { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 10 } },
-                        { name: "sortBy", in: "query", required: false, schema: { type: "string", enum: ["createdAt", "campaignName", "impressions", "clicks", "conversions", "conversionRate"], default: "createdAt" } },
-                        { name: "order", in: "query", required: false, schema: { type: "string", enum: ["asc", "desc"], default: "desc" } }
-                    ],
-                    responses: {
-                        200: { description: "Campaign performance returned" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/analytics/distribution": {
-                get: {
-                    tags: ["Analytics"],
-                    summary: "Get analytics distribution pie data",
-                    security: [{ cookieAuth: [] }],
-                    description: "Requires `auth_token` cookie. Returns distribution values for pie chart widgets.",
-                    responses: {
-                        200: {
-                            description: "Distribution data returned",
-                            content: {
-                                "application/json": {
-                                    example: {
-                                        status: "success",
-                                        code: 200,
-                                        data: {
-                                            distribution: [
-                                                { label: "Page Views", value: 78540 },
-                                                { label: "Website Visitors", value: 35280 },
-                                                { label: "Leads", value: 4820 },
-                                                { label: "Customers", value: 690 }
-                                            ]
-                                        },
-                                        message: "Request successful"
-                                    }
-                                }
-                            }
-                        },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/clients": {
-                get: {
-                    tags: ["Clients"],
-                    summary: "List clients with optional status and pagination",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        {
-                            name: "status",
-                            in: "query",
-                            required: false,
-                            schema: { type: "string", enum: ["Lead", "Active", "Inactive", "Archived"] }
-                        },
-                        {
-                            name: "page",
-                            in: "query",
-                            required: false,
-                            schema: { type: "integer", minimum: 1, default: 1 }
-                        },
-                        {
-                            name: "limit",
-                            in: "query",
-                            required: false,
-                            schema: { type: "integer", minimum: 1, maximum: 100, default: 10 }
-                        }
-                    ],
-                    responses: {
-                        200: { description: "Fetch clients success" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                },
-                post: {
-                    tags: ["Clients"],
-                    summary: "Create a new client (Admin Only)",
-                    description: "Creates a new client record. If `assignedStaffId` is provided it must be the `userId` of an existing user.",
-                    security: [{ cookieAuth: [] }],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    required: ["fullName", "companyName", "email", "phone"],
-                                    properties: {
-                                        fullName: { type: "string", example: "Jane Doe" },
-                                        companyName: { type: "string", example: "Acme Corp" },
-                                        email: { type: "string", format: "email", example: "jane.doe@acmecorp.com" },
-                                        phone: { type: "string", example: "+2348012345678" },
-                                        status: { type: "string", enum: ["Lead", "Active", "Inactive", "Archived"], default: "Lead" },
-                                        tags: { type: "array", items: { type: "string" }, example: ["enterprise", "fintech"] },
-                                        assignedStaffId: { type: "string", nullable: true, description: "userId of an existing staff member", example: null },
-                                        leadSource: { type: "string", nullable: true, example: "Referral" },
-                                        notes: { type: "string", example: "Met at Lagos Tech Summit" }
-                                    },
-                                    example: {
-                                        fullName: "Jane Doe",
-                                        companyName: "Acme Corp",
-                                        email: "jane.doe@acmecorp.com",
-                                        phone: "+2348012345678",
-                                        status: "Lead",
-                                        tags: ["enterprise", "fintech"],
-                                        leadSource: "Referral",
-                                        notes: "Met at Lagos Tech Summit"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        201: {
-                            description: "Client added successfully",
-                            content: {
-                                "application/json": {
-                                    schema: {
-                                        type: "object",
-                                        properties: {
-                                            success: { type: "boolean", example: true },
-                                            message: { type: "string", example: "Client added successfully" },
-                                            data: {
-                                                type: "object",
-                                                properties: {
-                                                    client: {
-                                                        type: "object",
-                                                        properties: {
-                                                            id: { type: "string" },
-                                                            fullName: { type: "string" },
-                                                            company: { type: "string" },
-                                                            status: { type: "string", enum: ["Lead", "Active", "Inactive", "Archived"] },
-                                                            tags: { type: "array", items: { type: "string" } },
-                                                            manager: { type: "string", description: "Assigned staff name or 'Unassigned'" },
-                                                            projectsCount: { type: "integer", example: 0 }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        403: { $ref: "#/components/responses/Forbidden" },
-                        404: { description: "assignedStaffId does not match any existing user", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/projects/stats": {
-                get: {
-                    tags: ["Projects"],
-                    summary: "Get project counts by status",
-                    security: [{ cookieAuth: [] }],
-                    responses: {
-                        200: {
-                            description: "Project stats returned",
-                            content: {
-                                "application/json": {
-                                    example: {
-                                        status: "success",
-                                        code: 200,
-                                        data: {
-                                            stats: { total: 24, planned: 4, inProgress: 10, onHold: 2, completed: 7, cancelled: 1 }
-                                        },
-                                        message: "Fetch project stats success"
-                                    }
-                                }
-                            }
-                        },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/projects": {
-                get: {
-                    tags: ["Projects"],
-                    summary: "List projects (paginated)",
-                    description: "Returns paginated projects with optional status filter. Always includes an infoData object with global (unfiltered) project counts.",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-                        { name: "limit", in: "query", schema: { type: "integer", default: 10, maximum: 100 } },
-                        { name: "status", in: "query", schema: { type: "string", enum: ["Planned", "InProgress", "OnHold", "Completed", "Cancelled"] }, description: "Filter by project status" }
-                    ],
-                    responses: {
-                        200: {
-                            description: "Fetch projects success",
-                            content: {
-                                "application/json": {
-                                    schema: {
-                                        type: "object",
-                                        properties: {
-                                            success: { type: "boolean" },
-                                            message: { type: "string" },
-                                            data: {
-                                                type: "object",
-                                                properties: {
-                                                    projects: { type: "array", items: { "$ref": "#/components/schemas/Project" } },
-                                                    pagination: { "$ref": "#/components/schemas/Pagination" },
-                                                    infoData: { "$ref": "#/components/schemas/ProjectInfoData" }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        400: { description: "Invalid query parameters" },
-                        401: { description: "Unauthorized" }
-                    }
-                },
-                post: {
-                    tags: ["Projects"],
-                    summary: "Create a new project (admin only)",
-                    security: [{ cookieAuth: [] }],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    required: ["name", "clientId", "deadline"],
-                                    properties: {
-                                        name: { type: "string" },
-                                        clientId: { type: "string" },
-                                        description: { type: "string", default: "" },
-                                        deadline: { type: "integer" },
-                                        budget: { type: "number", default: 0 },
-                                        priority: { type: "string", enum: ["Low", "Medium", "High", "Urgent"], default: "Medium" },
-                                        status: { type: "string", enum: ["Planned", "InProgress", "OnHold", "Completed", "Cancelled"], default: "Planned" },
-                                        teamIds: { type: "array", items: { type: "string" }, default: [] }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        201: {
-                            description: "Project created successfully",
-                            content: {
-                                "application/json": {
-                                    schema: {
-                                        type: "object",
-                                        properties: {
-                                            success: { type: "boolean" },
-                                            message: { type: "string" },
-                                            data: {
-                                                type: "object",
-                                                properties: {
-                                                    project: { "$ref": "#/components/schemas/Project" }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        400: { description: "Validation error" },
-                        403: { description: "Admins only" }
-                    }
-                }
-            },
-            "/api/projects/{projectId}": {
-                get: {
-                    tags: ["Projects"],
-                    summary: "Get project details",
-                    description: "Returns full project details including comments, team member IDs, files, resolved client details, and task-derived progress/status.",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "projectId", in: "path", required: true, schema: { type: "string" } }
-                    ],
-                    responses: {
-                        200: {
-                            description: "Fetch project success",
-                            content: {
-                                "application/json": {
-                                    schema: {
-                                        type: "object",
-                                        properties: {
-                                            success: { type: "boolean" },
-                                            message: { type: "string" },
-                                            data: {
-                                                type: "object",
-                                                properties: {
-                                                    project: { "$ref": "#/components/schemas/ProjectDetail" }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        404: { description: "Project not found" }
-                    }
-                },
-                patch: {
-                    tags: ["Projects"],
-                    summary: "Update a project (admin only)",
-                    description: "Partial update — all fields optional. The project id cannot be changed. progress is derived from linked task completion and cannot be manually set.",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "projectId", in: "path", required: true, schema: { type: "string" } }
-                    ],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    properties: {
-                                        name: { type: "string" },
-                                        clientId: { type: "string" },
-                                        description: { type: "string" },
-                                        deadline: { type: "integer" },
-                                        budget: { type: "number" },
-                                        priority: { type: "string", enum: ["Low", "Medium", "High", "Urgent"] },
-                                        status: { type: "string", enum: ["Planned", "InProgress", "OnHold", "Completed", "Cancelled"] },
-                                        teamIds: { type: "array", items: { type: "string" } }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        200: {
-                            description: "Project updated successfully",
-                            content: {
-                                "application/json": {
-                                    schema: {
-                                        type: "object",
-                                        properties: {
-                                            success: { type: "boolean" },
-                                            message: { type: "string" },
-                                            data: {
-                                                type: "object",
-                                                properties: {
-                                                    project: { "$ref": "#/components/schemas/Project" }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        400: { description: "Invalid update data" },
-                        403: { description: "Admins only" },
-                        404: { description: "Project not found" }
-                    }
-                },
-                delete: {
-                    tags: ["Projects"],
-                    summary: "Delete a project (admin only)",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "projectId", in: "path", required: true, schema: { type: "string" } }
-                    ],
-                    responses: {
-                        204: { description: "No content — project deleted" },
-                        403: { description: "Admins only" },
-                        404: { description: "Project not found" }
-                    }
-                },
-                put: {
-                    tags: ["Projects"],
-                    summary: "Update project status and financial fields (admin only)",
-                    description: "Used to update revenue recognition, assignees, and status. recognizedRevenue and recognizedAt must be provided together and are only allowed when status is Completed. progress is derived from linked task completion and cannot be manually set.",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "projectId", in: "path", required: true, schema: { type: "string" } }
-                    ],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    properties: {
-                                        name: { type: "string" },
-                                        client: { type: "string" },
-                                        dueTime: { type: "integer" },
-                                        assignees: { type: "array", items: { type: "string" }, description: "Array of user IDs" },
-                                        budget: { type: "number", minimum: 0 },
-                                        status: { type: "string", enum: ["Planned", "InProgress", "OnHold", "Completed", "Cancelled"] },
-                                        recognizedRevenue: { type: "number", minimum: 0, nullable: true },
-                                        recognizedAt: { type: "integer", minimum: 0, nullable: true }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        200: { description: "Project updated successfully" },
-                        400: { description: "Validation error or business rule violation" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        403: { $ref: "#/components/responses/Forbidden" },
-                        404: { description: "Project not found" },
-                        429: { $ref: "#/components/responses/TooManyRequests" }
-                    }
-                }
-            },
-            "/api/projects/{projectId}/comments": {
-                get: {
-                    tags: ["Projects"],
-                    summary: "Get comments for a project",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "projectId", in: "path", required: true, schema: { type: "string" } }
-                    ],
-                    responses: {
-                        200: { description: "Comments returned" },
-                        404: { description: "Project not found" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                },
-                post: {
-                    tags: ["Projects"],
-                    summary: "Add a comment to a project",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "projectId", in: "path", required: true, schema: { type: "string" } }
-                    ],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    required: ["comment"],
-                                    properties: {
-                                        comment: { type: "string", minLength: 1 }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        204: { description: "No content — comment added" },
-                        400: { description: "Comment content is required" },
-                        404: { description: "Project not found" }
-                    }
-                }
-            },
-            "/api/members": {
-                get: {
-                    tags: ["Members"],
-                    summary: "List all staff members (paginated)",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "page", in: "query", required: false, schema: { type: "integer", minimum: 1, default: 1 } },
-                        { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 10 } },
-                        { name: "search", in: "query", required: false, schema: { type: "string" } }
-                    ],
-                    responses: {
-                        200: { description: "Staff members fetched successfully" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                },
-                post: {
-                    tags: ["Members"],
-                    summary: "Add a new staff member (admin only)",
-                    description: "Creates a new user account with a hashed password. The admin's session is preserved — no cookie is set for the new member.",
-                    security: [{ cookieAuth: [] }],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    required: ["firstName", "lastName", "email", "password", "role"],
-                                    properties: {
-                                        firstName: { type: "string" },
-                                        lastName: { type: "string" },
-                                        email: { type: "string", format: "email" },
-                                        password: { type: "string", minLength: 8 },
-                                        role: { type: "string", enum: ["admin", "staff"] },
-                                        job: { type: "string" }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        201: { description: "Member added successfully" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        409: { description: "A member with this email already exists" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/members/{memberId}": {
-                put: {
-                    tags: ["Members"],
-                    summary: "Update a staff member (admin only)",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "memberId", in: "path", required: true, schema: { type: "string" } }
-                    ],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    properties: {
-                                        firstName: { type: "string" },
-                                        lastName: { type: "string" },
-                                        role: { type: "string", enum: ["admin", "staff"], description: "Assign or remove admin privileges" },
-                                        job: { type: "string" },
-                                        status: { type: "string" }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        200: { description: "Member updated successfully" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        403: { $ref: "#/components/responses/Forbidden" },
-                        404: { description: "Member not found" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                },
-                delete: {
-                    tags: ["Members"],
-                    summary: "Offboard and remove individual staff access account (Admin Only)",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "memberId", in: "path", required: true, schema: { type: "string" }, description: "Unique account identifier token of target staff member" }
-                    ],
-                    responses: {
-                        200: { description: "Staff account removed successfully" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        403: { $ref: "#/components/responses/Forbidden" },
-                        404: { description: "Member not found" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/media/images/all": {
-                get: {
-                    tags: ["Media"],
-                    summary: "List image resources",
-                    security: [{ cookieAuth: [] }],
-                    responses: {
-                        200: { description: "Fetch media images success" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/media/images/{imageId}": {
-                get: {
-                    tags: ["Media"],
-                    summary: "Fetch image by ID (redirects to provider URL)",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        {
-                            name: "imageId",
-                            in: "path",
-                            required: true,
-                            schema: { type: "string" }
-                        }
-                    ],
-                    responses: {
-                        302: { description: "Redirect to image URL" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        404: { $ref: "#/components/responses/NotFound" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/media/images/new": {
-                post: {
-                    tags: ["Media"],
-                    summary: "Upload a new image",
-                    security: [{ cookieAuth: [] }],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "multipart/form-data": {
-                                schema: {
-                                    type: "object",
-                                    required: ["image"],
-                                    properties: {
-                                        image: {
-                                            type: "string",
-                                            format: "binary"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        200: { description: "Image uploaded successfully" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/media/images/{imageId}/replace": {
-                put: {
-                    tags: ["Media"],
-                    summary: "Replace an existing image",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        {
-                            name: "imageId",
-                            in: "path",
-                            required: true,
-                            schema: { type: "string" }
-                        }
-                    ],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "multipart/form-data": {
-                                schema: {
-                                    type: "object",
-                                    required: ["image"],
-                                    properties: {
-                                        image: {
-                                            type: "string",
-                                            format: "binary"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        200: { description: "Image replaced successfully" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        404: { $ref: "#/components/responses/NotFound" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/media/strings/all": {
-                get: {
-                    tags: ["Media"],
-                    summary: "List all media strings",
-                    security: [{ cookieAuth: [] }],
-                    responses: {
-                        200: { description: "Fetch media strings success" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/media/strings/new": {
-                post: {
-                    tags: ["Media"],
-                    summary: "Create a new media string",
-                    security: [{ cookieAuth: [] }],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    required: ["string"],
-                                    properties: {
-                                        string: { type: "string" }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        200: { description: "Add media string success" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/media/strings/{stringId}/replace": {
-                put: {
-                    tags: ["Media"],
-                    summary: "Replace an existing media string",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        {
-                            name: "stringId",
-                            in: "path",
-                            required: true,
-                            schema: { type: "string" }
-                        }
-                    ],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    required: ["string"],
-                                    properties: {
-                                        string: { type: "string" }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        200: { description: "Replace media string success" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        404: { $ref: "#/components/responses/NotFound" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/media/strings/{stringId}": {
-                get: {
-                    tags: ["Media"],
-                    summary: "Get raw media string by ID",
-                    parameters: [
-                        {
-                            name: "stringId",
-                            in: "path",
-                            required: true,
-                            schema: { type: "string" }
-                        }
-                    ],
-                    responses: {
-                        200: { description: "Raw string content" },
-                        404: { $ref: "#/components/responses/NotFound" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/tasks": {
-                get: {
-                    tags: ["Tasks"],
-                    summary: "List tasks (paginated)",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "status", in: "query", required: false, schema: { type: "string", enum: ["Todo", "InProgress", "Review", "Done", "Blocked"] } },
-                        { name: "assigneeId", in: "query", required: false, schema: { type: "string" } },
-                        { name: "projectId", in: "query", required: false, schema: { type: "string" } },
-                        { name: "page", in: "query", required: false, schema: { type: "integer", minimum: 1, default: 1 } },
-                        { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } }
-                    ],
-                    responses: {
-                        200: { description: "Tasks fetched successfully" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        429: { $ref: "#/components/responses/TooManyRequests" }
-                    }
-                },
-                post: {
-                    tags: ["Tasks"],
-                    summary: "Create a new task (admin only)",
-                    security: [{ cookieAuth: [] }],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    required: ["title", "assigneeId"],
-                                    properties: {
-                                        title: { type: "string" },
-                                        description: { type: "string" },
-                                        assigneeId: { type: "string" },
-                                        dueDate: { type: "integer" },
-                                        status: { type: "string", enum: ["Todo", "InProgress", "Review", "Done", "Blocked"], default: "Todo" },
-                                        projectId: { type: "string" },
-                                        priority: { type: "string", enum: ["low", "medium", "high"] }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        201: { description: "Task created successfully" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        403: { $ref: "#/components/responses/Forbidden" },
-                        404: { description: "Assignee or project not found" },
-                        429: { $ref: "#/components/responses/TooManyRequests" }
-                    }
-                }
-            },
-            "/api/tasks/{taskId}": {
-                get: {
-                    tags: ["Tasks"],
-                    summary: "Get full task details by ID",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "taskId", in: "path", required: true, schema: { type: "string" } }
-                    ],
-                    responses: {
-                        200: { description: "Task details fetched successfully, including assignee and project objects when available" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        404: { description: "Task not found" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                },
-                patch: {
-                    tags: ["Tasks"],
-                    summary: "Partially update a task (admin only)",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "taskId", in: "path", required: true, schema: { type: "string" } }
-                    ],
-                    requestBody: {
-                        required: true,
-                        content: {
-                            "application/json": {
-                                schema: {
-                                    type: "object",
-                                    properties: {
-                                        title: { type: "string" },
-                                        description: { type: "string" },
-                                        assigneeId: { type: "string" },
-                                        dueDate: { type: "integer" },
-                                        status: { type: "string", enum: ["Todo", "InProgress", "Review", "Done", "Blocked"] },
-                                        projectId: { type: "string" },
-                                        priority: { type: "string", enum: ["low", "medium", "high"] }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    responses: {
-                        200: { description: "Task updated successfully" },
-                        400: { $ref: "#/components/responses/BadRequest" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        403: { $ref: "#/components/responses/Forbidden" },
-                        404: { description: "Task, assignee, or project not found" },
-                        429: { $ref: "#/components/responses/TooManyRequests" }
-                    }
-                },
-                delete: {
-                    tags: ["Tasks"],
-                    summary: "Delete a task (admin only)",
-                    security: [{ cookieAuth: [] }],
-                    parameters: [
-                        { name: "taskId", in: "path", required: true, schema: { type: "string" } }
-                    ],
-                    responses: {
-                        200: { description: "Task deleted successfully" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        403: { $ref: "#/components/responses/Forbidden" },
-                        404: { description: "Task not found" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" }
-                    }
-                }
-            },
-            "/api/health": {
-                get: {
-                    tags: ["Health"],
-                    summary: "Basic health check endpoint",
-                    responses: {
-                        200: { description: "Service is healthy" }
-                    }
-                }
-            },
-            "/api/health/redis/flush": {
-                post: {
-                    tags: ["Health"],
-                    summary: "Flush Redis cache (admin only)",
-                    security: [{ cookieAuth: [] }],
-                    description: "Clears the active Redis database using FLUSHDB. Intended for controlled maintenance operations.",
-                    responses: {
-                        200: { description: "Redis cache flushed successfully" },
-                        401: { $ref: "#/components/responses/Unauthorized" },
-                        403: { $ref: "#/components/responses/Forbidden" },
-                        429: { $ref: "#/components/responses/TooManyRequests" },
-                        500: { $ref: "#/components/responses/ServerError" },
-                        503: { description: "Redis is not connected" }
-                    }
-                }
-            },
-            "/api/blog": {
-                "get": {
-                    "tags": ["Blog"],
-                    "summary": "List blog posts with pagination and optional filters",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
-                        { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 10, "maximum": 100 } },
-                        { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["draft", "published", "scheduled"] } },
-                        { "name": "category", "in": "query", "schema": { "type": "string" } },
-                        { "name": "search", "in": "query", "schema": { "type": "string" } }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Paginated list of blog posts",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "posts": { "type": "array", "items": { "$ref": "#/components/schemas/BlogPost" } },
-                                            "pagination": { "$ref": "#/components/schemas/Pagination" }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "post": {
-                    "tags": ["Blog"],
-                    "summary": "Create a new blog post (Admin Only)",
-                    "description": "Creates a new blog post. `slug` is auto-generated from `title` if omitted. Setting `status` to `published` will automatically set `publishedAt` to the current timestamp. `authorId` must be the `userId` of an existing user.",
-                    "security": [{ "cookieAuth": [] }],
-                    "requestBody": {
-                        "required": true,
-                        "content": {
-                            "application/json": {
-                                "schema": { "$ref": "#/components/schemas/CreateBlogPostBody" }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "201": {
-                            "description": "Blog post created successfully",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "success": { "type": "boolean", "example": true },
-                                            "message": { "type": "string", "example": "Blog post created" },
-                                            "data": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "post": { "$ref": "#/components/schemas/BlogPost" }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        "400": { "description": "Validation error — missing or invalid fields", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
-                        "401": { "description": "Not authenticated — missing or invalid auth_token cookie", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
-                        "403": { "description": "Forbidden — admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
-                        "404": { "description": "Author not found — authorId does not match any existing user", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
-                        "409": { "description": "Conflict — a post with the same slug already exists", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
-                        "500": { "description": "Internal server error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
-                    }
-                }
-            },
-            "/api/blog/stats": {
-                "get": {
-                    "tags": ["Blog"],
-                    "summary": "Get aggregate blog stats (total, published, draft, scheduled, totalViews)",
-                    "security": [{ "cookieAuth": [] }],
-                    "responses": {
-                        "200": {
-                            "description": "Blog statistics",
-                            "content": {
-                                "application/json": {
-                                    "schema": { "$ref": "#/components/schemas/BlogStats" }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "/api/blog/{postId}": {
-                "get": {
-                    "tags": ["Blog"],
-                    "summary": "Get a single blog post by ID",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "postId", "in": "path", "required": true, "schema": { "type": "string" } }
-                    ],
-                    "responses": {
-                        "200": { "description": "Blog post detail", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BlogPost" } } } },
-                        "404": { "description": "Not found" }
-                    }
-                },
-                "put": {
-                    "tags": ["Blog"],
-                    "summary": "Update a blog post (Admin Only)",
-                    "description": "Use this endpoint to update content, set `status` to `published`, or toggle `isFeatured`. It replaces the separate publish/feature routes.",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "postId", "in": "path", "required": true, "schema": { "type": "string" } }
-                    ],
-                    "requestBody": {
-                        "required": true,
-                        "content": {
-                            "application/json": {
-                                "schema": { "$ref": "#/components/schemas/UpdateBlogPostBody" }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "200": { "description": "Blog post updated" },
-                        "404": { "description": "Not found" }
-                    }
-                },
-                "delete": {
-                    "tags": ["Blog"],
-                    "summary": "Delete a blog post (Admin Only)",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "postId", "in": "path", "required": true, "schema": { "type": "string" } }
-                    ],
-                    "responses": {
-                        "200": { description: "Deleted" },
-                        "404": { description: "Not found" }
-                    }
-                }
-            },
-            "/api/blog/track/{slug}": {
-                "post": {
-                    "tags": ["Blog"],
-                    "summary": "Increment view count for an embedded post (public, token-protected)",
-                    "description": "Public endpoint called by the embed page. Requires a short-lived signed token generated by `/embed/{slug}`. Invalid/expired/replayed tokens are ignored.",
-                    "parameters": [
-                        { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }
-                    ],
-                    "requestBody": {
-                        "required": true,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "required": ["token"],
-                                    "properties": {
-                                        "token": {
-                                            "type": "string",
-                                            "description": "Short-lived signed token generated by /embed/{slug}."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "200": { "description": "Accepted (view counted only when token is valid)" },
-                        "429": { "description": "Rate limit exceeded" }
-                    }
-                }
-            },
-            "/embed/{slug}": {
-                "get": {
-                    "tags": ["Blog"],
-                    "summary": "Serve a rendered HTML embed page for a published blog post",
-                    "description": "Returns a full standalone HTML page suitable for embedding via an `<iframe>`. The page contains a tracking script that POSTs to `/api/blog/track/{slug}` to increment views. CORS and frame-ancestor headers allow embedding on any origin.",
-                    "parameters": [
-                        { "name": "slug", in: "path", "required": true, "schema": { "type": "string" } }
-                    ],
-                    "responses": {
-                        "200": { "description": "HTML embed page", "content": { "text/html": {} } },
-                        "404": { "description": "Post not found or not published" }
-                    }
-                }
-            },
-            "/api/leads": {
-                "get": {
-                    "tags": ["Leads"],
-                    "summary": "List all leads (paginated)",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
-                        { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 10 } },
-                        { "name": "search", "in": "query", "schema": { "type": "string" }, "description": "Search by name, email, or company" },
-                        { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["new", "contacted", "qualified", "lost"] } }
-                    ],
-                    "responses": {
-                        "200": { "description": "Leads fetched successfully" },
-                        "401": { "description": "Unauthorized" }
-                    }
-                },
-                "post": {
-                    "tags": ["Leads"],
-                    "summary": "Add a new lead",
-                    "security": [{ "cookieAuth": [] }],
-                    "requestBody": {
-                        "required": true,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "required": ["firstName", "lastName", "email"],
-                                    "properties": {
-                                        "firstName": { "type": "string" },
-                                        "lastName": { "type": "string" },
-                                        "email": { "type": "string", "format": "email" },
-                                        "phone": { "type": "string" },
-                                        "company": { "type": "string" },
-                                        "source": { "type": "string" },
-                                        "stage": { "type": "string" },
-                                        "contactPerson": { "type": "string" },
-                                        "value": { "type": "number" },
-                                        "notes": { "type": "string" }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "201": { "description": "Lead added successfully" },
-                        "400": { "description": "Invalid request parameters" }
-                    }
-                }
-            },
-            "/api/clients/stats": {
-                "get": {
-                    "tags": ["Clients"],
-                    "summary": "Get client dashboard metrics cards",
-                    "security": [{ "cookieAuth": [] }],
-                    "description": "Requires `auth_token` cookie. Returns total, active, inactive, and lead client metrics totals for frontend KPI card rendering.",
-                    "responses": {
-                        "200": {
-                            "description": "Client cards statistics data returned dynamically",
-                            "content": {
-                                "application/json": {
-                                    "example": {
-                                        "status": "success",
-                                        "code": 200,
-                                        "data": {
-                                            "totalClients": 30,
-                                            "activeClients": 21,
-                                            "inactiveClients": 2,
-                                            "leadClients": 7
-                                        },
-                                        "message": "Request successful"
-                                    }
-                                }
-                            }
-                        },
-                        "401": { "description": "Unauthorized" },
-                        "500": { "description": "Internal server error" }
-                    }
-                }
-            },
-            "/api/clients/{id}": {
-                "get": {
-                    "tags": ["Clients"],
-                    "summary": "Get detailed overview of a single client profile entry",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Unique custom identifier token of target client" }
-                    ],
-                    "responses": {
-                        "200": { "description": "Client data object structures returned smoothly" },
-                        "404": { "description": "Client record not found matches target query" }
-                    }
-                },
-                "patch": {
-                    "tags": ["Clients"],
-                    "summary": "Update parts of an individual client document structure (Admin Only)",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Unique custom identifier token of target client" }
-                    ],
-                    "requestBody": {
-                        "required": true,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "fullName": { "type": "string" },
-                                        "companyName": { "type": "string" },
-                                        "status": { "type": "string", "enum": ["Lead", "Active", "Inactive", "Archived"] },
-                                        "notes": { "type": "string" }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "200": { "description": "Client mutations saved cleanly and recorded in activity telemetry" },
-                        "400": { "description": "Validation schema matching execution constraints failed" },
-                        "404": { "description": "Target client record does not exist matching token query" }
-                    }
-                },
-                "delete": {
-                    "tags": ["Clients"],
-                    "summary": "Delete an individual client document from active ecosystem collection (Admin Only)",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Unique custom identifier token of target client" }
-                    ],
-                    "responses": {
-                        "200": { "description": "Client profile document fully cleared from the storage tables" },
-                        "404": { "description": "Client document profile target verification query failed" }
-                    }
-                }
-            },
-            "/api/leads/{leadId}": {
-                "get": {
-                    "tags": ["Leads"],
-                    "summary": "Get detailed pipeline information of an individual lead",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "leadId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Unique target token identifier of specified lead record" }
-                    ],
-                    "responses": {
-                        "200": { "description": "Lead deep metrics loaded cleanly" },
-                        "404": { "description": "Lead entry matching data lookup verification not found" }
-                    }
-                },
-                "patch": {
-                    "tags": ["Leads"],
-                    "summary": "Modify pipeline characteristics on an individual lead document structure",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "leadId", in: "path", "required": true, "schema": { "type": "string" }, "description": "Unique target token identifier of specified lead record" }
-                    ],
-                    "requestBody": {
-                        "required": true,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "status": { "type": "string", "enum": ["new", "contacted", "qualified", "lost"] },
-                                        "stage": { "type": "string" },
-                                        "value": { "type": "number" },
-                                        "notes": { "type": "string" }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "200": { description: "Lead mutations verified and merged safely into the collection parameters" },
-                        "404": { description: "Lead record mismatch verify parameters on execution failed" }
-                    }
-                },
-                "delete": {
-                    "tags": ["Leads"],
-                    "summary": "Purge specified lead completely from active CRM pipelines",
-                    "security": [{ "cookieAuth": [] }],
-                    "parameters": [
-                        { "name": "leadId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Unique target token identifier of specified lead record" }
-                    ],
-                    "responses": {
-                        "200": { "description": "Lead document profile successfully purged from active systems" },
-                        "404": { "description": "Lead document match validation check not found" }
                     }
                 }
             }
         }
-    },
-    "apis": []
+    }
 };
-
-const swaggerSpec = swaggerJSDoc(options);
 
 module.exports = swaggerSpec;
