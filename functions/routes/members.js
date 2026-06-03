@@ -140,7 +140,7 @@ router.put('/:id/password', middlewares.adminOnly, membersRateLimiter, async (re
     }
 });
 
-// 4. PUT /api/members/:id - Update staff member
+// 4. PATCH /api/members/:id - Update staff member
 router.patch('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
     try {
         const validData = updateMemberSchema.safeParse(req.body);
@@ -166,7 +166,7 @@ router.patch('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res)
             message: 'Member updated successfully'
         });
     } catch (e) {
-        logger('MEMBERS_PUT').error(e);
+        logger('MEMBERS_PATCH').error(e);
         return serverError(res, e, 'Failed to update member.');
     }
 });

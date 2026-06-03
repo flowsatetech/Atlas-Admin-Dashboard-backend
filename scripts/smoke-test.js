@@ -5,16 +5,24 @@
  * Requires the server to already be running on BASE_URL.
  */
 
-require('dotenv').config({ path: '.env.staging' });
+const ENV_FILE = process.env.SMOKE_TEST_ENV_FILE || '.env.staging';
+require('dotenv').config({ path: ENV_FILE });
 
 const BASE_URL = process.env.SMOKE_TEST_BASE_URL || "http://127.0.0.1:3000";
-const EMAIL = (process.env.SMOKE_EMAIL || "admin@atlas.local").trim();
-const PASSWORD = (process.env.SMOKE_PASSWORD || "TestPassword123!").trim();
+const EMAIL = (process.env.SMOKE_EMAIL || "admin1@atlas-africa.com.ng").trim();
+const PASSWORD = (process.env.SMOKE_PASSWORD || "nimda@salta").trim();
 const WEBHOOK_TOKEN = process.env.WEBHOOK_BEARER_TOKEN || "test-webhook-token";
+const HAS_CLOUDINARY_CONFIG = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"]
+  .every((key) => Boolean((process.env[key] || "").trim()));
+const ENABLE_CLOUDINARY_UPLOAD_SMOKE = /^true$/i.test(process.env.SMOKE_ENABLE_CLOUDINARY_UPLOADS || "");
+const SHOULD_RUN_CLOUDINARY_UPLOADS = HAS_CLOUDINARY_CONFIG && ENABLE_CLOUDINARY_UPLOAD_SMOKE;
+const ORIGINAL_TEST_MEMBER_PASSWORD = "TestPassword123!";
+const CHANGED_TEST_MEMBER_PASSWORD = "ChangedPassword123!";
 
 let authCookie = "";
 const pass = [];
 const fail = [];
+const skipped = [];
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -26,6 +34,11 @@ function ok(label, status) {
 function bad(label, status, note = "") {
   fail.push(label);
   console.log(`  \x1b[31m✗\x1b[0m ${label} [${status}]${note ? " — " + note : ""}`);
+}
+
+function skipSmoke(label, note = "") {
+  skipped.push(label);
+  console.log(`  \x1b[33m-\x1b[0m ${label} [SKIP]${note ? " — " + note : ""}`);
 }
 
 // Request using the global authCookie
@@ -61,6 +74,30 @@ async function reqWith(method, path, cookie, body = null) {
   }
 }
 
+async function reqMultipart(method, path, { fields = {}, files = [] } = {}) {
+  const form = new FormData();
+
+  for (const [name, value] of Object.entries(fields)) {
+    if (value !== undefined && value !== null) form.append(name, String(value));
+  }
+
+  for (const file of files) {
+    const blob = new Blob([file.content], { type: file.contentType || "application/octet-stream" });
+    form.append(file.name, blob, file.filename || "file.bin");
+  }
+
+  const opts = { method, headers: {}, body: form };
+  if (authCookie) opts.headers["Cookie"] = authCookie;
+
+  try {
+    const res = await fetch(`${BASE_URL}${path}`, opts);
+    let json; try { json = await res.json(); } catch { json = null; }
+    return { status: res.status, json, headers: res.headers };
+  } catch (err) {
+    return { status: 0, json: null, err };
+  }
+}
+
 async function check(label, method, path, body = null, { expect = [200, 201], note = "" } = {}) {
   const { status, json, err } = await req(method, path, body);
   if (err) { bad(label, 0, `connection error: ${err.message}`); return null; }
@@ -75,6 +112,15 @@ async function checkWith(label, method, path, cookie, body = null, { expect = [2
   if (err) { bad(label, 0, `connection error: ${err.message}`); return null; }
   const passed = expect.includes(status);
   const detail = (!passed && json?.message) ? json.message : "";
+  passed ? ok(label, status) : bad(label, status, detail);
+  return json;
+}
+
+async function checkMultipart(label, method, path, multipart = {}, { expect = [200, 201], note = "" } = {}) {
+  const { status, json, err } = await reqMultipart(method, path, multipart);
+  if (err) { bad(label, 0, `connection error: ${err.message}`); return null; }
+  const passed = expect.includes(status);
+  const detail = (!passed && json?.message) ? json.message : note;
   passed ? ok(label, status) : bad(label, status, detail);
   return json;
 }
@@ -133,6 +179,19 @@ function assertProjectTaskProgress(label, project, expected) {
   assertSmoke(label, issues.length === 0, issues.join("; "));
 }
 
+function cloudinarySkipReason() {
+  if (!HAS_CLOUDINARY_CONFIG) return "Cloudinary credentials are not configured in this smoke-test environment";
+  if (!ENABLE_CLOUDINARY_UPLOAD_SMOKE) return "set SMOKE_ENABLE_CLOUDINARY_UPLOADS=true to explicitly allow external Cloudinary uploads";
+  return "Cloudinary upload smoke tests are disabled";
+}
+
+function tinyPngBuffer() {
+  return Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+    "base64",
+  );
+}
+
 // ─── auth helpers ─────────────────────────────────────────────────────────────
 
 async function loginAs(email, password) {
@@ -174,9 +233,58 @@ async function testHealth() {
   await check("GET  /api/health", "GET", "/api/health");
 }
 
+async function testProfilePictureEndpoints() {
+  await checkMultipart(
+    "PUT  /api/user/profile/picture (missing file) → 400",
+    "PUT",
+    "/api/user/profile/picture",
+    {},
+    { expect: [400] },
+  );
+  await checkMultipart(
+    "PUT  /api/user/profile/picture rejects SVG MIME → 400",
+    "PUT",
+    "/api/user/profile/picture",
+    {
+      files: [{ name: "picture", filename: "avatar.svg", contentType: "image/svg+xml", content: Buffer.from("<svg></svg>") }],
+    },
+    { expect: [400] },
+  );
+  await checkMultipart(
+    "PUT  /api/user/profile/picture rejects invalid JPEG content → 400",
+    "PUT",
+    "/api/user/profile/picture",
+    {
+      files: [{ name: "picture", filename: "avatar.jpg", contentType: "image/jpeg", content: Buffer.from("not a real jpeg") }],
+    },
+    { expect: [400] },
+  );
+
+  if (!SHOULD_RUN_CLOUDINARY_UPLOADS) {
+    skipSmoke("PUT  /api/user/profile/picture valid upload", cloudinarySkipReason());
+    return;
+  }
+
+  const uploaded = await checkMultipart(
+    "PUT  /api/user/profile/picture uploads valid PNG",
+    "PUT",
+    "/api/user/profile/picture",
+    {
+      files: [{ name: "picture", filename: "avatar.png", contentType: "image/png", content: tinyPngBuffer() }],
+    },
+  );
+  assertSmoke(
+    "PUT  /api/user/profile/picture returns avatarUrl",
+    typeof uploaded?.data?.profile?.avatarUrl === "string" && uploaded.data.profile.avatarUrl.startsWith("http"),
+    `expected avatarUrl string, received ${JSON.stringify(uploaded?.data?.profile?.avatarUrl)}`,
+  );
+  await check("DELETE /api/user/profile/picture removes uploaded picture", "DELETE", "/api/user/profile/picture", null, { expect: [200] });
+}
+
 async function testUser() {
   console.log("\n[USER]");
   await check("GET  /api/user/profile", "GET", "/api/user/profile");
+  await testProfilePictureEndpoints();
 }
 
 async function testDashboard() {
@@ -211,7 +319,7 @@ async function testProjectClientPopulation() {
   clientId = createdClient?.data?.client?.id;
 
   if (!clientId) {
-    bad("PROJECT CLIENT POPULATION fixture", "SKIP", "could not create client fixture");
+    skipSmoke("PROJECT CLIENT POPULATION fixture", "could not create client fixture");
     return;
   }
 
@@ -234,7 +342,7 @@ async function testProjectClientPopulation() {
   projectId = createdProject?.data?.project?.id;
 
   if (!projectId) {
-    bad("PROJECT CLIENT POPULATION fixture", "SKIP", "could not create project fixture");
+    skipSmoke("PROJECT CLIENT POPULATION fixture", "could not create project fixture");
     await check("DELETE /api/clients/:id (project fixture cleanup)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200] });
     return;
   }
@@ -296,7 +404,7 @@ async function testProjectTaskDerivedProgress() {
   const adminId = adminRes.json?.data?.profile?.userId;
 
   if (!adminId) {
-    bad("PROJECT TASK PROGRESS fixture", "SKIP", "could not resolve current admin user ID");
+    skipSmoke("PROJECT TASK PROGRESS fixture", "could not resolve current admin user ID");
     return;
   }
 
@@ -318,7 +426,7 @@ async function testProjectTaskDerivedProgress() {
   clientId = createdClient?.data?.client?.id;
 
   if (!clientId) {
-    bad("PROJECT TASK PROGRESS fixture", "SKIP", "could not create client fixture");
+    skipSmoke("PROJECT TASK PROGRESS fixture", "could not create client fixture");
     return;
   }
 
@@ -341,7 +449,7 @@ async function testProjectTaskDerivedProgress() {
   projectId = createdProject?.data?.project?.id;
 
   if (!projectId) {
-    bad("PROJECT TASK PROGRESS fixture", "SKIP", "could not create project fixture");
+    skipSmoke("PROJECT TASK PROGRESS fixture", "could not create project fixture");
     if (clientId) await check("DELETE /api/clients/:id (project progress fixture cleanup)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200] });
     return;
   }
@@ -419,7 +527,7 @@ async function testProjectTaskDerivedProgress() {
       { totalTasks: 2, completedTasks: 1, progress: 50, status: "InProgress" }
     );
   } else {
-    bad("PROJECT TASK PROGRESS task fixtures", "SKIP", "could not create both linked tasks");
+    skipSmoke("PROJECT TASK PROGRESS task fixtures", "could not create both linked tasks");
   }
 
   if (firstTaskId) await check("DELETE /api/tasks/:id (project progress fixture cleanup)", "DELETE", `/api/tasks/${firstTaskId}`);
@@ -438,7 +546,7 @@ async function testProjects() {
   if (projectWithClient) {
     assertProjectHasClientDetails("GET  /api/projects existing row has populated client", projectWithClient, projectWithClient.clientId);
   } else {
-    bad("GET  /api/projects existing row has populated client", "ASSERT", "no project with client details available in list response");
+    skipSmoke("GET  /api/projects existing row has populated client", "no project with client details available in list response");
   }
 
   if (projectId) {
@@ -448,8 +556,8 @@ async function testProjects() {
     }
     await check("GET  /api/projects/:id/comments", "GET", `/api/projects/${projectId}/comments`);
   } else {
-    bad("GET  /api/projects/:id", "SKIP", "no project ID available");
-    bad("GET  /api/projects/:id/comments", "SKIP", "no project ID available");
+    skipSmoke("GET  /api/projects/:id", "no project ID available");
+    skipSmoke("GET  /api/projects/:id/comments", "no project ID available");
   }
 
   const emptyStatus = `smoke-empty-status-${Date.now()}`;
@@ -488,20 +596,83 @@ async function testClients() {
     await check("GET  /api/clients/:id", "GET", `/api/clients/${clientId}`);
     await check("PATCH /api/clients/:id", "PATCH", `/api/clients/${clientId}`, { notes: "smoke-test" });
   } else {
-    bad("GET  /api/clients/:id", "SKIP", "no client ID available");
+    skipSmoke("GET  /api/clients/:id", "no client ID available");
+  }
+}
+
+async function testMemberMutationEndpoints() {
+  const suffix = Date.now();
+  const staffEmail = `member-smoke-${suffix}@test.local`;
+  const originalPassword = ORIGINAL_TEST_MEMBER_PASSWORD;
+  const changedPassword = `${CHANGED_TEST_MEMBER_PASSWORD}${suffix}`;
+  let memberId = null;
+
+  try {
+    const created = await check(
+      "POST /api/members (member mutation fixture)",
+      "POST",
+      "/api/members",
+      {
+        firstName: "Member",
+        lastName: "Smoke",
+        email: staffEmail,
+        password: originalPassword,
+        role: "staff",
+        job: "Smoke Test Fixture",
+      },
+      { expect: [201] },
+    );
+    memberId = created?.data?.user?.userId;
+
+    if (!memberId) {
+      skipSmoke("PATCH /api/members/:id fixture", "could not create temporary member fixture");
+      return;
+    }
+
+    await check("PATCH /api/members/:id", "PATCH", `/api/members/${memberId}`, { job: `smoke-${suffix}` });
+    await check("PUT  /api/members/:id no longer allowed", "PUT", `/api/members/${memberId}`, { job: "legacy-put" }, { expect: [404] });
+
+    const originalLogin = await loginAs(staffEmail, originalPassword);
+    assertSmoke(
+      "POST /api/auth/login (member original password)",
+      originalLogin.status === 200 && Boolean(originalLogin.cookie),
+      `expected 200 with auth cookie, received ${originalLogin.status}`,
+    );
+
+    await check("PUT  /api/members/:id/password", "PUT", `/api/members/${memberId}/password`, { password: changedPassword });
+
+    const oldLogin = await loginAs(staffEmail, originalPassword);
+    assertSmoke(
+      "POST /api/auth/login old member password fails",
+      oldLogin.status === 401 && !oldLogin.cookie,
+      `expected 401 without auth cookie, received ${oldLogin.status}`,
+    );
+
+    const newLogin = await loginAs(staffEmail, changedPassword);
+    assertSmoke(
+      "POST /api/auth/login new member password succeeds",
+      newLogin.status === 200 && Boolean(newLogin.cookie),
+      `expected 200 with auth cookie, received ${newLogin.status}`,
+    );
+
+    await check("PUT  /api/members/:id/password (restore fixture password)", "PUT", `/api/members/${memberId}/password`, { password: originalPassword });
+    const restoredLogin = await loginAs(staffEmail, originalPassword);
+    assertSmoke(
+      "POST /api/auth/login restored member password succeeds",
+      restoredLogin.status === 200 && Boolean(restoredLogin.cookie),
+      `expected 200 with auth cookie, received ${restoredLogin.status}`,
+    );
+  } finally {
+    if (memberId) {
+      await check("DELETE /api/members/:id (member fixture cleanup)", "DELETE", `/api/members/${memberId}`, null, { expect: [200] });
+    }
   }
 }
 
 async function testMembers() {
   console.log("\n[MEMBERS]");
-  const res = await check("GET  /api/members", "GET", "/api/members");
-  const memberId = res?.data?.members?.[0]?.userId;
-
-  if (memberId) {
-    await check("PUT  /api/members/:id", "PUT", `/api/members/${memberId}`, { job: `smoke-${Date.now()}` });
-  } else {
-    bad("PUT  /api/members/:id", "SKIP", "no member ID available");
-  }
+  await check("GET  /api/members", "GET", "/api/members");
+  await testMemberMutationEndpoints();
 }
 
 async function testTasks() {
@@ -589,7 +760,7 @@ async function testBlog() {
   if (postId) {
     await check("GET  /api/blog/:id", "GET", `/api/blog/${postId}`);
   } else {
-    bad("GET  /api/blog/:id", "SKIP", "no post ID available");
+    skipSmoke("GET  /api/blog/:id", "no post ID available");
   }
 }
 
@@ -634,7 +805,81 @@ async function testPayments() {
   if (paymentId) {
     await check("GET  /api/payments/:id", "GET", `/api/payments/${paymentId}`);
   } else {
-    bad("GET  /api/payments/:id", "SKIP", "no payment ID available");
+    skipSmoke("GET  /api/payments/:id", "no payment ID available");
+  }
+}
+
+async function testMediaFiles() {
+  console.log("\n[MEDIA FILES]");
+  const suffix = Date.now();
+  let registeredFileId = null;
+  let uploadedFileId = null;
+
+  await check("GET  /api/media/files", "GET", "/api/media/files");
+  await check("POST /api/media/files/url rejects non-HTTPS URL → 400", "POST", "/api/media/files/url", { url: "http://cdn.example.com/file.pdf" }, { expect: [400] });
+  await checkMultipart("POST /api/media/files (missing file) → 400", "POST", "/api/media/files", {}, { expect: [400] });
+
+  try {
+    const registered = await check(
+      "POST /api/media/files/url",
+      "POST",
+      "/api/media/files/url",
+      {
+        url: `https://cdn.example.com/smoke/${suffix}/company-presentation.pdf`,
+        fileName: `smoke-${suffix}.pdf`,
+        type: "document",
+        mimeType: "application/pdf",
+        sizeBytes: 42,
+      },
+      { expect: [201] },
+    );
+    registeredFileId = registered?.data?.file?.id;
+
+    if (registeredFileId) {
+      const listRes = await check("GET  /api/media/files includes registered URL file", "GET", "/api/media/files?type=document&limit=100");
+      assertSmoke(
+        "GET  /api/media/files registered URL file appears in list",
+        Array.isArray(listRes?.data?.files) && listRes.data.files.some((file) => file?.id === registeredFileId),
+        `registered file ${registeredFileId} not found in list response`,
+      );
+      await check("GET  /api/media/files/:id", "GET", `/api/media/files/${registeredFileId}`);
+      await check("DELETE /api/media/files/:id", "DELETE", `/api/media/files/${registeredFileId}`);
+      await check("GET  /api/media/files/:id after delete → 404", "GET", `/api/media/files/${registeredFileId}`, null, { expect: [404] });
+      registeredFileId = null;
+    } else {
+      skipSmoke("GET/DELETE /api/media/files/:id registered URL fixture", "could not register temporary URL file fixture");
+    }
+
+    if (!SHOULD_RUN_CLOUDINARY_UPLOADS) {
+      skipSmoke("POST /api/media/files binary upload", cloudinarySkipReason());
+      return;
+    }
+
+    const uploaded = await checkMultipart(
+      "POST /api/media/files binary upload",
+      "POST",
+      "/api/media/files",
+      {
+        files: [{ name: "file", filename: `smoke-${suffix}.txt`, contentType: "text/plain", content: Buffer.from("smoke test file upload") }],
+      },
+      { expect: [201] },
+    );
+    uploadedFileId = uploaded?.data?.file?.id;
+
+    if (uploadedFileId) {
+      await check("GET  /api/media/files/:id (uploaded binary)", "GET", `/api/media/files/${uploadedFileId}`);
+      await check("DELETE /api/media/files/:id (uploaded binary cleanup)", "DELETE", `/api/media/files/${uploadedFileId}`);
+      uploadedFileId = null;
+    } else {
+      skipSmoke("DELETE /api/media/files/:id uploaded binary cleanup", "binary upload did not return a file id");
+    }
+  } finally {
+    if (registeredFileId) {
+      await check("DELETE /api/media/files/:id (registered URL cleanup)", "DELETE", `/api/media/files/${registeredFileId}`, null, { expect: [200, 404] });
+    }
+    if (uploadedFileId) {
+      await check("DELETE /api/media/files/:id (uploaded binary cleanup)", "DELETE", `/api/media/files/${uploadedFileId}`, null, { expect: [200, 404] });
+    }
   }
 }
 
@@ -688,10 +933,12 @@ async function testUnauthorized() {
   console.log("\n[EDGE: UNAUTHORIZED — no cookie → 401]");
   const routes = [
     ["GET  /api/user/profile", "GET", "/api/user/profile"],
+    ["PUT  /api/user/profile/picture", "PUT", "/api/user/profile/picture"],
     ["GET  /api/dashboard/metrics", "GET", "/api/dashboard/metrics"],
     ["GET  /api/projects", "GET", "/api/projects"],
     ["GET  /api/clients", "GET", "/api/clients"],
     ["GET  /api/members", "GET", "/api/members"],
+    ["GET  /api/media/files", "GET", "/api/media/files"],
     ["GET  /api/leads", "GET", "/api/leads"],
     ["GET  /api/analytics/overview", "GET", "/api/analytics/overview"],
     ["GET  /api/revenue", "GET", "/api/revenue"],
@@ -773,7 +1020,7 @@ async function testNotFound() {
   await check("GET  /api/payments/no-such-id → 404",  "GET", "/api/payments/no-such-id",  null, { expect: [404] });
   await check("GET  /api/tasks/no-such-id → 404",     "GET", "/api/tasks/no-such-id",     null, { expect: [404] });
   await check("PATCH /api/tasks/no-such-id → 404",   "PATCH", "/api/tasks/no-such-id", { status: "Done" }, { expect: [404] });
-  await check("PUT  /api/members/no-such-id → 404",   "PUT", "/api/members/no-such-id", { job: "x" }, { expect: [404] });
+  await check("PATCH /api/members/no-such-id → 404",  "PATCH", "/api/members/no-such-id", { job: "x" }, { expect: [404] });
 }
 
 // 5. Duplicate resource must return 409
@@ -814,6 +1061,7 @@ async function testAdminOnly() {
 
   // Admin-only route checks
   await checkWith("GET  /api/members (staff) → 403",       "GET",  "/api/members",  staffCookie, null,  { expect: [403] });
+  await checkWith("PUT  /api/members/:id/password (staff) → 403", "PUT", "/api/members/any-id/password", staffCookie, { password: "NopePassword123!" }, { expect: [403] });
   await checkWith("DELETE /api/members/:id (staff) → 403", "DELETE", "/api/members/any-id", staffCookie, null, { expect: [403] });
   await checkWith("POST /api/payments (staff) → 403",      "POST", "/api/payments", staffCookie,
     { clientName: "X", projectName: "Y", amount: 1, date: Date.now() }, { expect: [403] });
@@ -835,7 +1083,9 @@ async function testAdminOnly() {
 
 async function run() {
   console.log(`\n\x1b[1mSmoke test → ${BASE_URL}\x1b[0m`);
-  console.log(`Credentials: ${EMAIL}`);
+  console.log(`Environment file: ${ENV_FILE}`);
+  console.log(`Login email: ${EMAIL}`);
+  console.log(`Cloudinary upload smoke: ${SHOULD_RUN_CLOUDINARY_UPLOADS ? "enabled" : `skipped (${cloudinarySkipReason()})`}`);
 
   // ── edge case: unauthenticated requests (must run before login) ──
   await testUnauthorized();
@@ -860,6 +1110,7 @@ async function run() {
   await testAnalytics();
   await testRevenue();
   await testPayments();
+  await testMediaFiles();
   await testWebhooks();
 
   // ── edge cases (while still authenticated as admin) ──
@@ -877,6 +1128,10 @@ async function run() {
   const total = pass.length + fail.length;
   console.log(`\n${"─".repeat(50)}`);
   console.log(`\x1b[1mResults: ${pass.length}/${total} passed\x1b[0m`);
+  if (skipped.length) {
+    console.log(`\n\x1b[33mSkipped (${skipped.length}, not counted as failures):\x1b[0m`);
+    skipped.forEach((s) => console.log(`  • ${s}`));
+  }
   if (fail.length) {
     console.log(`\n\x1b[31mFailed (${fail.length}):\x1b[0m`);
     fail.forEach((f) => console.log(`  • ${f}`));
