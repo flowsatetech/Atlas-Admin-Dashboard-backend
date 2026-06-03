@@ -16,7 +16,7 @@ const { MongoClient } = require('mongodb');
       leads: await db.collection('leads').countDocuments(),
       blogPosts: await db.collection('blogPosts').countDocuments(),
       comments: await db.collection('comments').countDocuments(),
-      mediaStrings: await db.collection('mediaStrings').countDocuments(),
+      mediaFiles: await db.collection('mediaFiles').countDocuments(),
       activityLogs: await db.collection('activityLogs').countDocuments(),
       analyticsSnapshots: await db.collection('analyticsSnapshots').countDocuments(),
       campaignStats: await db.collection('campaignStats').countDocuments(),

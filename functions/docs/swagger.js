@@ -139,7 +139,7 @@ const examples = {
     slug: "getting-started-with-digital-marketing",
     leadId: "lead_quote_request_001",
     imageId: "8dce7fb2a3e34ad6b0a51d8f6e0c771c",
-    stringId: "home_hero_headline",
+    fileId: "media_file_001",
     timestamp: 1775779200000,
     createdAt: 1775600000000,
     updatedAt: 1775686400000,
@@ -148,7 +148,8 @@ const examples = {
         firstName: "Ada",
         lastName: "Okafor",
         email: "ada.okafor@atlas.example",
-        role: "admin"
+        role: "admin",
+        avatarUrl: "https://res.cloudinary.com/atlas/image/upload/v1775600000/atlas-africa/profile-pictures/avatar.webp"
     },
     member: {
         userId: "2854abb8528fe1806d4a75d4f81035ef",
@@ -299,9 +300,19 @@ const examples = {
         id: "8dce7fb2a3e34ad6b0a51d8f6e0c771c",
         url: "https://res.cloudinary.com/atlas/image/upload/v1775600000/dashboard/hero.png"
     },
-    mediaString: {
-        id: "home_hero_headline",
-        string: "Grow your business with data-backed marketing."
+    mediaFile: {
+        id: "media_file_001",
+        fileName: "company-presentation.pdf",
+        type: "document",
+        mimeType: "application/pdf",
+        sizeBytes: 1024000,
+        storageProvider: "cloudinary",
+        publicId: "atlas-africa/files/company-presentation",
+        resourceType: "raw",
+        url: "https://res.cloudinary.com/atlas/raw/upload/v1775600000/atlas-africa/files/company-presentation.pdf",
+        uploadedBy: "2854abb8528fe1806d4a75d4f81035ef",
+        createdAt: 1775600000000,
+        updatedAt: 1775686400000
     }
 };
 
@@ -326,7 +337,6 @@ Most JSON responses under \`/api\` are normalized by the Express middleware into
 
 A few endpoints intentionally return non-JSON responses and are documented as such:
 - \`GET /api/media/images/{imageId}\` redirects to the provider URL.
-- \`GET /api/media/strings/{stringId}\` returns raw text.
 - \`GET /embed/{slug}\` returns HTML.
 - Some write operations return \`204 No Content\`.
 
@@ -356,7 +366,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
         { name: "Projects", description: "Projects, derived progress, comments, revenue recognition, and project status management." },
         { name: "Tasks", description: "Task assignment, filtering, task details, and task lifecycle operations." },
         { name: "Members", description: "Staff account management. These routes are admin-only." },
-        { name: "Media", description: "Image uploads/replacement and editable media strings." },
+        { name: "Media", description: "Image uploads/replacement and general file metadata." },
         { name: "Blog", description: "Authenticated blog administration, public embed rendering, and view tracking." },
         { name: "Leads", description: "Lead pipeline records used by the admin dashboard." },
         { name: "Webhooks", description: "Bearer-token protected public lead ingestion endpoints." },
@@ -412,7 +422,9 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             LeadIdPath: pathParam("leadId", "Lead custom ID token.", examples.leadId),
             MemberIdPath: pathParam("id", "Staff userId. Used for update and delete operations.", examples.userId),
             ImageIdPath: pathParam("imageId", "Media image ID token.", examples.imageId),
-            StringIdPath: pathParam("stringId", "Media string ID token.", examples.stringId)
+            FileIdPath: pathParam("fileId", "Media file ID token.", examples.fileId),
+            MediaFileType: queryParam("type", { type: "string", enum: ["image", "document", "video", "other"] }, "Optional media file type filter.", "document"),
+            MediaFileLimit: queryParam("limit", { type: "integer", minimum: 1, maximum: 100, default: 100 }, "Maximum number of media file records to return.", 100)
         },
         schemas: {
             Timestamp: {
@@ -493,7 +505,8 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     firstName: { type: "string", example: "Ada" },
                     lastName: { type: "string", example: "Okafor" },
                     email: { type: "string", format: "email", example: "ada.okafor@atlas.example" },
-                    role: { type: "string", enum: enumValues.userRoles, example: "admin" }
+                    role: { type: "string", enum: enumValues.userRoles, example: "admin" },
+                    avatarUrl: { type: "string", format: "uri", nullable: true, example: examples.userProfile.avatarUrl }
                 },
                 example: examples.userProfile
             },
@@ -1047,19 +1060,33 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 },
                 example: examples.mediaImage
             },
-            MediaString: {
+            MediaFile: {
                 type: "object",
                 properties: {
-                    id: { type: "string", example: examples.stringId },
-                    string: { type: "string", example: "Grow your business with data-backed marketing." }
+                    id: { type: "string", example: examples.fileId },
+                    fileName: { type: "string", example: "company-presentation.pdf" },
+                    type: { type: "string", enum: ["image", "document", "video", "other"], example: "document" },
+                    mimeType: { type: "string", example: "application/pdf" },
+                    sizeBytes: { type: "integer", minimum: 0, example: 1024000 },
+                    storageProvider: { type: "string", enum: ["cloudinary", "local", "s3", "other"], example: "cloudinary" },
+                    publicId: { type: "string", nullable: true, example: "atlas-africa/files/company-presentation" },
+                    resourceType: { type: "string", enum: ["image", "video", "raw"], nullable: true, example: "raw" },
+                    url: { type: "string", format: "uri", example: examples.mediaFile.url },
+                    uploadedBy: { type: "string", nullable: true, example: examples.userId },
+                    createdAt: ref("Timestamp"),
+                    updatedAt: ref("Timestamp")
                 },
-                example: examples.mediaString
+                example: examples.mediaFile
             },
-            MediaStringRequest: {
+            RegisterMediaFileUrlRequest: {
                 type: "object",
-                required: ["string"],
+                required: ["url"],
                 properties: {
-                    string: { type: "string", example: "Grow your business with data-backed marketing." }
+                    url: { type: "string", format: "uri", example: "https://cdn.example.com/files/company-presentation.pdf" },
+                    fileName: { type: "string", example: "company-presentation.pdf" },
+                    type: { type: "string", enum: ["image", "document", "video", "other"], default: "other", example: "document" },
+                    mimeType: { type: "string", default: "application/octet-stream", example: "application/pdf" },
+                    sizeBytes: { type: "integer", minimum: 0, default: 0, example: 1024000 }
                 }
             },
             DashboardMetrics: {
@@ -1347,6 +1374,56 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                         type: "object",
                         properties: { profile: ref("UserProfile") }
                     }, { profile: examples.userProfile }, "Fetch profile success"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/user/profile/picture": {
+            put: {
+                tags: ["User"],
+                operationId: "updateCurrentUserProfilePicture",
+                summary: "Upload or replace current user's profile picture",
+                description: "Authenticated self-service profile picture upload. Uses multipart/form-data field name picture. Only JPEG, PNG, and WebP are accepted; SVG, GIF, HEIC, documents, video, and non-image payloads are rejected by MIME, extension, and magic-byte checks. Replacing a picture deletes the previous Cloudinary asset when a public ID is stored.",
+                security: [{ cookieAuth: [] }],
+                requestBody: {
+                    required: true,
+                    description: "Multipart payload with one strict image file.",
+                    content: {
+                        "multipart/form-data": {
+                            schema: {
+                                type: "object",
+                                required: ["picture"],
+                                properties: {
+                                    picture: { type: "string", format: "binary", description: "JPEG, PNG, or WebP image only. Maximum size is 5 MB." }
+                                }
+                            }
+                        }
+                    }
+                },
+                responses: {
+                    200: successResponse("Profile picture updated.", {
+                        type: "object",
+                        properties: { profile: ref("UserProfile") }
+                    }, { profile: examples.userProfile }, "Profile picture updated successfully"),
+                    400: errorResponse("Missing file or unsupported image type/content.", 400, "Profile picture must be a JPEG, PNG, or WebP image"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            delete: {
+                tags: ["User"],
+                operationId: "deleteCurrentUserProfilePicture",
+                summary: "Remove current user's profile picture",
+                description: "Authenticated self-service profile picture removal. Deletes the stored Cloudinary asset when possible and clears avatarUrl/avatarPublicId/avatarResourceType in the user record.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Profile picture removed.", {
+                        type: "object",
+                        properties: { profile: ref("UserProfile") }
+                    }, { profile: { ...examples.userProfile, avatarUrl: null } }, "Profile picture removed successfully"),
                     401: responseRef("Unauthorized"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
@@ -2379,75 +2456,121 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 }
             }
         },
-        "/api/media/strings/all": {
+        "/api/media/files": {
             get: {
                 tags: ["Media"],
-                operationId: "listMediaStrings",
-                summary: "List all media strings",
-                description: "Returns editable string resources.",
+                operationId: "listMediaFiles",
+                summary: "List media file metadata",
+                description: "Returns uploaded and registered media file metadata. Response URLs are direct provider/HTTPS URLs; the backend does not proxy file bytes.",
                 security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("Page"), parameterRef("MediaFileLimit"), parameterRef("MediaFileType")],
                 responses: {
-                    200: successResponse("Media strings returned.", {
+                    200: successResponse("Media files returned.", {
                         type: "object",
-                        properties: { strings: { type: "array", items: ref("MediaString") } }
-                    }, { strings: [examples.mediaString] }, "Fetch media strings success"),
+                        properties: {
+                            files: { type: "array", items: ref("MediaFile") },
+                            pagination: ref("Pagination")
+                        }
+                    }, { files: [examples.mediaFile], pagination: { page: 1, limit: 100, total: 1, totalPages: 1 } }, "Fetch media files success"),
+                    400: responseRef("BadRequest"),
                     401: responseRef("Unauthorized"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
                 }
-            }
-        },
-        "/api/media/strings/new": {
+            },
             post: {
                 tags: ["Media"],
-                operationId: "createMediaString",
-                summary: "Create a new media string",
-                description: "Stores a new editable string and returns its generated ID.",
+                operationId: "uploadMediaFile",
+                summary: "Upload a general media file",
+                description: "Uploads one general file to Cloudinary using multipart/form-data field name file. Cloudinary resource_type auto is used, and the response stores/returns the direct secure URL.",
                 security: [{ cookieAuth: [] }],
-                requestBody: jsonRequestBody("MediaStringRequest", { string: "Grow your business with data-backed marketing." }, "String payload."),
+                requestBody: {
+                    required: true,
+                    description: "Multipart payload with one file.",
+                    content: {
+                        "multipart/form-data": {
+                            schema: {
+                                type: "object",
+                                required: ["file"],
+                                properties: {
+                                    file: { type: "string", format: "binary", description: "Any general file accepted by Cloudinary auto upload. Maximum size is 25 MB." }
+                                }
+                            }
+                        }
+                    }
+                },
                 responses: {
-                    201: successResponse("String stored successfully.", {
+                    201: successResponse("File uploaded successfully.", {
                         type: "object",
-                        properties: { id: { type: "string", example: examples.stringId } }
-                    }, { id: examples.stringId }, "String stored successfully", 201),
-                    400: responseRef("BadRequest"),
+                        properties: { file: ref("MediaFile"), url: { type: "string", format: "uri" } }
+                    }, { file: examples.mediaFile, url: examples.mediaFile.url }, "File uploaded successfully", 201),
+                    400: errorResponse("No file uploaded or invalid file metadata.", 400, "No file uploaded"),
                     401: responseRef("Unauthorized"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
                 }
             }
         },
-        "/api/media/strings/{stringId}/replace": {
-            put: {
+        "/api/media/files/url": {
+            post: {
                 tags: ["Media"],
-                operationId: "replaceMediaString",
-                summary: "Replace an existing media string",
-                description: "Updates the stored string for a media string ID.",
+                operationId: "registerMediaFileUrl",
+                summary: "Register an HTTPS file URL",
+                description: "Registers an existing HTTPS file URL without uploading a binary. The URL is returned directly in later metadata responses.",
                 security: [{ cookieAuth: [] }],
-                parameters: [parameterRef("StringIdPath")],
-                requestBody: jsonRequestBody("MediaStringRequest", { string: "Scale faster with measurable marketing systems." }, "Replacement string payload."),
+                requestBody: jsonRequestBody("RegisterMediaFileUrlRequest", {
+                    url: "https://cdn.example.com/files/company-presentation.pdf",
+                    fileName: "company-presentation.pdf",
+                    type: "document",
+                    mimeType: "application/pdf",
+                    sizeBytes: 1024000
+                }, "HTTPS file URL metadata."),
                 responses: {
-                    200: emptySuccessResponse("Media string replaced successfully.", "Replace media string success"),
+                    201: successResponse("File URL registered successfully.", {
+                        type: "object",
+                        properties: { file: ref("MediaFile"), url: { type: "string", format: "uri" } }
+                    }, { file: { ...examples.mediaFile, storageProvider: "other", publicId: null, resourceType: null }, url: "https://cdn.example.com/files/company-presentation.pdf" }, "File URL registered successfully", 201),
                     400: responseRef("BadRequest"),
                     401: responseRef("Unauthorized"),
-                    404: responseRef("NotFound"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
                 }
             }
         },
-        "/api/media/strings/{stringId}": {
+        "/api/media/files/{fileId}": {
             get: {
                 tags: ["Media"],
-                operationId: "getRawMediaString",
-                summary: "Get raw media string by ID",
-                description: "Returns the raw string content using text/plain via res.end(), not the normalized JSON envelope.",
+                operationId: "getMediaFile",
+                summary: "Get media file metadata",
+                description: "Returns metadata for one file plus its direct URL. The backend does not proxy file bytes.",
                 security: [{ cookieAuth: [] }],
-                parameters: [parameterRef("StringIdPath")],
+                parameters: [parameterRef("FileIdPath")],
                 responses: {
-                    200: textResponse("Raw string content.", "Grow your business with data-backed marketing."),
+                    200: successResponse("Media file returned.", {
+                        type: "object",
+                        properties: { file: ref("MediaFile"), url: { type: "string", format: "uri" } }
+                    }, { file: examples.mediaFile, url: examples.mediaFile.url }, "Fetch media file success"),
                     401: responseRef("Unauthorized"),
-                    404: errorResponse("String ID not found.", 404, "String Id not found"),
+                    404: errorResponse("File ID not found.", 404, "File Id not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            delete: {
+                tags: ["Media"],
+                operationId: "deleteMediaFile",
+                summary: "Delete a media file",
+                description: "Deletes media file metadata and deletes the Cloudinary asset when a publicId/resourceType is stored.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("FileIdPath")],
+                responses: {
+                    200: successResponse("File deleted successfully.", {
+                        type: "object",
+                        properties: { id: { type: "string", example: examples.fileId } }
+                    }, { id: examples.fileId }, "File deleted successfully"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("File ID not found.", 404, "File Id not found"),
+                    429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
                 }
             }

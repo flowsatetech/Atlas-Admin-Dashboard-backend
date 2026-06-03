@@ -227,7 +227,7 @@ async function seedDatabase() {
         console.log('🧹 Clearing existing collections...');
         const collections = [
             'users', 'clients', 'projects', 'tasks', 'leads', 'blogPosts',
-            'comments', 'mediaStrings', 'images', 'activityLogs', 'analyticsSnapshots',
+            'comments', 'mediaFiles', 'images', 'activityLogs', 'analyticsSnapshots',
             'campaignStats', 'cms-pages'
         ];
 
@@ -415,7 +415,7 @@ async function seedDatabase() {
 
         // 8. Create media files
         console.log('\n🖼️  Creating media files...');
-        const mediaCol = db.collection('mediaStrings');
+        const mediaCol = db.collection('mediaFiles');
         const media1 = createMediaFile(staffUser1.userId, {
             fileName: 'homepage-banner.jpg',
             type: 'image',

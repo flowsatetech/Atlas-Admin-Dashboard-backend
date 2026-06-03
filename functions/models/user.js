@@ -10,6 +10,8 @@ const userSchema = z.object({
     email: z.email(),
     role: userRoleEnum.default("staff"),
     avatarUrl: z.string().url().nullable().default(null),
+    avatarPublicId: z.string().min(1).nullable().default(null),
+    avatarResourceType: z.enum(["image", "video", "raw"]).nullable().default(null),
     authProvider: z.enum(["atlas", "google"]).default("atlas"),
     passwordHash: z.string().min(1).nullable().default(null),
     stamp: z.string().nullable().default(null),

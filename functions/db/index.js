@@ -7,7 +7,7 @@ let users;
 let projects;
 let clients;
 let images;
-let mediaStrings;
+let mediaFiles;
 let tasks;
 let comments;
 let activityLogs;
@@ -39,7 +39,7 @@ async function initializeDB() {
     projects = db.collection("projects");
     clients = db.collection("clients");
     images = db.collection("images");
-    mediaStrings = db.collection("mediaStrings");
+    mediaFiles = db.collection("mediaFiles");
     tasks = db.collection("tasks");
     comments = db.collection("comments");
     activityLogs = db.collection("activityLogs");
@@ -50,6 +50,11 @@ async function initializeDB() {
     payments = db.collection("payments");
 
     await users.createIndex({ email: 1 }, { unique: true });
+    await images.createIndex({ id: 1 }, { unique: true });
+    await mediaFiles.createIndex({ id: 1 }, { unique: true });
+    await mediaFiles.createIndex({ uploadedBy: 1 });
+    await mediaFiles.createIndex({ type: 1 });
+    await mediaFiles.createIndex({ createdAt: -1 });
     await clients.createIndex({ id: 1 }, { unique: true });
     await clients.createIndex({ status: 1 });
     await tasks.createIndex({ id: 1 }, { unique: true });
@@ -1086,43 +1091,64 @@ async function findImageById(imageId) {
   }
 }
 
-async function getMediaStrings() {
+async function getMediaFiles({ page = 1, limit = 100, type = "", uploadedBy = "" } = {}) {
   try {
-    return await mediaStrings.find({}).toArray();
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(Math.max(1, Number(limit) || 100), 100);
+    const query = {};
+
+    if (type) query.type = type;
+    if (uploadedBy) query.uploadedBy = uploadedBy;
+
+    const skip = (safePage - 1) * safeLimit;
+    const [files, total] = await Promise.all([
+      mediaFiles.find(query).sort({ createdAt: -1 }).skip(skip).limit(safeLimit).toArray(),
+      mediaFiles.countDocuments(query),
+    ]);
+
+    return {
+      files,
+      pagination: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
   } catch (err) {
     logger("DB").error(err);
     throw err;
   }
 }
 
-async function getMediaStringById(stringId) {
+async function getMediaFileById(fileId) {
   try {
-    return await mediaStrings.findOne({ id: stringId });
+    return await mediaFiles.findOne({ id: fileId });
   } catch (err) {
     logger("DB").error(err);
     throw err;
   }
 }
 
-async function storeMediaString(id, string) {
+async function addMediaFile(fileData) {
   try {
-    const url = `${process.env.SERVER_BASE_URL}/api/media/strings/${id}`;
-    return await mediaStrings.insertOne({ id, url, string });
+    const result = await mediaFiles.insertOne(fileData);
+    return { ...fileData, _id: result.insertedId };
   } catch (err) {
     logger("DB").error(err);
     throw err;
   }
 }
 
-async function updateMediaString(stringId, string) {
+async function deleteMediaFileById(fileId) {
   try {
-    return await mediaStrings.updateOne({ id: stringId }, { $set: { string } });
+    const result = await mediaFiles.deleteOne({ id: fileId });
+    return result.deletedCount > 0;
   } catch (err) {
     logger("DB").error(err);
     throw err;
   }
 }
-
 
 async function getBlogPostsPaginated({ page = 1, limit = 10, status = "", category = "", search = "" } = {}) {
   try {
@@ -1544,10 +1570,10 @@ module.exports = {
   addImage,
   updateImageById,
 
-  getMediaStrings,
-  getMediaStringById,
-  storeMediaString,
-  updateMediaString,
+  getMediaFiles,
+  getMediaFileById,
+  addMediaFile,
+  deleteMediaFileById,
   addComment,
   getCommentsByProjectId,
 
