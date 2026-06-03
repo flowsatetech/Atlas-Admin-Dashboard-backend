@@ -48,6 +48,10 @@ const updateMemberSchema = z.object({
     status: z.string().optional(),
 });
 
+const adminChangeMemberPasswordSchema = z.object({
+    password: z.string().min(8, 'Password must be at least 8 characters'),
+});
+
 module.exports = {
     userRoleEnum,
     userSchema,
@@ -56,4 +60,5 @@ module.exports = {
     loginSchema,
     createMemberSchema,
     updateMemberSchema,
+    adminChangeMemberPasswordSchema,
 };

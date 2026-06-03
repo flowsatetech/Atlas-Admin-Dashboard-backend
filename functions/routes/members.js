@@ -8,7 +8,7 @@ const bcrypt = require('bcrypt');
 const middlewares = require('../middlewares');
 const { logger, generateToken, serverError, clientError } = require('../helpers');
 const db = require('../db');
-const { createMemberSchema, updateMemberSchema } = require('../models/user');
+const { createMemberSchema, updateMemberSchema, adminChangeMemberPasswordSchema } = require('../models/user');
 
 /** SETUP */
 const router = express.Router();
@@ -109,8 +109,39 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
     }
 });
 
-// 3. PUT /api/members/:id - Update staff member
-router.put('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
+// 3. PUT /api/members/:id/password - Change a member's password (admin only)
+router.put('/:id/password', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
+    try {
+        const validData = adminChangeMemberPasswordSchema.safeParse(req.body);
+        if (!validData.success) {
+            return clientError(res, 400, 'Invalid password data.', validData.error.issues.map(i => i.message));
+        }
+
+        const userId = req.params.id;
+        const existing = await db.getUserById(userId);
+        if (!existing) {
+            return clientError(res, 404, 'Member not found');
+        }
+
+        const hashedPassword = await bcrypt.hash(validData.data.password, 10);
+        await db.updateUser(userId, {
+            password: hashedPassword,
+            stamp: null,
+            updatedAt: Date.now()
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Member password updated successfully'
+        });
+    } catch (e) {
+        logger('MEMBERS_PASSWORD_PUT').error(e);
+        return serverError(res, e, 'Failed to update member password.');
+    }
+});
+
+// 4. PUT /api/members/:id - Update staff member
+router.patch('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
     try {
         const validData = updateMemberSchema.safeParse(req.body);
         if (!validData.success) {
@@ -140,7 +171,7 @@ router.put('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) =
     }
 });
 
-// 4. DELETE /api/members/:memberId - Delete staff member (admin only)
+// 5. DELETE /api/members/:memberId - Delete staff member (admin only)
 router.delete('/:memberId', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
     try {
         const member = await db.getUserById(req.params.memberId);

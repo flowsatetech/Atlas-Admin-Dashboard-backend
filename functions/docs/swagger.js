@@ -13,7 +13,8 @@ const enumValues = Object.freeze({
     dashboardPeriods: ["3months", "6months", "12months"],
     analyticsRanges: ["7d", "30d", "3months", "6months", "12months"],
     trendDirections: ["up", "down", "flat"],
-    memberRoles: ["admin", "staff"],
+    memberRoles: ["admin", "manager", "staff"],
+    memberEditableRoles: ["admin", "staff"],
     userRoles: ["admin", "manager", "staff", "viewer"],
     campaignSortFields: ["createdAt", "campaignName", "impressions", "clicks", "conversions", "conversionRate"],
     sortOrders: ["asc", "desc"],
@@ -352,8 +353,8 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
     servers: [
         {
             url: serverUrl,
-            description: "Configured API server. Set SERVER_BASE_URL to change this value."
-        }
+            description: "Current URL"
+        },
     ],
     tags: [
         { name: "Auth", description: "Cookie-based authentication and session lifecycle." },
@@ -420,7 +421,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             PostIdPath: pathParam("postId", "Blog post custom ID token.", examples.postId),
             BlogSlugPath: pathParam("slug", "URL-safe blog slug. The embed route only accepts lowercase letters, numbers, and hyphens.", examples.slug),
             LeadIdPath: pathParam("leadId", "Lead custom ID token.", examples.leadId),
-            MemberIdPath: pathParam("id", "Staff userId. Used for update and delete operations.", examples.userId),
+            MemberIdPath: pathParam("id", "Staff userId. Used for update, password change, and delete operations.", examples.userId),
             ImageIdPath: pathParam("imageId", "Media image ID token.", examples.imageId),
             FileIdPath: pathParam("fileId", "Media file ID token.", examples.fileId),
             MediaFileType: queryParam("type", { type: "string", enum: ["image", "document", "video", "other"] }, "Optional media file type filter.", "document"),
@@ -545,7 +546,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     lastName: { type: "string", minLength: 1, example: "Okafor" },
                     email: { type: "string", format: "email", example: "ada.okafor@atlas.example" },
                     password: { type: "string", minLength: 8, format: "password", example: "StrongPass123" },
-                    role: { type: "string", enum: enumValues.memberRoles, default: "staff", example: "staff" },
+                    role: { type: "string", enum: enumValues.memberEditableRoles, default: "staff", example: "staff" },
                     job: { type: "string", example: "Account Manager" }
                 }
             },
@@ -555,9 +556,17 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 properties: {
                     firstName: { type: "string", example: "Ada" },
                     lastName: { type: "string", example: "Okafor" },
-                    role: { type: "string", enum: enumValues.memberRoles, example: "admin" },
+                    role: { type: "string", enum: enumValues.memberEditableRoles, example: "admin" },
                     job: { type: "string", example: "Operations Lead" },
                     status: { type: "string", example: "active" }
+                }
+            },
+            AdminChangeMemberPasswordRequest: {
+                type: "object",
+                required: ["password"],
+                description: "Admin-only password reset payload for an existing staff, manager, or admin user. The backend hashes the password and revokes existing sessions by clearing the target user's stored stamp.",
+                properties: {
+                    password: { type: "string", minLength: 8, format: "password", example: "NewStrongPass123" }
                 }
             },
             ClientSummary: {
@@ -2317,8 +2326,30 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 }
             }
         },
-        "/api/members/{id}": {
+        "/api/members/{id}/password": {
             put: {
+                tags: ["Members"],
+                operationId: "changeMemberPassword",
+                summary: "Change a member password",
+                description: "Admin-only. Changes the password for an existing staff, manager, or admin user. The backend validates the password, hashes it with bcrypt, clears the target user's session stamp to revoke existing auth cookies, and never returns the password hash.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("MemberIdPath")],
+                requestBody: jsonRequestBody("AdminChangeMemberPasswordRequest", {
+                    password: "NewStrongPass123"
+                }, "New password for the target member. Minimum length is 8 characters."),
+                responses: {
+                    200: emptySuccessResponse("Member password updated successfully.", "Member password updated successfully"),
+                    400: errorResponse("Invalid password or unsupported target role.", 400, "Invalid password data.", ["Password must be at least 8 characters"]),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Member not found.", 404, "Member not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/members/{id}": {
+            patch: {
                 tags: ["Members"],
                 operationId: "updateMember",
                 summary: "Update a staff member",
