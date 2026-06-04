@@ -259,7 +259,7 @@ router.get('/projects/in-progress', dashboard, async (req, res) => {
         );
 
         const formattedProjects = projects.map((project, index) => {
-            const clientId = project.clientId || project.client || '';
+            const clientId = project.clientId || '';
             const progress = Number.isFinite(project.progress) ? project.progress : 0;
             return {
                 id: project.id || `${project.name || 'project'}-${index + 1}`,

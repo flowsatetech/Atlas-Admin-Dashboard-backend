@@ -74,7 +74,7 @@ function buildClientMap(clients = []) {
 }
 
 function getProjectClient(project, clientMap) {
-  const clientId = project.clientId || project.client || '';
+  const clientId = project.clientId || '';
   return clientMap.get(clientId) || null;
 }
 
@@ -182,7 +182,7 @@ router.get('/dashboard', analyticsRateLimiter, async (req, res) => {
 
     const sourceTotals = groupRevenueBy(periodRevenueProjects, (project) => getProjectSource(project, clientMap));
     const serviceTotals = groupRevenueBy(periodRevenueProjects, getProjectService);
-    const clientTotals = groupRevenueBy(periodRevenueProjects, (project) => project.clientId || project.client || 'unknown');
+    const clientTotals = groupRevenueBy(periodRevenueProjects, (project) => project.clientId || 'unknown');
 
     const revenueBySource = sortByAmountDesc([...sourceTotals.entries()].map(([source, amount]) => ({
       source,

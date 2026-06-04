@@ -231,6 +231,20 @@ async function login() {
 async function testHealth() {
   console.log("\n[HEALTH]");
   await check("GET  /api/health", "GET", "/api/health");
+
+  try {
+    const res = await fetch(`${BASE_URL}/api/health`, {
+      headers: { Origin: "https://definitely-not-allowed.smoke.invalid" },
+    });
+    const exposedOrigin = res.headers.get("access-control-allow-origin") || "";
+    assertSmoke(
+      "GET  /api/health disallowed CORS origin is cleanly rejected",
+      res.status === 403 && exposedOrigin === "",
+      `expected 403 without access-control-allow-origin, received ${res.status} / ${exposedOrigin || "<none>"}`,
+    );
+  } catch (err) {
+    bad("GET  /api/health disallowed CORS origin is cleanly rejected", 0, err.message);
+  }
 }
 
 async function testProfilePictureEndpoints() {
@@ -530,9 +544,25 @@ async function testProjectTaskDerivedProgress() {
     skipSmoke("PROJECT TASK PROGRESS task fixtures", "could not create both linked tasks");
   }
 
-  if (firstTaskId) await check("DELETE /api/tasks/:id (project progress fixture cleanup)", "DELETE", `/api/tasks/${firstTaskId}`);
-  if (secondTaskId) await check("DELETE /api/tasks/:id (project progress fixture cleanup)", "DELETE", `/api/tasks/${secondTaskId}`);
-  if (projectId) await check("DELETE /api/projects/:id (project progress fixture cleanup)", "DELETE", `/api/projects/${projectId}`, null, { expect: [204] });
+  let projectDeleted = false;
+  if (projectId) {
+    const deleteProjectRes = await req("DELETE", `/api/projects/${projectId}`);
+    if (deleteProjectRes.status === 204) {
+      projectDeleted = true;
+      ok("DELETE /api/projects/:id cascades linked tasks (project progress fixture cleanup)", deleteProjectRes.status);
+    } else {
+      bad("DELETE /api/projects/:id cascades linked tasks (project progress fixture cleanup)", deleteProjectRes.status, deleteProjectRes.json?.message || "unexpected status");
+    }
+  }
+
+  if (projectDeleted) {
+    if (firstTaskId) await check("GET  /api/tasks/:id after project delete → 404", "GET", `/api/tasks/${firstTaskId}`, null, { expect: [404] });
+    if (secondTaskId) await check("GET  /api/tasks/:id after project delete → 404", "GET", `/api/tasks/${secondTaskId}`, null, { expect: [404] });
+  } else {
+    if (firstTaskId) await check("DELETE /api/tasks/:id (project progress fixture cleanup)", "DELETE", `/api/tasks/${firstTaskId}`, null, { expect: [200, 404] });
+    if (secondTaskId) await check("DELETE /api/tasks/:id (project progress fixture cleanup)", "DELETE", `/api/tasks/${secondTaskId}`, null, { expect: [200, 404] });
+  }
+
   if (clientId) await check("DELETE /api/clients/:id (project progress fixture cleanup)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200] });
 }
 
@@ -784,28 +814,170 @@ async function testPayments() {
   const res = await check("GET  /api/payments", "GET", "/api/payments");
   let paymentId = res?.data?.payments?.[0]?.id;
 
-  if (!paymentId) {
-    // No existing payment — create one so we can test GET/:id
-    const created = await check(
-      "POST /api/payments",
-      "POST",
-      "/api/payments",
-      {
-        clientName: "Smoke Client",
-        projectName: "Smoke Project",
-        amount: 1000,
-        status: "Pending",
-        date: Date.now(),
-      },
-      { expect: [201] }
-    );
-    paymentId = created?.data?.payment?.id;
-  }
-
   if (paymentId) {
     await check("GET  /api/payments/:id", "GET", `/api/payments/${paymentId}`);
   } else {
     skipSmoke("GET  /api/payments/:id", "no payment ID available");
+  }
+
+  const suffix = Date.now();
+  let clientId = null;
+  let projectId = null;
+  let mismatchClientId = null;
+  let idOnlyPaymentId = null;
+
+  try {
+    const client = await check(
+      "POST /api/clients (payment ID fixture)",
+      "POST",
+      "/api/clients",
+      {
+        fullName: "Smoke Payment Client",
+        companyName: `Smoke Payment Co ${suffix}`,
+        email: `smoke-payment-${suffix}@test.local`,
+        phone: "+2348000000200",
+        status: "Active",
+        tags: ["smoke", "payment"],
+      },
+      { expect: [201] },
+    );
+    clientId = client?.data?.client?.id;
+
+    if (!clientId) {
+      skipSmoke("POST /api/payments ID-only fixture", "could not create client fixture");
+      return;
+    }
+
+    const project = await check(
+      "POST /api/projects (payment ID fixture)",
+      "POST",
+      "/api/projects",
+      {
+        name: `Smoke Payment Project ${suffix}`,
+        clientId,
+        description: "Temporary project for payment ID-only smoke coverage",
+        deadline: Date.now() + 86400000,
+        budget: 1200,
+        priority: "Medium",
+        status: "Planned",
+        teamIds: [],
+      },
+      { expect: [201] },
+    );
+    projectId = project?.data?.project?.id;
+
+    if (!projectId) {
+      skipSmoke("POST /api/payments ID-only fixture", "could not create project fixture");
+      return;
+    }
+
+    const mismatchClient = await check(
+      "POST /api/clients (payment mismatch fixture)",
+      "POST",
+      "/api/clients",
+      {
+        fullName: "Smoke Payment Mismatch Client",
+        companyName: `Smoke Payment Mismatch Co ${suffix}`,
+        email: `smoke-payment-mismatch-${suffix}@test.local`,
+        phone: "+2348000000201",
+        status: "Active",
+        tags: ["smoke", "payment-mismatch"],
+      },
+      { expect: [201] },
+    );
+    mismatchClientId = mismatchClient?.data?.client?.id || null;
+
+    await check(
+      "POST /api/payments rejects legacy name/alias relationship fields → 400",
+      "POST",
+      "/api/payments",
+      {
+        clientName: "Legacy Client",
+        projectName: "Legacy Project",
+        project: "Legacy Project Alias",
+        amount: 1,
+        date: Date.now(),
+      },
+      { expect: [400] },
+    );
+    await check(
+      "POST /api/payments rejects invalid clientId → 404",
+      "POST",
+      "/api/payments",
+      { clientId: `missing-client-${suffix}`, projectId, amount: 1, date: Date.now() },
+      { expect: [404] },
+    );
+    await check(
+      "POST /api/payments rejects invalid projectId → 404",
+      "POST",
+      "/api/payments",
+      { clientId, projectId: `missing-project-${suffix}`, amount: 1, date: Date.now() },
+      { expect: [404] },
+    );
+    if (mismatchClientId) {
+      await check(
+        "POST /api/payments rejects project/client mismatch → 409",
+        "POST",
+        "/api/payments",
+        { clientId: mismatchClientId, projectId, amount: 1, date: Date.now() },
+        { expect: [409] },
+      );
+    } else {
+      skipSmoke("POST /api/payments rejects project/client mismatch → 409", "could not create mismatch client fixture");
+    }
+
+    const amount = 987.65;
+    const idOnlyPayment = await check(
+      "POST /api/payments accepts ID-only client/project references",
+      "POST",
+      "/api/payments",
+      {
+        clientId,
+        projectId,
+        amount,
+        status: "Paid",
+        date: Date.now(),
+        source: "Smoke Test",
+        notes: "ID-only payment smoke probe",
+      },
+      { expect: [201] },
+    );
+    const createdPayment = idOnlyPayment?.data?.payment;
+    idOnlyPaymentId = createdPayment?.id || null;
+    assertSmoke(
+      "POST /api/payments stores and returns ID-only relationship fields",
+      createdPayment?.clientId === clientId
+        && createdPayment?.projectId === projectId
+        && !Object.prototype.hasOwnProperty.call(createdPayment || {}, "clientName")
+        && !Object.prototype.hasOwnProperty.call(createdPayment || {}, "projectName")
+        && !Object.prototype.hasOwnProperty.call(createdPayment || {}, "project")
+        && !Object.prototype.hasOwnProperty.call(createdPayment || {}, "client"),
+      `received ${JSON.stringify(createdPayment)}`,
+    );
+
+    if (idOnlyPaymentId) {
+      await check("PATCH /api/payments/:id rejects clientName → 400", "PATCH", `/api/payments/${idOnlyPaymentId}`, { clientName: "Legacy Client" }, { expect: [400] });
+      await check("PATCH /api/payments/:id rejects projectName → 400", "PATCH", `/api/payments/${idOnlyPaymentId}`, { projectName: "Legacy Project" }, { expect: [400] });
+      await check("PATCH /api/payments/:id rejects project alias → 400", "PATCH", `/api/payments/${idOnlyPaymentId}`, { project: "Legacy Project Alias" }, { expect: [400] });
+      await check("PATCH /api/payments/:id rejects invalid clientId → 404", "PATCH", `/api/payments/${idOnlyPaymentId}`, { clientId: `missing-client-${suffix}` }, { expect: [404] });
+      await check("PATCH /api/payments/:id rejects invalid projectId → 404", "PATCH", `/api/payments/${idOnlyPaymentId}`, { projectId: `missing-project-${suffix}` }, { expect: [404] });
+      if (mismatchClientId) {
+        await check("PATCH /api/payments/:id rejects project/client mismatch → 409", "PATCH", `/api/payments/${idOnlyPaymentId}`, { clientId: mismatchClientId }, { expect: [409] });
+      }
+    }
+
+    const performance = await check("GET  /api/dashboard/performance includes paid payment", "GET", "/api/dashboard/performance?period=3months");
+    const performanceRevenueTotal = (performance?.data?.revenueSeries || []).reduce((sum, value) => sum + Number(value || 0), 0);
+    assertSmoke(
+      "GET  /api/dashboard/performance revenue reflects paid payment",
+      performanceRevenueTotal >= amount,
+      `expected revenue total >= ${amount}, received ${performanceRevenueTotal}`,
+    );
+  } finally {
+    if (idOnlyPaymentId) await check("DELETE /api/payments/:id (payment ID fixture cleanup)", "DELETE", `/api/payments/${idOnlyPaymentId}`, null, { expect: [200, 404] });
+    if (projectId) await check("DELETE /api/projects/:id (payment ID fixture cleanup)", "DELETE", `/api/projects/${projectId}`, null, { expect: [204, 404] });
+    if (mismatchClientId) await check("DELETE /api/clients/:id (payment mismatch fixture cleanup)", "DELETE", `/api/clients/${mismatchClientId}`, null, { expect: [200, 404] });
+    if (clientId) await check("DELETE /api/clients/:id (payment ID fixture cleanup)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200, 404] });
   }
 }
 
@@ -991,6 +1163,11 @@ async function testValidation() {
     { expect: [400] }
   );
   await check(
+    "GET  /api/leads (invalid pagination) → 400",
+    "GET", "/api/leads?limit=0", null,
+    { expect: [400] }
+  );
+  await check(
     "POST /api/tasks (empty body) → 400",
     "POST", "/api/tasks", {},
     { expect: [400] }
@@ -1064,9 +1241,27 @@ async function testAdminOnly() {
   await checkWith("PUT  /api/members/:id/password (staff) → 403", "PUT", "/api/members/any-id/password", staffCookie, { password: "NopePassword123!" }, { expect: [403] });
   await checkWith("DELETE /api/members/:id (staff) → 403", "DELETE", "/api/members/any-id", staffCookie, null, { expect: [403] });
   await checkWith("POST /api/payments (staff) → 403",      "POST", "/api/payments", staffCookie,
-    { clientName: "X", projectName: "Y", amount: 1, date: Date.now() }, { expect: [403] });
+    { clientId: "no-access-client", projectId: "no-access-project", amount: 1, date: Date.now() }, { expect: [403] });
   await checkWith("POST /api/blog (staff) → 403",          "POST", "/api/blog",     staffCookie,
     { title: "T", content: "C" }, { expect: [403] });
+
+  const leadFixture = await check(
+    "POST /api/leads (lead admin-only fixture)",
+    "POST",
+    "/api/leads",
+    { firstName: "Admin", lastName: "Only", email: `lead-admin-only-${Date.now()}@test.local` },
+    { expect: [201] },
+  );
+  const leadId = leadFixture?.data?.lead?.id;
+  await checkWith("POST /api/leads (staff) → 403", "POST", "/api/leads", staffCookie,
+    { firstName: "Staff", lastName: "Nope", email: `staff-lead-${Date.now()}@test.local` }, { expect: [403] });
+  if (leadId) {
+    await checkWith("PATCH /api/leads/:id (staff) → 403", "PATCH", `/api/leads/${leadId}`, staffCookie, { status: "contacted" }, { expect: [403] });
+    await checkWith("DELETE /api/leads/:id (staff) → 403", "DELETE", `/api/leads/${leadId}`, staffCookie, null, { expect: [403] });
+    await check("DELETE /api/leads/:id (lead admin-only fixture cleanup)", "DELETE", `/api/leads/${leadId}`, null, { expect: [200, 404] });
+  } else {
+    skipSmoke("PATCH/DELETE /api/leads staff authorization", "could not create lead fixture");
+  }
 
   // Cleanup: delete the test staff user as admin
   const membersRes = await req("GET", `/api/members?search=${encodeURIComponent(staffEmail)}`);

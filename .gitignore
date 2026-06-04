@@ -45,3 +45,4 @@ Thumbs.db
 pnpm-lock.yaml
 frontend/
 *-openapi.json
+WORKFLOW_AUDIT_REPORT.md

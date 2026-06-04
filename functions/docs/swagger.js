@@ -284,11 +284,7 @@ const examples = {
     payment: {
         id: "payment_april_milestone_001",
         clientId: "client_atlas_001",
-        client: "Acme Corporation",
-        clientName: "Acme Corporation",
         projectId: "project_brand_refresh_001",
-        project: "Website Redesign",
-        projectName: "Website Redesign",
         amount: 15000,
         status: "Paid",
         date: 1775779200000,
@@ -990,15 +986,12 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             },
             Payment: {
                 type: "object",
-                required: ["id", "clientName", "projectName", "amount", "status", "date"],
+                required: ["id", "clientId", "projectId", "amount", "status", "date"],
+                description: "Payment records persist relationship IDs only. Client/project display names are derived from clients/projects by separate lookups when needed and are not stored on payment documents.",
                 properties: {
                     id: { type: "string", example: examples.paymentId },
-                    clientId: { type: "string", nullable: true, example: examples.clientId },
-                    client: { type: "string", description: "Alias returned for clientName for frontend compatibility.", example: "Acme Corporation" },
-                    clientName: { type: "string", example: "Acme Corporation" },
-                    projectId: { type: "string", nullable: true, example: examples.projectId },
-                    project: { type: "string", description: "Alias returned for projectName for frontend compatibility.", example: "Website Redesign" },
-                    projectName: { type: "string", example: "Website Redesign" },
+                    clientId: { type: "string", minLength: 1, description: "Existing client id referenced by this payment.", example: examples.clientId },
+                    projectId: { type: "string", minLength: 1, description: "Existing project id referenced by this payment.", example: examples.projectId },
                     amount: { type: "number", minimum: 0, exclusiveMinimum: true, example: 15000 },
                     status: { type: "string", enum: enumValues.paymentStatuses, default: "Pending", example: "Paid" },
                     date: ref("Timestamp"),
@@ -1018,17 +1011,12 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             },
             CreatePaymentRequest: {
                 type: "object",
-                required: ["clientName", "amount", "date"],
-                anyOf: [
-                    { required: ["projectName"] },
-                    { required: ["project"] }
-                ],
+                required: ["clientId", "projectId", "amount", "date"],
+                additionalProperties: false,
+                description: "Create payment payload. clientId and projectId are required, must reference existing records, and the project must belong to the supplied client when the project has a clientId.",
                 properties: {
-                    clientId: { type: "string", nullable: true, description: "Optional existing client id. If supplied, the backend verifies it and can fill clientName.", example: examples.clientId },
-                    clientName: { type: "string", minLength: 1, example: "Acme Corporation" },
-                    projectId: { type: "string", nullable: true, description: "Optional existing project id. If supplied, the backend verifies it and can fill projectName/client fields.", example: examples.projectId },
-                    project: { type: "string", minLength: 1, description: "Accepted alias for projectName.", example: "Website Redesign" },
-                    projectName: { type: "string", minLength: 1, example: "Website Redesign" },
+                    clientId: { type: "string", minLength: 1, description: "Existing client id. Required and verified by the backend.", example: examples.clientId },
+                    projectId: { type: "string", minLength: 1, description: "Existing project id. Required and verified by the backend.", example: examples.projectId },
                     amount: { type: "number", minimum: 0, exclusiveMinimum: true, example: 15000 },
                     status: { type: "string", enum: enumValues.paymentStatuses, default: "Pending", example: "Paid" },
                     date: ref("PaymentDateInput"),
@@ -1036,8 +1024,8 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     notes: { type: "string", default: "", example: "April milestone payment" }
                 },
                 example: {
-                    clientName: "Acme Corporation",
-                    project: "Website Redesign",
+                    clientId: examples.clientId,
+                    projectId: examples.projectId,
                     amount: 15000,
                     status: "Paid",
                     date: "2026-04-10",
@@ -1047,13 +1035,11 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             },
             UpdatePaymentRequest: {
                 type: "object",
-                description: "Partial payment update. All fields are optional.",
+                additionalProperties: false,
+                description: "Partial payment update. All fields are optional. If clientId or projectId changes, both the effective client/project references are verified and project/client mismatches are rejected.",
                 properties: {
-                    clientId: { type: "string", nullable: true, example: examples.clientId },
-                    clientName: { type: "string", minLength: 1, example: "Acme Corporation" },
-                    projectId: { type: "string", nullable: true, example: examples.projectId },
-                    project: { type: "string", minLength: 1, description: "Accepted alias for projectName.", example: "Website Redesign" },
-                    projectName: { type: "string", minLength: 1, example: "Website Redesign" },
+                    clientId: { type: "string", minLength: 1, example: examples.clientId },
+                    projectId: { type: "string", minLength: 1, example: examples.projectId },
                     amount: { type: "number", minimum: 0, exclusiveMinimum: true, example: 18000 },
                     status: { type: "string", enum: enumValues.paymentStatuses, example: "Pending" },
                     date: ref("PaymentDateInput"),
@@ -1464,7 +1450,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 tags: ["Dashboard"],
                 operationId: "getDashboardPerformance",
                 summary: "Get dashboard performance chart data",
-                description: "Returns labels plus revenue and new-client series for the selected period. The period query uses an enum so Swagger UI renders a dropdown.",
+                description: "Returns labels plus paid-payment revenue and new-client series for the selected period.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("DashboardPeriod")],
                 responses: {
@@ -1720,7 +1706,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 tags: ["Payments"],
                 operationId: "listPayments",
                 summary: "List payments with filtering and pagination",
-                description: "Returns payment rows, supports search, payment status dropdown, and from/to date filtering. Date filters accept YYYY-MM-DD, ISO dates, or timestamp strings.",
+                description: "Returns ID-only payment rows, supports search over payment id/clientId/projectId/source/notes, payment status dropdown, and from/to date filtering. Date filters accept YYYY-MM-DD, ISO dates, or timestamp strings.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("Page"), parameterRef("Limit8"), parameterRef("Search"), parameterRef("PaymentStatus"), parameterRef("FromDate"), parameterRef("ToDate")],
                 responses: {
@@ -1744,17 +1730,17 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 tags: ["Payments"],
                 operationId: "createPayment",
                 summary: "Create a payment",
-                description: "Admin-only. Creates a payment and logs a payment.created activity. clientId/projectId are optional, but when supplied they must exist. You can send projectName or the accepted project alias.",
+                description: "Admin-only. Creates an ID-only payment and logs a payment.created activity. clientId and projectId are required, must exist, and must match project ownership when the project has a clientId. The payment document does not store client or project names.",
                 security: [{ cookieAuth: [] }],
                 requestBody: jsonRequestBody("CreatePaymentRequest", {
-                    clientName: "Acme Corporation",
-                    project: "Website Redesign",
+                    clientId: examples.clientId,
+                    projectId: examples.projectId,
                     amount: 15000,
                     status: "Paid",
                     date: "2026-04-10",
                     source: "Website",
                     notes: "April milestone payment"
-                }, "Payment payload. Use status dropdown and flexible date input."),
+                }, "Payment payload. Use required IDs, status dropdown, and flexible date input."),
                 responses: {
                     201: successResponse("Payment created.", {
                         type: "object",
@@ -1764,6 +1750,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     401: responseRef("Unauthorized"),
                     403: responseRef("Forbidden"),
                     404: errorResponse("Client or project referenced by the payload was not found.", 404, "Client not found"),
+                    409: errorResponse("Project/client mismatch.", 409, "Project does not belong to supplied client"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
                 }
@@ -1792,7 +1779,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 tags: ["Payments"],
                 operationId: "updatePayment",
                 summary: "Update a payment",
-                description: "Admin-only partial update. The backend verifies existing payment first, validates provided fields, enriches client/project names where IDs are supplied, and logs payment.updated.",
+                description: "Admin-only partial update. The backend verifies the existing payment first, validates provided fields, validates the effective clientId/projectId references, rejects project/client mismatches, and logs payment.updated. Name and alias fields are not accepted.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("PaymentIdPath")],
                 requestBody: jsonRequestBody("UpdatePaymentRequest", {
@@ -1809,6 +1796,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     401: responseRef("Unauthorized"),
                     403: responseRef("Forbidden"),
                     404: errorResponse("Payment, client, or project not found.", 404, "Payment not found"),
+                    409: errorResponse("Project/client mismatch.", 409, "Project does not belong to supplied client"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
                 }
@@ -2111,7 +2099,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 tags: ["Projects"],
                 operationId: "deleteProject",
                 summary: "Delete a project",
-                description: "Admin-only. Deletes a project. The route returns 204 No Content on success.",
+                description: "Admin-only. Deletes a project and cascades deletion to linked tasks and project comments so no orphan task records remain accessible. The route returns 204 No Content on success.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("ProjectIdPath")],
                 responses: {
@@ -2798,6 +2786,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                         leads: [examples.lead],
                         pagination: { page: 1, limit: 10, total: 1, totalPages: 1 }
                     }, "Leads fetched successfully"),
+                    400: responseRef("BadRequest"),
                     401: responseRef("Unauthorized"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
@@ -2807,7 +2796,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 tags: ["Leads"],
                 operationId: "createLead",
                 summary: "Add a new lead",
-                description: "Creates a new lead. This route is protected by auth at the router mount but does not require adminOnly.",
+                description: "Admin-only. Creates a new lead from dashboard input. Public lead ingestion should use the bearer-token protected webhook routes.",
                 security: [{ cookieAuth: [] }],
                 requestBody: jsonRequestBody("CreateLeadRequest", {
                     firstName: "Kemi",
@@ -2829,6 +2818,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     }, { lead: examples.lead }, "Lead added successfully", 201),
                     400: responseRef("BadRequest"),
                     401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
                 }
@@ -2857,7 +2847,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 tags: ["Leads"],
                 operationId: "updateLead",
                 summary: "Update an individual lead",
-                description: "Partial lead update. Validates provided fields and sets updatedAt.",
+                description: "Admin-only partial lead update. Validates provided fields and sets updatedAt.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("LeadIdPath")],
                 requestBody: jsonRequestBody("UpdateLeadRequest", {
@@ -2870,6 +2860,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     200: emptySuccessResponse("Lead updated successfully.", "Lead updated successfully"),
                     400: responseRef("BadRequest"),
                     401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
                     404: errorResponse("Lead not found.", 404, "Lead not found"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
@@ -2879,12 +2870,13 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 tags: ["Leads"],
                 operationId: "deleteLead",
                 summary: "Delete an individual lead",
-                description: "Deletes a lead by id.",
+                description: "Admin-only. Deletes a lead by id.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("LeadIdPath")],
                 responses: {
                     200: emptySuccessResponse("Lead deleted successfully.", "Lead deleted successfully"),
                     401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
                     404: errorResponse("Lead not found.", 404, "Lead not found"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")

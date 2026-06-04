@@ -85,7 +85,10 @@ async function initializeDB() {
     await payments.createIndex({ projectId: 1 });
     await payments.createIndex({ status: 1 });
     await payments.createIndex({ date: -1 });
-    await payments.createIndex({ clientName: "text", projectName: "text", source: "text", notes: "text" });
+    await payments.createIndex({ source: 1 });
+    await payments.dropIndex("clientName_text_projectName_text_source_text_notes_text").catch((err) => {
+      if (err.codeName !== "IndexNotFound" && err.code !== 27) throw err;
+    });
 
     logger("DB").info("MongoDB initialized successfully");
 
@@ -1004,6 +1007,11 @@ async function getCampaignStats({ page = 1, limit = 20, sortBy = "createdAt", or
 
 async function deleteProject(projectId) {
   try {
+    await Promise.all([
+      tasks.deleteMany({ projectId }),
+      comments.deleteMany({ projectId }),
+    ]);
+
     return await projects.deleteOne({ id: projectId });
   } catch (err) {
     logger("DB").error(err);
@@ -1427,8 +1435,9 @@ async function getPayments({ page = 1, limit = 8, search = "", status = "", from
     if (search) {
       const regex = { $regex: escapeRegex(search), $options: "i" };
       query.$or = [
-        { clientName: regex },
-        { projectName: regex },
+        { id: regex },
+        { clientId: regex },
+        { projectId: regex },
         { source: regex },
         { notes: regex },
       ];
@@ -1455,10 +1464,16 @@ async function getPaymentById(paymentId) {
   }
 }
 
+function sanitizePaymentData(paymentData = {}) {
+  const { clientName, projectName, project, ...safePaymentData } = paymentData;
+  return safePaymentData;
+}
+
 async function addPayment(paymentData) {
   try {
-    const result = await payments.insertOne(paymentData);
-    return { ...paymentData, _id: result.insertedId };
+    const safePaymentData = sanitizePaymentData(paymentData);
+    const result = await payments.insertOne(safePaymentData);
+    return { ...safePaymentData, _id: result.insertedId };
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -1467,7 +1482,14 @@ async function addPayment(paymentData) {
 
 async function updatePayment(paymentId, updateData) {
   try {
-    await payments.updateOne({ id: paymentId }, { $set: updateData });
+    const safeUpdateData = sanitizePaymentData(updateData);
+    await payments.updateOne(
+      { id: paymentId },
+      {
+        $set: safeUpdateData,
+        $unset: { clientName: "", projectName: "", project: "" },
+      },
+    );
     return await payments.findOne({ id: paymentId });
   } catch (err) {
     logger("DB").error(err);

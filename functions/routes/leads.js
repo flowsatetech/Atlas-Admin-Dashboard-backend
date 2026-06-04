@@ -1,26 +1,36 @@
 /** IMPORT */
 const express = require('express');
+const { z } = require('zod');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
 const { logger, generateToken, stripMongoId, serverError, clientError } = require('../helpers');
 const db = require('../db');
-const { createLeadSchema, updateLeadSchema } = require('../models/lead');
+const { createLeadSchema, updateLeadSchema, leadStatusEnum } = require('../models/lead');
 
 /** SETUP */
 const router = express.Router();
 const { leads: leadsRateLimiter } = middlewares.rateLimiters;
+
+const emptyToUndefined = (value) => (value === "" ? undefined : value);
+const listLeadsQuerySchema = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(10),
+    search: z.preprocess(emptyToUndefined, z.string().trim().optional()),
+    status: z.preprocess(emptyToUndefined, leadStatusEnum.optional()),
+});
 
 /** MAIN LEADS ROUTES */
 
 // 1. GET /api/leads - Paginated list of leads with search
 router.get('/', leadsRateLimiter, async (req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = Math.min(parseInt(req.query.limit) || 10, 100);
-        const search = req.query.search || "";
-        const status = req.query.status || "";
+        const parsed = listLeadsQuerySchema.safeParse(req.query);
+        if (!parsed.success) {
+            return clientError(res, 400, 'Invalid query parameters.', parsed.error.issues.map(i => i.message));
+        }
 
+        const { page, limit, search = "", status = "" } = parsed.data;
         const result = await db.getAllLeads({ page, limit, search, status });
 
         return res.status(200).json({
@@ -35,7 +45,7 @@ router.get('/', leadsRateLimiter, async (req, res) => {
 });
 
 // 2. POST /api/leads - Add a new lead
-router.post('/', leadsRateLimiter, async (req, res) => {
+router.post('/', middlewares.adminOnly, leadsRateLimiter, async (req, res) => {
     try {
         const parsed = createLeadSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -81,7 +91,7 @@ router.get('/:leadId', leadsRateLimiter, async (req, res) => {
 });
 
 // 4. PATCH /api/leads/:leadId - Update an individual lead
-router.patch('/:leadId', leadsRateLimiter, async (req, res) => {
+router.patch('/:leadId', middlewares.adminOnly, leadsRateLimiter, async (req, res) => {
     try {
         const parsed = updateLeadSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -106,7 +116,7 @@ router.patch('/:leadId', leadsRateLimiter, async (req, res) => {
 });
 
 // 5. DELETE /api/leads/:leadId - Delete an individual lead
-router.delete('/:leadId', leadsRateLimiter, async (req, res) => {
+router.delete('/:leadId', middlewares.adminOnly, leadsRateLimiter, async (req, res) => {
     try {
         const lead = await db.getLeadById(req.params.leadId);
         if (!lead) {

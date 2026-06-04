@@ -143,10 +143,11 @@ const analytics = rateLimit({
 });
 
 const payments = rateLimit({
-  windowMs: 30 * 60 * 1000,
-  max: 30,
+  windowMs: envNumber("RATE_LIMIT_PAYMENTS_WINDOW_MS", 15 * 60 * 1000),
+  max: envNumber("RATE_LIMIT_PAYMENTS_MAX", 180),
   store: createStore(),
   keyGenerator,
+  ...commonOptions,
   message: { success: false, message: "Too many payment requests. Please slow down." },
 });
 

@@ -2,7 +2,7 @@ const express = require("express");
 const { z } = require("zod");
 
 const middlewares = require("../middlewares");
-const { logger, generateToken, serverError, clientError } = require("../helpers");
+const { logger, generateToken, serverError, clientError, cache } = require("../helpers");
 const db = require("../db");
 const models = require("../models");
 const services = require("../services");
@@ -11,6 +11,7 @@ const router = express.Router();
 const { payments: paymentsRateLimiter } = middlewares.rateLimiters;
 
 const emptyToUndefined = (value) => (value === "" ? undefined : value);
+const PAYMENT_LEGACY_RELATION_FIELDS = ["clientName", "projectName", "project"];
 
 const paymentListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -31,24 +32,11 @@ function parseDateQuery(value, endOfDay = false) {
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999);
 }
 
-function normalizePaymentPayload(body = {}) {
-  return {
-    ...body,
-    projectName: body.projectName || body.project,
-    source: body.source || null,
-    notes: body.notes || "",
-  };
-}
-
 function formatPayment(payment) {
   return {
     id: payment.id,
-    clientId: payment.clientId || null,
-    client: payment.clientName,
-    clientName: payment.clientName,
-    projectId: payment.projectId || null,
-    project: payment.projectName,
-    projectName: payment.projectName,
+    clientId: payment.clientId,
+    projectId: payment.projectId,
     amount: payment.amount,
     status: payment.status,
     date: payment.date,
@@ -59,28 +47,32 @@ function formatPayment(payment) {
   };
 }
 
-async function enrichPaymentData(payload) {
-  const data = { ...payload };
+function clearPaymentDerivedCaches() {
+  cache.clearByPrefix("dashboard:performance:");
+  cache.clearByPrefix("dashboard:activities:");
+}
 
-  if (data.clientId) {
-    const client = await db.getClientById(data.clientId);
-    if (!client) return { error: "Client not found" };
-    if (!data.clientName) data.clientName = client.companyName || client.fullName;
+function getPaymentReferenceErrorStatus(message) {
+  if (message === "Project does not belong to supplied client") return 409;
+  if (message === "clientId and projectId are required") return 400;
+  return 404;
+}
+
+async function validatePaymentReferences(clientId, projectId) {
+  if (!clientId || !projectId) return { error: "clientId and projectId are required" };
+
+  const [client, project] = await Promise.all([
+    db.getClientById(clientId),
+    db.getProjectById(projectId),
+  ]);
+
+  if (!client) return { error: "Client not found" };
+  if (!project) return { error: "Project not found" };
+  if (project.clientId && project.clientId !== clientId) {
+    return { error: "Project does not belong to supplied client" };
   }
 
-  if (data.projectId) {
-    const project = await db.getProjectById(data.projectId);
-    if (!project) return { error: "Project not found" };
-    if (!data.projectName) data.projectName = project.name;
-    if (!data.clientId && project.clientId) data.clientId = project.clientId;
-
-    if (!data.clientName && project.clientId) {
-      const client = await db.getClientById(project.clientId);
-      if (client) data.clientName = client.companyName || client.fullName;
-    }
-  }
-
-  return { data };
+  return { client, project };
 }
 
 router.get("/", paymentsRateLimiter, async (req, res) => {
@@ -127,28 +119,26 @@ router.get("/", paymentsRateLimiter, async (req, res) => {
 
 router.post("/", middlewares.adminOnly, paymentsRateLimiter, async (req, res) => {
   try {
-    const parsed = models.payment.createPaymentSchema.safeParse(normalizePaymentPayload(req.body));
+    const parsed = models.payment.createPaymentSchema.safeParse(req.body);
     if (!parsed.success) {
       return clientError(res, 400, 'Couldn\'t complete create payment request', parsed.error.issues.map(i => i.message));
     }
 
-    const enriched = await enrichPaymentData(parsed.data);
-    if (enriched.error) {
-      return clientError(res, 404, enriched.error);
+    const references = await validatePaymentReferences(parsed.data.clientId, parsed.data.projectId);
+    if (references.error) {
+      return clientError(res, getPaymentReferenceErrorStatus(references.error), references.error);
     }
 
     const now = Date.now();
     const payment = {
       id: generateToken(),
-      clientId: enriched.data.clientId || null,
-      clientName: enriched.data.clientName,
-      projectId: enriched.data.projectId || null,
-      projectName: enriched.data.projectName,
-      amount: Number(enriched.data.amount),
-      status: enriched.data.status,
-      date: enriched.data.date,
-      source: enriched.data.source || null,
-      notes: enriched.data.notes || "",
+      clientId: parsed.data.clientId,
+      projectId: parsed.data.projectId,
+      amount: Number(parsed.data.amount),
+      status: parsed.data.status,
+      date: parsed.data.date,
+      source: parsed.data.source || null,
+      notes: parsed.data.notes || "",
       createdAt: now,
       updatedAt: now,
     };
@@ -159,9 +149,10 @@ router.post("/", middlewares.adminOnly, paymentsRateLimiter, async (req, res) =>
       actorId: req.user?.userId || null,
       entityId: payment.id,
       entityType: "payment",
-      message: `${payment.clientName} payment was created`,
+      message: `Payment ${payment.id} was created`,
       meta: { amount: payment.amount, status: payment.status },
     });
+    clearPaymentDerivedCaches();
 
     return res.status(201).json({
       success: true,
@@ -199,21 +190,23 @@ router.patch("/:paymentId", middlewares.adminOnly, paymentsRateLimiter, async (r
       return clientError(res, 404, 'Payment not found');
     }
 
-    const parsed = models.payment.updatePaymentSchema.safeParse(normalizePaymentPayload(req.body));
+    const parsed = models.payment.updatePaymentSchema.safeParse(req.body);
     if (!parsed.success) {
       return clientError(res, 400, 'Invalid update payload data', parsed.error.issues.map(i => i.message));
     }
 
-    const enriched = await enrichPaymentData(parsed.data);
-    if (enriched.error) {
-      return clientError(res, 404, enriched.error);
+    const effectiveClientId = parsed.data.clientId || existing.clientId;
+    const effectiveProjectId = parsed.data.projectId || existing.projectId;
+    const references = await validatePaymentReferences(effectiveClientId, effectiveProjectId);
+    if (references.error) {
+      return clientError(res, getPaymentReferenceErrorStatus(references.error), references.error);
     }
 
     const updateData = {
-      ...enriched.data,
+      ...parsed.data,
       updatedAt: Date.now(),
     };
-    delete updateData.project;
+    for (const field of PAYMENT_LEGACY_RELATION_FIELDS) delete updateData[field];
 
     const updatedPayment = await db.updatePayment(req.params.paymentId, updateData);
     await services.logActivity({
@@ -221,9 +214,10 @@ router.patch("/:paymentId", middlewares.adminOnly, paymentsRateLimiter, async (r
       actorId: req.user?.userId || null,
       entityId: req.params.paymentId,
       entityType: "payment",
-      message: `${existing.clientName || "Payment"} payment was updated`,
+      message: `Payment ${existing.id || req.params.paymentId} was updated`,
       meta: { fields: Object.keys(updateData) },
     });
+    clearPaymentDerivedCaches();
 
     return res.status(200).json({
       success: true,
@@ -249,8 +243,9 @@ router.delete("/:paymentId", middlewares.adminOnly, paymentsRateLimiter, async (
       actorId: req.user?.userId || null,
       entityId: req.params.paymentId,
       entityType: "payment",
-      message: `${existing.clientName || "Payment"} payment was deleted`,
+      message: `Payment ${existing.id || req.params.paymentId} was deleted`,
     });
+    clearPaymentDerivedCaches();
 
     return res.status(200).json({
       success: true,
