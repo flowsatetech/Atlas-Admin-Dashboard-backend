@@ -273,7 +273,7 @@ router.get('/:projectId/comments', projects, async (req, res) => {
     }
 });
 
-router.put('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
+router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
     try {
         const { projectId } = req.params;
 
@@ -281,16 +281,7 @@ router.put('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
             return clientError(res, 400, 'Project progress is derived from task completion and cannot be set manually.');
         }
 
-        const validData = z.object({
-            name: z.string().min(1).optional(),
-            client: z.string().optional(),
-            dueTime: z.number().optional(),
-            assignees: z.array(z.string()).optional(),
-            budget: z.number().nonnegative().optional(),
-            status: z.enum(['Planned', 'InProgress', 'OnHold', 'Completed', 'Cancelled']).optional(),
-            recognizedRevenue: z.number().nonnegative().nullable().optional(),
-            recognizedAt: z.number().int().nonnegative().nullable().optional()
-        }).safeParse(req.body);
+        const validData = models.project.updateProjectStatusAndRevenueSchema.safeParse(req.body);
 
         if (!validData.success) {
             return clientError(res, 400, 'Couldn\'t complete update project request');
