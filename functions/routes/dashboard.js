@@ -36,10 +36,6 @@ const activitiesQuerySchema = z.object({
     limit: z.coerce.number().int().min(1).max(50).default(10)
 });
 
-const createdAtRangeFilter = (from, to) => ({
-    createdAt: { $gte: from, $lte: to }
-});
-
 function getCalendarMonthRanges(nowTs = Date.now()) {
     const now = new Date(nowTs);
     const currentStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
@@ -107,10 +103,7 @@ router.get('/metrics', dashboard, async (req, res) => {
         if (cached) return res.status(200).json(cached);
 
         const range = getCalendarMonthRanges();
-        const currentRange = createdAtRangeFilter(range.currentStart, range.currentEnd);
-        const previousRange = createdAtRangeFilter(range.previousStart, range.previousEnd);
-
-        const [
+        const {
             totalClients,
             currentClients,
             previousClients,
@@ -126,23 +119,14 @@ router.get('/metrics', dashboard, async (req, res) => {
             totalLeads,
             currentLeads,
             previousLeads
-        ] = await Promise.all([
-            db.countClientsByFilter({}),
-            db.countClientsByFilter(currentRange),
-            db.countClientsByFilter(previousRange),
-            db.countProjectsByFilter({}),
-            db.countProjectsByFilter(currentRange),
-            db.countProjectsByFilter(previousRange),
-            db.countProjectsByFilter({ status: { $in: ACTIVE_PROJECT_STATUSES } }),
-            db.countProjectsByFilter({ ...currentRange, status: { $in: ACTIVE_PROJECT_STATUSES } }),
-            db.countProjectsByFilter({ ...previousRange, status: { $in: ACTIVE_PROJECT_STATUSES } }),
-            db.countPendingTasks(),
-            db.countTasksByFilter({ ...currentRange, status: { $in: PENDING_TASK_STATUSES } }),
-            db.countTasksByFilter({ ...previousRange, status: { $in: PENDING_TASK_STATUSES } }),
-            db.countClientsByFilter({ status: 'Lead' }),
-            db.countClientsByFilter({ ...currentRange, status: 'Lead' }),
-            db.countClientsByFilter({ ...previousRange, status: 'Lead' })
-        ]);
+        } = await db.getDashboardMetricsCounts({
+            currentStart: range.currentStart,
+            currentEnd: range.currentEnd,
+            previousStart: range.previousStart,
+            previousEnd: range.previousEnd,
+            activeProjectStatuses: ACTIVE_PROJECT_STATUSES,
+            pendingTaskStatuses: PENDING_TASK_STATUSES
+        });
 
         const data = {
             totalClients: toMetricCard(totalClients, currentClients, previousClients),

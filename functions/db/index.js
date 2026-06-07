@@ -444,6 +444,84 @@ async function countClientsByFilter(filter = {}) {
   }
 }
 
+async function getDashboardMetricsCounts({
+  currentStart,
+  currentEnd,
+  previousStart,
+  previousEnd,
+  activeProjectStatuses = [],
+  pendingTaskStatuses = [],
+} = {}) {
+  try {
+    const currentRange = { createdAt: { $gte: currentStart, $lte: currentEnd } };
+    const previousRange = { createdAt: { $gte: previousStart, $lte: previousEnd } };
+
+    const [clientMetrics = {}, projectMetrics = {}, taskMetrics = {}] = await Promise.all([
+      clients
+        .aggregate([
+          {
+            $facet: {
+              totalClients: [{ $count: "count" }],
+              currentClients: [{ $match: currentRange }, { $count: "count" }],
+              previousClients: [{ $match: previousRange }, { $count: "count" }],
+              totalLeads: [{ $match: { status: "Lead" } }, { $count: "count" }],
+              currentLeads: [{ $match: { ...currentRange, status: "Lead" } }, { $count: "count" }],
+              previousLeads: [{ $match: { ...previousRange, status: "Lead" } }, { $count: "count" }],
+            },
+          },
+        ])
+        .next(),
+      projects
+        .aggregate([
+          ...projectTaskProgressLookupStages,
+          {
+            $facet: {
+              totalProjects: [{ $count: "count" }],
+              currentProjects: [{ $match: currentRange }, { $count: "count" }],
+              previousProjects: [{ $match: previousRange }, { $count: "count" }],
+              activeProjectsTotal: [{ $match: { status: { $in: activeProjectStatuses } } }, { $count: "count" }],
+              activeProjectsCurrent: [{ $match: { ...currentRange, status: { $in: activeProjectStatuses } } }, { $count: "count" }],
+              activeProjectsPrevious: [{ $match: { ...previousRange, status: { $in: activeProjectStatuses } } }, { $count: "count" }],
+            },
+          },
+        ])
+        .next(),
+      tasks
+        .aggregate([
+          {
+            $facet: {
+              pendingTasksTotal: [{ $match: { status: { $in: pendingTaskStatuses } } }, { $count: "count" }],
+              pendingTasksCurrent: [{ $match: { ...currentRange, status: { $in: pendingTaskStatuses } } }, { $count: "count" }],
+              pendingTasksPrevious: [{ $match: { ...previousRange, status: { $in: pendingTaskStatuses } } }, { $count: "count" }],
+            },
+          },
+        ])
+        .next(),
+    ]);
+
+    return {
+      totalClients: getFacetCount(clientMetrics, "totalClients"),
+      currentClients: getFacetCount(clientMetrics, "currentClients"),
+      previousClients: getFacetCount(clientMetrics, "previousClients"),
+      totalProjects: getFacetCount(projectMetrics, "totalProjects"),
+      currentProjects: getFacetCount(projectMetrics, "currentProjects"),
+      previousProjects: getFacetCount(projectMetrics, "previousProjects"),
+      activeProjectsTotal: getFacetCount(projectMetrics, "activeProjectsTotal"),
+      activeProjectsCurrent: getFacetCount(projectMetrics, "activeProjectsCurrent"),
+      activeProjectsPrevious: getFacetCount(projectMetrics, "activeProjectsPrevious"),
+      pendingTasksTotal: getFacetCount(taskMetrics, "pendingTasksTotal"),
+      pendingTasksCurrent: getFacetCount(taskMetrics, "pendingTasksCurrent"),
+      pendingTasksPrevious: getFacetCount(taskMetrics, "pendingTasksPrevious"),
+      totalLeads: getFacetCount(clientMetrics, "totalLeads"),
+      currentLeads: getFacetCount(clientMetrics, "currentLeads"),
+      previousLeads: getFacetCount(clientMetrics, "previousLeads"),
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function getClientsCreatedBetween(from, to) {
   try {
     return await clients
@@ -1559,6 +1637,7 @@ module.exports = {
   getClients,
   getClientsPaginated,
   countClientsByFilter,
+  getDashboardMetricsCounts,
   getClientsCreatedBetween,
   addClient,
   getClientStats,
