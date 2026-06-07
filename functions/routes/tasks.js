@@ -69,18 +69,51 @@ router.get("/", tasksRateLimiter, async (req, res) => {
       limit,
     });
 
+    const assigneeIds = [...new Set(
+      rows
+        .map((task) => task.assigneeId || task.assignedTo)
+        .filter(Boolean),
+    )];
+    const assignees = await db.getUsersByIds(assigneeIds);
+    const assigneeMap = new Map(
+      assignees.map((user) => {
+        const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+        return [
+          user.userId,
+          {
+            userId: user.userId,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            fullName: fullName || user.email || user.userId,
+            email: user.email,
+          },
+        ];
+      }),
+    );
+
     const now = Date.now();
-    const tasks = rows.map((task) => ({
-      id: task.id,
-      title: task.title,
-      description: task.description || "",
-      status: task.status,
-      assigneeId: task.assigneeId || task.assignedTo,
-      dueDate: task.dueDate,
-      isOverdue: task.dueDate
-        ? task.dueDate < now && task.status !== "Done"
-        : false,
-    }));
+    const tasks = rows.map((task) => {
+      const resolvedAssigneeId = task.assigneeId || task.assignedTo || null;
+      const assignee = resolvedAssigneeId ? assigneeMap.get(resolvedAssigneeId) || null : null;
+
+      return {
+        id: task.id,
+        title: task.title,
+        description: task.description || "",
+        status: task.status,
+        assigneeId: resolvedAssigneeId,
+        assigneeName: assignee?.fullName || null,
+        assignee,
+        dueDate: task.dueDate,
+        projectId: task.projectId || null,
+        priority: task.priority || "medium",
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+        isOverdue: task.dueDate
+          ? task.dueDate < now && task.status !== "Done"
+          : false,
+      };
+    });
 
     return res.status(200).json({
       success: true,

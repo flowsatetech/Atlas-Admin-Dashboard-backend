@@ -239,6 +239,14 @@ const examples = {
         description: "Confirm copy, analytics, redirects, and deployment plan.",
         status: "InProgress",
         assigneeId: "2854abb8528fe1806d4a75d4f81035ef",
+        assigneeName: "Ada Okafor",
+        assignee: {
+            userId: "2854abb8528fe1806d4a75d4f81035ef",
+            firstName: "Ada",
+            lastName: "Okafor",
+            fullName: "Ada Okafor",
+            email: "ada.okafor@atlas.example"
+        },
         dueDate: 1775779200000,
         projectId: "project_brand_refresh_001",
         priority: "high",
@@ -802,7 +810,20 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     title: { type: "string", example: "Prepare launch checklist" },
                     description: { type: "string", default: "", example: "Confirm copy, analytics, redirects, and deployment plan." },
                     status: { type: "string", enum: enumValues.taskStatuses, default: "Todo", example: "InProgress" },
-                    assigneeId: { type: "string", example: examples.userId },
+                    assigneeId: { type: "string", nullable: true, example: examples.userId },
+                    assigneeName: { type: "string", nullable: true, description: "Resolved assignee display name for task list cards.", example: "Ada Okafor" },
+                    assignee: {
+                        type: "object",
+                        nullable: true,
+                        description: "Resolved assignee summary. Null when the assignee user cannot be found.",
+                        properties: {
+                            userId: { type: "string", example: examples.userId },
+                            firstName: { type: "string", example: "Ada" },
+                            lastName: { type: "string", example: "Okafor" },
+                            fullName: { type: "string", example: "Ada Okafor" },
+                            email: { type: "string", format: "email", example: "ada.okafor@atlas.example" }
+                        }
+                    },
                     dueDate: ref("Timestamp"),
                     projectId: { type: "string", nullable: true, example: examples.projectId },
                     priority: { type: "string", enum: enumValues.taskPriorities, default: "medium", example: "high" },
