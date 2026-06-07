@@ -24,25 +24,19 @@ const createProjectSchema = projectSchema.omit({
     updatedAt: true
 });
 
-const updateProjectSchema = createProjectSchema.omit({ id: true, progress: true }).partial();
-
-const updateProjectStatusAndRevenueSchema = z.object({
-    name: z.string().min(1).optional(),
-    description: z.string().optional(),
-    client: z.string().optional(),
-    dueTime: z.number().optional(),
-    assignees: z.array(z.string()).optional(),
-    budget: z.number().nonnegative().optional(),
-    status: projectStatusEnum.optional(),
-    recognizedRevenue: z.number().nonnegative().nullable().optional(),
-    recognizedAt: z.number().int().nonnegative().nullable().optional()
-});
+const updateProjectSchema = createProjectSchema
+    .omit({ id: true, progress: true })
+    .partial()
+    .extend({
+        client: z.string().optional(),
+        dueTime: z.number().int().nonnegative().optional(),
+        assignees: z.array(z.string().min(1)).optional()
+    });
 
 module.exports = {
     projectStatusEnum,
     projectPriorityEnum,
     projectSchema,
     createProjectSchema,
-    updateProjectSchema,
-    updateProjectStatusAndRevenueSchema
+    updateProjectSchema
 };

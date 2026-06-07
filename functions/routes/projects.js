@@ -154,42 +154,80 @@ router.post('/', middlewares.adminOnly, projects, async (req, res) => {
 
 router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
     try {
-        const existing = await db.getProjectById(req.params.projectId);
+        const { projectId } = req.params;
 
+        const existing = await db.getProjectById(projectId);
         if (!existing) {
             return clientError(res, 404, 'Project not found');
         }
 
         const validData = models.project.updateProjectSchema.safeParse(req.body);
-
         if (!validData.success) {
             return clientError(res, 400, 'Invalid update data.', validData.error.issues.map(i => i.message));
         }
 
-        if (validData.data.clientId) {
-            const clientExists = await db.getClientById(validData.data.clientId);
+        const incoming = validData.data;
+        const assigneeIds = incoming.teamIds || incoming.assignees;
+
+        if (incoming.clientId) {
+            const clientExists = await db.getClientById(incoming.clientId);
             if (!clientExists) {
                 return clientError(res, 404, 'Client not found');
             }
         }
 
-        if (validData.data.teamIds && validData.data.teamIds.length > 0) {
-            const foundUsers = await db.getUsersByIds(validData.data.teamIds);
-            if (foundUsers.length !== validData.data.teamIds.length) {
+        if (assigneeIds && assigneeIds.length > 0) {
+            const foundUsers = await db.getUsersByIds(assigneeIds);
+            if (foundUsers.length !== assigneeIds.length) {
                 return clientError(res, 404, 'One or more team members not found');
             }
         }
 
-        if (Object.prototype.hasOwnProperty.call(req.body || {}, 'progress')) {
-            return clientError(res, 400, 'Project progress is derived from task completion and cannot be set manually.');
+        if ((Object.prototype.hasOwnProperty.call(incoming, 'recognizedRevenue') ||
+            Object.prototype.hasOwnProperty.call(incoming, 'recognizedAt')) &&
+            !(Object.prototype.hasOwnProperty.call(incoming, 'recognizedRevenue') &&
+              Object.prototype.hasOwnProperty.call(incoming, 'recognizedAt'))) {
+            return clientError(res, 400, 'recognizedRevenue and recognizedAt must be provided together');
+        }
+
+        const nextStatus = incoming.status || existing.status;
+        const nextRecognizedRevenue = Object.prototype.hasOwnProperty.call(incoming, 'recognizedRevenue')
+            ? incoming.recognizedRevenue
+            : existing.recognizedRevenue;
+        const nextRecognizedAt = Object.prototype.hasOwnProperty.call(incoming, 'recognizedAt')
+            ? incoming.recognizedAt
+            : existing.recognizedAt;
+
+        if (nextStatus !== 'Completed' && (nextRecognizedRevenue != null || nextRecognizedAt != null)) {
+            return clientError(res, 400, 'recognizedRevenue and recognizedAt are only allowed for Completed projects');
         }
 
         const updateData = {
-            ...validData.data,
+            ...incoming,
             updatedAt: Date.now(),
         };
 
-        const updatedProject = await db.updateProject(req.params.projectId, updateData);
+        if (updateData.assignees && !updateData.teamIds) {
+            updateData.teamIds = updateData.assignees;
+        }
+        delete updateData.assignees;
+
+        const updatedProject = await db.updateProject(projectId, updateData);
+
+        await services.logActivity({
+            type: 'project.updated',
+            actorId: req.user?.userId || null,
+            entityId: projectId,
+            entityType: 'project',
+            message: `${existing.name || 'Project'} was updated`,
+            meta: {
+                fields: Object.keys(updateData).filter((field) => field !== 'updatedAt')
+            }
+        });
+        await services.recordAnalyticsEvent({
+            pageViewsDelta: 1,
+            trafficSource: 'Direct'
+        });
 
         res.status(200).json({
             success: true,
@@ -270,84 +308,6 @@ router.get('/:projectId/comments', projects, async (req, res) => {
     } catch (e) {
         logger('GET_COMMENTS').error(e);
         return serverError(res, e, 'Failed to fetch comments.');
-    }
-});
-
-router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
-    try {
-        const { projectId } = req.params;
-
-        if (Object.prototype.hasOwnProperty.call(req.body || {}, 'progress')) {
-            return clientError(res, 400, 'Project progress is derived from task completion and cannot be set manually.');
-        }
-
-        const validData = models.project.updateProjectStatusAndRevenueSchema.safeParse(req.body);
-
-        if (!validData.success) {
-            return clientError(res, 400, 'Couldn\'t complete update project request');
-        }
-
-        const existing = await db.getProjectById(projectId);
-        if (!existing) {
-            return clientError(res, 404, 'Project not found');
-        }
-
-        const incoming = validData.data;
-
-        if (incoming.assignees && incoming.assignees.length > 0) {
-            const foundUsers = await db.getUsersByIds(incoming.assignees);
-            if (foundUsers.length !== incoming.assignees.length) {
-                return clientError(res, 404, 'One or more assignees not found');
-            }
-        }
-
-        if ((Object.prototype.hasOwnProperty.call(incoming, 'recognizedRevenue') ||
-            Object.prototype.hasOwnProperty.call(incoming, 'recognizedAt')) &&
-            !(Object.prototype.hasOwnProperty.call(incoming, 'recognizedRevenue') &&
-              Object.prototype.hasOwnProperty.call(incoming, 'recognizedAt'))) {
-            return clientError(res, 400, 'recognizedRevenue and recognizedAt must be provided together');
-        }
-
-        const nextStatus = incoming.status || existing.status;
-        const nextRecognizedRevenue = Object.prototype.hasOwnProperty.call(incoming, 'recognizedRevenue')
-            ? incoming.recognizedRevenue
-            : existing.recognizedRevenue;
-        const nextRecognizedAt = Object.prototype.hasOwnProperty.call(incoming, 'recognizedAt')
-            ? incoming.recognizedAt
-            : existing.recognizedAt;
-
-        if (nextStatus !== 'Completed' && (nextRecognizedRevenue != null || nextRecognizedAt != null)) {
-            return clientError(res, 400, 'recognizedRevenue and recognizedAt are only allowed for Completed projects');
-        }
-
-        const updateData = {
-            ...incoming,
-            updatedAt: Date.now()
-        };
-
-        await db.updateProjectById(projectId, updateData);
-        await services.logActivity({
-            type: 'project.updated',
-            actorId: req.user?.userId || null,
-            entityId: projectId,
-            entityType: 'project',
-            message: `${existing.name || 'Project'} was updated`,
-            meta: {
-                fields: Object.keys(validData.data)
-            }
-        });
-        await services.recordAnalyticsEvent({
-            pageViewsDelta: 1,
-            trafficSource: 'Direct'
-        });
-
-        return res.status(200).json({
-            success: true,
-            message: 'Project updated successfully'
-        });
-    } catch (e) {
-        logger('UPDATE_PROJECT').error(e);
-        return serverError(res, e, 'Failed to update project.');
     }
 });
 
