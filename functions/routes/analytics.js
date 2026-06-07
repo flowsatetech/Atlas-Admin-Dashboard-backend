@@ -2,13 +2,12 @@ const express = require("express");
 const { z } = require("zod");
 
 const middlewares = require("../middlewares");
-const { logger, analytics, cache } = require("../helpers");
+const { logger, analytics } = require("../helpers");
 const db = require("../db");
 const { analytics: analyticsContracts } = require("../contracts");
 
 const router = express.Router();
 const { analytics: analyticsRateLimiter } = middlewares.rateLimiters;
-const ANALYTICS_CACHE_TTL_MS = Number(process.env.ANALYTICS_CACHE_TTL_MS || 30_000);
 
 const trafficQuerySchema = z.object({
     range: z.enum(["7d", "30d", "3months", "6months", "12months"]).default("7d")
@@ -68,10 +67,6 @@ function aggregateTrafficSources(snapshotRows = []) {
 
 router.get("/overview", analyticsRateLimiter, async (req, res) => {
     try {
-        const cacheKey = cache.buildCacheKey("analytics:overview", {});
-        const cached = cache.getCached(cacheKey);
-        if (cached) return res.status(200).json(cached);
-
         const range = analytics.parsePeriod("30d");
 
         const [currentSnapshots, previousSnapshots, currentCampaigns, previousCampaigns] = await Promise.all([
@@ -135,7 +130,6 @@ router.get("/overview", analyticsRateLimiter, async (req, res) => {
         };
 
         analyticsContracts.analyticsOverviewResponseSchema.parse(response);
-        cache.setCached(cacheKey, response, ANALYTICS_CACHE_TTL_MS);
         return res.status(200).json(response);
     } catch (e) {
         logger("ANALYTICS_OVERVIEW").error(e);
@@ -151,10 +145,6 @@ router.get("/traffic", analyticsRateLimiter, async (req, res) => {
         }
 
         const { range } = parsed.data;
-        const cacheKey = cache.buildCacheKey("analytics:traffic", { range });
-        const cached = cache.getCached(cacheKey);
-        if (cached) return res.status(200).json(cached);
-
         const period = analytics.parsePeriod(range);
         const buckets = analytics.buildDateBuckets({ from: period.currentStart, to: period.currentEnd, unit: period.unit });
 
@@ -207,7 +197,6 @@ router.get("/traffic", analyticsRateLimiter, async (req, res) => {
         };
 
         analyticsContracts.analyticsTrafficResponseSchema.parse(response);
-        cache.setCached(cacheKey, response, ANALYTICS_CACHE_TTL_MS);
         return res.status(200).json(response);
     } catch (e) {
         logger("ANALYTICS_TRAFFIC").error(e);
@@ -223,10 +212,6 @@ router.get("/sources", analyticsRateLimiter, async (req, res) => {
         }
 
         const period = analytics.parsePeriod(parsed.data.range);
-        const cacheKey = cache.buildCacheKey("analytics:sources", { range: parsed.data.range });
-        const cached = cache.getCached(cacheKey);
-        if (cached) return res.status(200).json(cached);
-
         const snapshots = await db.getAnalyticsSnapshotsByDateRange({
             from: period.currentStart,
             to: period.currentEnd,
@@ -237,7 +222,6 @@ router.get("/sources", analyticsRateLimiter, async (req, res) => {
 
         const response = { success: true, data: { sources } };
         analyticsContracts.analyticsSourcesResponseSchema.parse(response);
-        cache.setCached(cacheKey, response, ANALYTICS_CACHE_TTL_MS);
         return res.status(200).json(response);
     } catch (e) {
         logger("ANALYTICS_SOURCES").error(e);
@@ -297,10 +281,6 @@ router.get("/campaigns", analyticsRateLimiter, async (req, res) => {
 
 router.get("/distribution", analyticsRateLimiter, async (req, res) => {
     try {
-        const cacheKey = cache.buildCacheKey("analytics:distribution", {});
-        const cached = cache.getCached(cacheKey);
-        if (cached) return res.status(200).json(cached);
-
         const range = analytics.parsePeriod("30d");
         const [snapshots, leads, activeClients] = await Promise.all([
             db.getAnalyticsSnapshotsByDateRange({
@@ -329,7 +309,6 @@ router.get("/distribution", analyticsRateLimiter, async (req, res) => {
         };
 
         analyticsContracts.analyticsDistributionResponseSchema.parse(response);
-        cache.setCached(cacheKey, response, ANALYTICS_CACHE_TTL_MS);
         return res.status(200).json(response);
     } catch (e) {
         logger("ANALYTICS_DISTRIBUTION").error(e);

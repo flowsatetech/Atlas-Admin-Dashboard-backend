@@ -2,7 +2,7 @@ const express = require("express");
 const { z } = require("zod");
 
 const middlewares = require("../middlewares");
-const { logger, generateToken, serverError, clientError, cache } = require("../helpers");
+const { logger, generateToken, serverError, clientError } = require("../helpers");
 const db = require("../db");
 const models = require("../models");
 const services = require("../services");
@@ -45,11 +45,6 @@ function formatPayment(payment) {
     createdAt: payment.createdAt,
     updatedAt: payment.updatedAt,
   };
-}
-
-function clearPaymentDerivedCaches() {
-  cache.clearByPrefix("dashboard:performance:");
-  cache.clearByPrefix("dashboard:activities:");
 }
 
 function getPaymentReferenceErrorStatus(message) {
@@ -152,8 +147,6 @@ router.post("/", middlewares.adminOnly, paymentsRateLimiter, async (req, res) =>
       message: `Payment ${payment.id} was created`,
       meta: { amount: payment.amount, status: payment.status },
     });
-    clearPaymentDerivedCaches();
-
     return res.status(201).json({
       success: true,
       message: "Payment created successfully",
@@ -217,8 +210,6 @@ router.patch("/:paymentId", middlewares.adminOnly, paymentsRateLimiter, async (r
       message: `Payment ${existing.id || req.params.paymentId} was updated`,
       meta: { fields: Object.keys(updateData) },
     });
-    clearPaymentDerivedCaches();
-
     return res.status(200).json({
       success: true,
       message: "Payment updated successfully",
@@ -245,8 +236,6 @@ router.delete("/:paymentId", middlewares.adminOnly, paymentsRateLimiter, async (
       entityType: "payment",
       message: `Payment ${existing.id || req.params.paymentId} was deleted`,
     });
-    clearPaymentDerivedCaches();
-
     return res.status(200).json({
       success: true,
       message: "Payment deleted successfully",

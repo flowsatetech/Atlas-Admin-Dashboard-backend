@@ -49,12 +49,8 @@ function resolveTemplatePath() {
     : path.resolve(process.cwd(), configuredPath);
 }
 
-let _templateCache = null;
 function loadTemplate() {
-  if (!_templateCache) {
-    _templateCache = fs.readFileSync(resolveTemplatePath(), 'utf8');
-  }
-  return _templateCache;
+  return fs.readFileSync(resolveTemplatePath(), 'utf8');
 }
 
 function renderTemplate(template, replacements) {

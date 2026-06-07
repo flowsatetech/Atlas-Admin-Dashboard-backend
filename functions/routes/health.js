@@ -65,11 +65,11 @@ router.post(
 
       return res.status(200).json({
         success: true,
-        message: "Redis cache flushed successfully",
+        message: "Redis database flushed successfully",
       });
     } catch (error) {
       logger("REDIS_FLUSH").error(error);
-      return serverError(res, error, 'Failed to flush Redis cache.');
+      return serverError(res, error, 'Failed to flush Redis database.');
     }
   },
 );

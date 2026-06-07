@@ -2982,12 +2982,12 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
         "/api/health/redis/flush": {
             post: {
                 tags: ["Health"],
-                operationId: "flushRedisCache",
-                summary: "Flush Redis cache",
+                operationId: "flushRedisDatabase",
+                summary: "Flush Redis database",
                 description: "Admin-only maintenance endpoint. Clears the active Redis database using FLUSHDB. Intended for controlled maintenance operations only.",
                 security: [{ cookieAuth: [] }],
                 responses: {
-                    200: emptySuccessResponse("Redis cache flushed successfully.", "Redis cache flushed successfully"),
+                    200: emptySuccessResponse("Redis database flushed successfully.", "Redis database flushed successfully"),
                     401: responseRef("Unauthorized"),
                     403: responseRef("Forbidden"),
                     429: responseRef("TooManyRequests"),
