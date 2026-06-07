@@ -1088,6 +1088,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 type: "object",
                 properties: {
                     totalClients: ref("TrendMetric"),
+                    totalProjects: ref("TrendMetric"),
                     activeProjects: ref("TrendMetric"),
                     pendingTasks: ref("TrendMetric"),
                     newLeads: ref("TrendMetric")
@@ -1430,11 +1431,12 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 tags: ["Dashboard"],
                 operationId: "getDashboardMetrics",
                 summary: "Get dashboard KPI cards",
-                description: "Returns total clients, active projects, pending tasks, and new leads with month-over-month trend metadata.",
+                description: "Returns total clients, total projects, active projects, pending tasks, and new leads with month-over-month trend metadata.",
                 security: [{ cookieAuth: [] }],
                 responses: {
                     200: successResponse("Dashboard metrics returned.", ref("DashboardMetrics"), {
                         totalClients: { value: 2550, changePct: 12.5, direction: "up", compareLabel: "Vs last month" },
+                        totalProjects: { value: 240, changePct: 6.4, direction: "up", compareLabel: "Vs last month" },
                         activeProjects: { value: 140, changePct: 8.2, direction: "up", compareLabel: "Vs last month" },
                         pendingTasks: { value: 65, changePct: -3.5, direction: "down", compareLabel: "Vs last month" },
                         newLeads: { value: 200, changePct: 12.5, direction: "up", compareLabel: "Vs last month" }

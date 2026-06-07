@@ -114,6 +114,9 @@ router.get('/metrics', dashboard, async (req, res) => {
             totalClients,
             currentClients,
             previousClients,
+            totalProjects,
+            currentProjects,
+            previousProjects,
             activeProjectsTotal,
             activeProjectsCurrent,
             activeProjectsPrevious,
@@ -127,6 +130,9 @@ router.get('/metrics', dashboard, async (req, res) => {
             db.countClientsByFilter({}),
             db.countClientsByFilter(currentRange),
             db.countClientsByFilter(previousRange),
+            db.countProjectsByFilter({}),
+            db.countProjectsByFilter(currentRange),
+            db.countProjectsByFilter(previousRange),
             db.countProjectsByFilter({ status: { $in: ACTIVE_PROJECT_STATUSES } }),
             db.countProjectsByFilter({ ...currentRange, status: { $in: ACTIVE_PROJECT_STATUSES } }),
             db.countProjectsByFilter({ ...previousRange, status: { $in: ACTIVE_PROJECT_STATUSES } }),
@@ -140,6 +146,7 @@ router.get('/metrics', dashboard, async (req, res) => {
 
         const data = {
             totalClients: toMetricCard(totalClients, currentClients, previousClients),
+            totalProjects: toMetricCard(totalProjects, currentProjects, previousProjects),
             activeProjects: toMetricCard(activeProjectsTotal, activeProjectsCurrent, activeProjectsPrevious),
             pendingTasks: toMetricCard(pendingTasksTotal, pendingTasksCurrent, pendingTasksPrevious),
             newLeads: toMetricCard(totalLeads, currentLeads, previousLeads)
