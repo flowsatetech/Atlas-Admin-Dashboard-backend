@@ -171,10 +171,18 @@ const examples = {
         id: "client_atlas_001",
         fullName: "Jane Doe",
         company: "Acme Corporation",
+        companyName: "Acme Corporation",
+        email: "jane.doe@acme.example",
+        phone: "+2348012345678",
         status: "Active",
         tags: ["enterprise", "fintech"],
         manager: "Ada Okafor",
-        projectsCount: 3
+        assignedStaffId: "2854abb8528fe1806d4a75d4f81035ef",
+        leadSource: "Referral",
+        notes: "Met at Lagos Tech Summit.",
+        projectsCount: 3,
+        createdAt: 1775600000000,
+        updatedAt: 1775686400000
     },
     clientDetail: {
         id: "client_atlas_001",
@@ -580,15 +588,24 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             },
             ClientSummary: {
                 type: "object",
-                required: ["id", "fullName", "company", "status", "tags", "manager", "projectsCount"],
+                required: ["id", "fullName", "company", "companyName", "email", "phone", "status", "tags", "manager", "assignedStaffId", "projectsCount"],
+                description: "Client card/list item. Includes editable fields so edit forms can prefill from list responses without an extra detail request.",
                 properties: {
                     id: { type: "string", example: examples.clientId },
                     fullName: { type: "string", example: "Jane Doe" },
-                    company: { type: "string", example: "Acme Corporation" },
+                    company: { type: "string", description: "Legacy display alias for companyName.", example: "Acme Corporation" },
+                    companyName: { type: "string", example: "Acme Corporation" },
+                    email: { type: "string", format: "email", example: "jane.doe@acme.example" },
+                    phone: { type: "string", minLength: 3, example: "+2348012345678" },
                     status: { type: "string", enum: enumValues.clientStatuses, example: "Active" },
                     tags: { type: "array", items: { type: "string" }, example: ["enterprise", "fintech"] },
                     manager: { type: "string", example: "Ada Okafor" },
-                    projectsCount: { type: "integer", minimum: 0, example: 3 }
+                    assignedStaffId: { type: "string", nullable: true, example: examples.userId },
+                    leadSource: { type: "string", nullable: true, example: "Referral" },
+                    notes: { type: "string", default: "", example: "Met at Lagos Tech Summit." },
+                    projectsCount: { type: "integer", minimum: 0, example: 3 },
+                    createdAt: ref("Timestamp"),
+                    updatedAt: ref("Timestamp")
                 },
                 example: examples.clientSummary
             },

@@ -9,6 +9,28 @@ const services = require("../services");
 const router = express.Router();
 const { clients: rateLimiter } = middlewares.rateLimiters;
 
+function formatClientForList(clientDoc, managerName = "Unassigned") {
+  const assignedStaffId = clientDoc.assignedStaffId || null;
+
+  return {
+    id: clientDoc.id,
+    fullName: clientDoc.fullName,
+    company: clientDoc.companyName,
+    companyName: clientDoc.companyName,
+    email: clientDoc.email,
+    phone: clientDoc.phone,
+    status: clientDoc.status,
+    tags: clientDoc.tags || [],
+    manager: assignedStaffId ? managerName : "Unassigned",
+    assignedStaffId,
+    leadSource: clientDoc.leadSource || null,
+    notes: clientDoc.notes || "",
+    projectsCount: clientDoc.projectsCount || 0,
+    createdAt: clientDoc.createdAt,
+    updatedAt: clientDoc.updatedAt,
+  };
+}
+
 /**
  * GET /api/clients/stats
  * Aggregates client baseline card statistics from the collection
@@ -49,15 +71,10 @@ router.get("/", rateLimiter, async (req, res) => {
       }),
     );
 
-    const formattedClients = rows.map((clientDoc) => ({
-      id: clientDoc.id,
-      fullName: clientDoc.fullName,
-      company: clientDoc.companyName,
-      status: clientDoc.status,
-      tags: clientDoc.tags || [],
-      manager: clientDoc.assignedStaffId ? (managersMap[clientDoc.assignedStaffId] || "Unassigned") : "Unassigned",
-      projectsCount: clientDoc.projectsCount || 0,
-    }));
+    const formattedClients = rows.map((clientDoc) => formatClientForList(
+      clientDoc,
+      managersMap[clientDoc.assignedStaffId] || "Unassigned",
+    ));
 
     res.status(200).json({
       success: true,
@@ -172,15 +189,7 @@ router.post("/", middlewares.adminOnly, rateLimiter, async (req, res) => {
       success: true,
       message: "Client added successfully",
       data: {
-        client: {
-          id: newClient.id,
-          fullName: newClient.fullName,
-          company: newClient.companyName,
-          status: newClient.status,
-          tags: newClient.tags,
-          manager: newClient.assignedStaffId || "Unassigned",
-          projectsCount: 0,
-        },
+        client: formatClientForList(newClient, newClient.assignedStaffId || "Unassigned"),
       },
     });
   } catch (e) {
