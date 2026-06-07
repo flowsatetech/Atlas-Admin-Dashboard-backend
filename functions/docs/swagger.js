@@ -158,6 +158,7 @@ const examples = {
         lastName: "Okafor",
         fullName: "Ada Okafor",
         email: "ada.okafor@atlas.example",
+        phone: "+2348012345678",
         role: "admin",
         job: "Operations Lead",
         status: "active",
@@ -532,6 +533,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     lastName: { type: "string", example: "Okafor" },
                     fullName: { type: "string", example: "Ada Okafor" },
                     email: { type: "string", format: "email", example: "ada.okafor@atlas.example" },
+                    phone: { type: "string", nullable: true, example: "+2348012345678" },
                     role: { type: "string", enum: enumValues.memberRoles, example: "admin" },
                     job: { type: "string", nullable: true, example: "Operations Lead" },
                     status: { type: "string", nullable: true, example: "active" },
@@ -544,14 +546,16 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             },
             CreateMemberRequest: {
                 type: "object",
-                required: ["firstName", "lastName", "email", "password", "role"],
+                required: ["firstName", "lastName", "email", "phone", "password", "role"],
                 properties: {
                     firstName: { type: "string", minLength: 1, example: "Ada" },
                     lastName: { type: "string", minLength: 1, example: "Okafor" },
                     email: { type: "string", format: "email", example: "ada.okafor@atlas.example" },
+                    phone: { type: "string", minLength: 3, example: "+2348012345678" },
                     password: { type: "string", minLength: 8, format: "password", example: "StrongPass123" },
                     role: { type: "string", enum: enumValues.memberEditableRoles, default: "staff", example: "staff" },
-                    job: { type: "string", example: "Account Manager" }
+                    job: { type: "string", example: "Account Manager" },
+                    status: { type: "string", enum: ["active", "inactive"], default: "active", example: "active" }
                 }
             },
             UpdateMemberRequest: {
@@ -560,9 +564,10 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 properties: {
                     firstName: { type: "string", example: "Ada" },
                     lastName: { type: "string", example: "Okafor" },
+                    phone: { type: "string", minLength: 3, example: "+2348012345678" },
                     role: { type: "string", enum: enumValues.memberEditableRoles, example: "admin" },
                     job: { type: "string", example: "Operations Lead" },
-                    status: { type: "string", example: "active" }
+                    status: { type: "string", enum: ["active", "inactive"], example: "active" }
                 }
             },
             AdminChangeMemberPasswordRequest: {
@@ -2319,15 +2324,17 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     firstName: "Ada",
                     lastName: "Okafor",
                     email: "ada.okafor@atlas.example",
+                    phone: "+2348012345678",
                     password: "StrongPass123",
                     role: "staff",
-                    job: "Account Manager"
+                    job: "Account Manager",
+                    status: "active"
                 }, "New staff member payload. role renders as a dropdown."),
                 responses: {
                     201: successResponse("Member added successfully.", {
                         type: "object",
-                        properties: { user: ref("UserProfile") }
-                    }, { user: examples.userProfile }, "Member added successfully", 201),
+                        properties: { user: ref("Member") }
+                    }, { user: examples.member }, "Member added successfully", 201),
                     400: responseRef("BadRequest"),
                     401: responseRef("Unauthorized"),
                     403: responseRef("Forbidden"),
@@ -2359,6 +2366,43 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 }
             }
         },
+        "/api/members/{id}/picture": {
+            put: {
+                tags: ["Members"],
+                operationId: "updateMemberPicture",
+                summary: "Upload or replace a staff member's profile picture",
+                description: "Admin-only member profile picture upload. Uses multipart/form-data field name picture. Only JPEG, PNG, and WebP are accepted; replacing a picture deletes the previous Cloudinary asset when a public ID is stored.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("MemberIdPath")],
+                requestBody: {
+                    required: true,
+                    description: "Multipart payload with one strict image file.",
+                    content: {
+                        "multipart/form-data": {
+                            schema: {
+                                type: "object",
+                                required: ["picture"],
+                                properties: {
+                                    picture: { type: "string", format: "binary", description: "JPEG, PNG, or WebP image only. Maximum size is 5 MB." }
+                                }
+                            }
+                        }
+                    }
+                },
+                responses: {
+                    200: successResponse("Member picture updated.", {
+                        type: "object",
+                        properties: { member: ref("Member") }
+                    }, { member: { ...examples.member, avatarUrl: examples.userProfile.avatarUrl } }, "Member picture updated successfully"),
+                    400: errorResponse("Missing file or unsupported image type/content.", 400, "Profile picture must be a JPEG, PNG, or WebP image"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("Member not found.", 404, "Member not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
         "/api/members/{id}": {
             patch: {
                 tags: ["Members"],
@@ -2368,6 +2412,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("MemberIdPath")],
                 requestBody: jsonRequestBody("UpdateMemberRequest", {
+                    phone: "+2348012345678",
                     role: "admin",
                     job: "Operations Lead",
                     status: "active"

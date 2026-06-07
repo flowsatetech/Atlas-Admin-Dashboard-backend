@@ -2,17 +2,66 @@
  * All libraries / local exports / packages are imported here
  */
 const express = require('express');
+const multer = require('multer');
 const bcrypt = require('bcrypt');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const { logger, generateToken, serverError, clientError } = require('../helpers');
+const { logger, generateToken, serverError, clientError, uploadProfilePicture, deleteCloudinaryAsset } = require('../helpers');
 const db = require('../db');
 const { createMemberSchema, updateMemberSchema, adminChangeMemberPasswordSchema } = require('../models/user');
 
 /** SETUP */
 const router = express.Router();
 const { members: membersRateLimiter, createMember: createMemberRateLimiter } = middlewares.rateLimiters;
+
+const profilePictureUpload = multer({
+    limits: { fileSize: 5 * 1024 * 1024 },
+    storage: multer.memoryStorage(),
+    fileFilter: (req, file, cb) => {
+        const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+        const allowedExtensions = /\.(jpe?g|png|webp)$/i;
+
+        if (!allowedMimeTypes.has(file.mimetype)) {
+            return cb(new Error('Profile picture must be a JPEG, PNG, or WebP image'), false);
+        }
+
+        if (!allowedExtensions.test(file.originalname || '')) {
+            return cb(new Error('Profile picture file extension must be .jpg, .jpeg, .png, or .webp'), false);
+        }
+
+        return cb(null, true);
+    },
+});
+
+const profilePictureUploadHandler = profilePictureUpload.single('picture');
+const profilePictureUploadMiddleware = (req, res, next) => {
+    profilePictureUploadHandler(req, res, (err) => {
+        if (!err) return next();
+
+        return res.status(400).json({
+            success: false,
+            message: 'Profile picture upload error',
+            data: { error: err.message },
+        });
+    });
+};
+
+const formatMember = (member) => ({
+    userId: member.userId,
+    firstName: member.firstName,
+    lastName: member.lastName,
+    fullName: member.fullName,
+    email: member.email,
+    phone: member.phone ?? null,
+    role: member.role,
+    job: member.job ?? null,
+    status: member.status ?? null,
+    avatarUrl: member.avatarUrl ?? null,
+    lastLogin: member.lastLogin ?? null,
+    createdAt: member.createdAt,
+    updatedAt: member.updatedAt,
+});
 
 /** MAIN USER ROUTES */
 
@@ -25,26 +74,11 @@ router.get('/', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
 
         const result = await db.getAllMembers({ page, limit, search });
 
-        const sanitizeMember = (m) => ({
-            userId: m.userId,
-            firstName: m.firstName,
-            lastName: m.lastName,
-            fullName: m.fullName,
-            email: m.email,
-            role: m.role,
-            job: m.job ?? null,
-            status: m.status ?? null,
-            avatarUrl: m.avatarUrl ?? null,
-            lastLogin: m.lastLogin ?? null,
-            createdAt: m.createdAt,
-            updatedAt: m.updatedAt,
-        });
-
         res.status(200).json({
             success: true,
             message: 'Staff members fetched successfully',
             data: {
-                members: result.members.map(sanitizeMember),
+                members: result.members.map(formatMember),
                 pagination: result.pagination,
             }
         });
@@ -62,7 +96,7 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
             return clientError(res, 400, 'Couldn\'t create member. Some fields are missing or invalid.', validData.error.issues.map(i => i.message));
         }
 
-        const { firstName, lastName, email, password, role, job } = validData.data;
+        const { firstName, lastName, email, phone, password, role, job, status } = validData.data;
 
         const existing = await db.getUserByEmail(email);
         if (existing) {
@@ -80,10 +114,11 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
             lastName,
             fullName: `${firstName} ${lastName}`,
             email,
+            phone,
             password: hashedPassword,
             role,
             job: job || null,
-            status: 'active',
+            status,
             authProvider: 'atlas',
             createdAt: now,
             updatedAt: now,
@@ -97,7 +132,7 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
             success: true,
             message: 'Member added successfully',
             data: {
-                user: { userId, firstName, lastName, email, role, job: newMember.job }
+                user: formatMember(newMember)
             }
         });
     } catch (e) {
@@ -171,7 +206,57 @@ router.patch('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res)
     }
 });
 
-// 5. DELETE /api/members/:memberId - Delete staff member (admin only)
+// 5. PUT /api/members/:id/picture - Upload or replace a staff member's profile picture (admin only)
+router.put('/:id/picture', middlewares.adminOnly, membersRateLimiter, profilePictureUploadMiddleware, async (req, res) => {
+    try {
+        const memberId = req.params.id;
+        const member = await db.getUserById(memberId);
+        if (!member) {
+            return clientError(res, 404, 'Member not found');
+        }
+
+        if (!req.file) {
+            return clientError(res, 400, 'No profile picture uploaded');
+        }
+
+        const uploaded = await uploadProfilePicture(req.file);
+
+        if (member.avatarPublicId) {
+            try {
+                await deleteCloudinaryAsset(member.avatarPublicId, member.avatarResourceType || 'image');
+            } catch (deleteError) {
+                logger('DELETE_OLD_MEMBER_PICTURE').error(deleteError);
+            }
+        }
+
+        const updateData = {
+            avatarUrl: uploaded.secure_url || uploaded.url,
+            avatarPublicId: uploaded.public_id,
+            avatarResourceType: uploaded.resource_type || 'image',
+            updatedAt: Date.now(),
+        };
+
+        await db.updateUser(memberId, updateData);
+
+        res.status(200).json({
+            success: true,
+            message: 'Member picture updated successfully',
+            data: {
+                member: formatMember({ ...member, ...updateData }),
+            }
+        });
+    } catch (e) {
+        logger('UPDATE_MEMBER_PICTURE').error(e);
+
+        if (e.statusCode === 400) {
+            return clientError(res, 400, e.message);
+        }
+
+        return serverError(res, e, 'Failed to update member picture.');
+    }
+});
+
+// 6. DELETE /api/members/:memberId - Delete staff member (admin only)
 router.delete('/:memberId', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
     try {
         const member = await db.getUserById(req.params.memberId);

@@ -8,6 +8,7 @@ const userSchema = z.object({
     firstName: z.string().min(1),
     lastName: z.string().min(1),
     email: z.email(),
+    phone: z.string().min(3).nullable().default(null),
     role: userRoleEnum.default("staff"),
     avatarUrl: z.string().url().nullable().default(null),
     avatarPublicId: z.string().min(1).nullable().default(null),
@@ -31,21 +32,26 @@ const loginSchema = z.object({
     rememberMe: z.boolean().optional(),
 });
 
+const memberStatusEnum = z.enum(['active', 'inactive']);
+
 const createMemberSchema = z.object({
     firstName: z.string().min(1, 'First name is required'),
     lastName: z.string().min(1, 'Last name is required'),
     email: z.string().email('Invalid email address'),
+    phone: z.string().min(3, 'Phone number is required'),
     password: z.string().min(8, 'Password must be at least 8 characters'),
     role: z.enum(['admin', 'staff']),
     job: z.string().optional(),
+    status: memberStatusEnum.default('active'),
 });
 
 const updateMemberSchema = z.object({
     firstName: z.string().optional(),
     lastName: z.string().optional(),
+    phone: z.string().min(3).optional(),
     role: z.enum(['admin', 'staff']).optional(),
     job: z.string().optional(),
-    status: z.string().optional(),
+    status: memberStatusEnum.optional(),
 });
 
 const adminChangeMemberPasswordSchema = z.object({
@@ -54,6 +60,7 @@ const adminChangeMemberPasswordSchema = z.object({
 
 module.exports = {
     userRoleEnum,
+    memberStatusEnum,
     userSchema,
     createUserSchema,
     updateUserSchema,
