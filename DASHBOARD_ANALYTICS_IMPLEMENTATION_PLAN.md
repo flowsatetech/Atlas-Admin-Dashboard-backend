@@ -112,7 +112,7 @@ This checklist tracks the full backend work from foundation setup to complete AP
 - [x] Add zod validation for all dashboard/analytics query params.
 - [x] Add route-level rate limiters for analytics endpoints.
 - [x] Add DB projections to reduce payload size.
-- [x] Add optional caching for heavy dashboard/analytics aggregations.
+- [x] Keep analytics aggregations live so responses always reflect current source data.
 
 ## 10. Swagger and Documentation
 
@@ -141,4 +141,6 @@ This checklist tracks the full backend work from foundation setup to complete AP
 ## Notes
 
 - Keep this file updated as tasks move from pending to done.
+- Dashboard, analytics, and revenue routes return live data on every request.
+- Shared in-memory response reuse was removed from runtime code.
 - Execute in this order: foundation first, routes second, polish/testing last.

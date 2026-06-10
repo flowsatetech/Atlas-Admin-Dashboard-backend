@@ -34,6 +34,7 @@ const embedRoutes = require('./functions/routes/embed');
 const healthApi = require('./functions/routes/health');
 const fourZeroFourApi = require('./functions/routes/404');
 const webhookRoutes = require('./functions/routes/webhooks');
+const notificationsRoutes = require('./functions/routes/notifications');
 const swaggerSpec = require('./functions/docs/swagger');
 
 const db = require('./functions/db');
@@ -164,7 +165,7 @@ app.use('/api', (req, res, next) => {
 /** ROUTERS
  * All routers are created here
  */
-const [authApi, userApi, dashboardApi, projectsApi, clientsApi, membersApi, mediaApi, analyticsApi, revenueApi, paymentsApi, tasksApi, blogApi, leadsApi] = Array.from({ length: 13 }, () => express.Router());
+const [authApi, userApi, dashboardApi, projectsApi, clientsApi, membersApi, mediaApi, analyticsApi, revenueApi, paymentsApi, tasksApi, blogApi, leadsApi, notificationsApi] = Array.from({ length: 14 }, () => express.Router());
 
 /** ROUTERS -> HANDLER MAPPING
  * All routers are mapped to their handlers
@@ -182,6 +183,7 @@ paymentsApi.use(paymentRoutes);
 tasksApi.use(tasksRoutes);
 blogApi.use(blogRoutes);
 leadsApi.use(leadsRoutes);
+notificationsApi.use(notificationsRoutes);
 
 /** CONFIGURE & START THE SERVER
  * Mount all routers
@@ -201,6 +203,7 @@ app.use('/api/payments', middlewares.authMiddleware, paymentsApi);
 app.use('/api/tasks', middlewares.authMiddleware, tasksApi);
 app.use('/api/blog', blogApi);
 app.use('/api/leads', middlewares.authMiddleware, leadsApi);
+app.use('/api/notifications', middlewares.authMiddleware, notificationsApi);
 app.use('/api/health', healthApi);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/embed', embedRoutes);

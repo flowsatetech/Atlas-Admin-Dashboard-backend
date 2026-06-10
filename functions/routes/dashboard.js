@@ -8,7 +8,7 @@ const { z } = require('zod');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const { logger, analytics, cache } = require('../helpers');
+const { logger, analytics } = require('../helpers');
 const db = require('../db');
 const { dashboard: dashboardContracts } = require('../contracts');
 
@@ -18,7 +18,6 @@ const { dashboard: dashboardContracts } = require('../contracts');
  */
 const router = express.Router();
 const { dashboard } = middlewares.rateLimiters;
-const DASHBOARD_CACHE_TTL_MS = Number(process.env.DASHBOARD_CACHE_TTL_MS || 30_000);
 
 const ACTIVE_PROJECT_STATUSES = ['InProgress', 'OnHold', 'Planned'];
 const PENDING_TASK_STATUSES = ['Todo', 'InProgress', 'Review', 'Blocked'];
@@ -98,10 +97,6 @@ function dashboardError(res, message, status = 400, code = 'DASHBOARD_ERROR', de
 /** MAIN DASHBOARD ROUTES */
 router.get('/metrics', dashboard, async (req, res) => {
     try {
-        const cacheKey = cache.buildCacheKey('dashboard:metrics', {});
-        const cached = cache.getCached(cacheKey);
-        if (cached) return res.status(200).json(cached);
-
         const range = getCalendarMonthRanges();
         const {
             totalClients,
@@ -142,7 +137,6 @@ router.get('/metrics', dashboard, async (req, res) => {
         };
 
         dashboardContracts.dashboardMetricsResponseSchema.parse(response);
-        cache.setCached(cacheKey, response, DASHBOARD_CACHE_TTL_MS);
         return res.status(200).json(response);
 
     } catch (e) {
@@ -165,10 +159,6 @@ router.get('/performance', dashboard, async (req, res) => {
         }
 
         const { period } = parsed.data;
-        const cacheKey = cache.buildCacheKey('dashboard:performance', { period });
-        const cached = cache.getCached(cacheKey);
-        if (cached) return res.status(200).json(cached);
-
         const range = analytics.parsePeriod(period);
         const buckets = analytics.buildDateBuckets({
             from: range.currentStart,
@@ -208,7 +198,6 @@ router.get('/performance', dashboard, async (req, res) => {
         };
 
         dashboardContracts.dashboardPerformanceResponseSchema.parse(response);
-        cache.setCached(cacheKey, response, DASHBOARD_CACHE_TTL_MS);
         return res.status(200).json(response);
     } catch (e) {
         logger('DASHBOARD_PERFORMANCE').error(e);
@@ -230,10 +219,6 @@ router.get('/projects/in-progress', dashboard, async (req, res) => {
         }
 
         const { limit } = parsed.data;
-        const cacheKey = cache.buildCacheKey('dashboard:in-progress', { limit });
-        const cached = cache.getCached(cacheKey);
-        if (cached) return res.status(200).json(cached);
-
         const [projects, totalActiveProjects, allClients] = await Promise.all([
             db.getInProgressProjects(limit),
             db.countProjectsByFilter({
@@ -270,7 +255,6 @@ router.get('/projects/in-progress', dashboard, async (req, res) => {
         };
 
         dashboardContracts.dashboardInProgressResponseSchema.parse(response);
-        cache.setCached(cacheKey, response, DASHBOARD_CACHE_TTL_MS);
         return res.status(200).json(response);
     } catch (e) {
         logger('DASHBOARD_PROJECTS_IN_PROGRESS').error(e);
@@ -292,9 +276,6 @@ router.get('/activities', dashboard, async (req, res) => {
         }
 
         const { page, limit } = parsed.data;
-        const cacheKey = cache.buildCacheKey('dashboard:activities', { page, limit });
-        const cached = cache.getCached(cacheKey);
-        if (cached) return res.status(200).json(cached);
 
         const { rows, total } = await db.getActivityLogs({
             page,
@@ -335,7 +316,6 @@ router.get('/activities', dashboard, async (req, res) => {
         };
 
         dashboardContracts.dashboardActivitiesResponseSchema.parse(response);
-        cache.setCached(cacheKey, response, 15_000);
         return res.status(200).json(response);
 
     } catch (e) {

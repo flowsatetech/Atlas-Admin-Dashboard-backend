@@ -1533,7 +1533,7 @@ function writeReport() {
   lines.push('3. Cleanup/orphaning issues when parent resources such as projects or clients are deleted.');
   lines.push('4. Session-stamp lifecycle mistakes around logout and admin password resets.');
   lines.push('5. Upload trust-boundary issues, especially MIME/extension spoofing and Cloudinary-only paths.');
-  lines.push('6. Derived metric inconsistencies across payments, revenue, analytics, dashboard, and cached aggregations.');
+  lines.push('6. Derived metric inconsistencies across payments, revenue, analytics, and live dashboard aggregations.');
   lines.push('7. Moderate concurrency/rate-limit surprises on common list/detail endpoints.');
   lines.push('');
   lines.push('Most likely sources based on route inspection were authorization-boundary drift and validation/cleanup inconsistencies. The audit probes above validate those assumptions with direct staging requests rather than production data.');

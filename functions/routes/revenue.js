@@ -2,12 +2,11 @@ const express = require('express');
 const { z } = require('zod');
 
 const middlewares = require('../middlewares');
-const { logger, analytics, cache } = require('../helpers');
+const { logger, analytics } = require('../helpers');
 const db = require('../db');
 
 const router = express.Router();
 const { analytics: analyticsRateLimiter } = middlewares.rateLimiters;
-const REVENUE_CACHE_TTL_MS = Number(process.env.REVENUE_CACHE_TTL_MS || 30_000);
 
 const revenueQuerySchema = z.object({
   period: z.enum(['3months', '6months', '12months']).default('6months')
@@ -119,9 +118,6 @@ router.get('/dashboard', analyticsRateLimiter, async (req, res) => {
     }
 
     const { period } = parsed.data;
-    const cacheKey = cache.buildCacheKey('revenue:dashboard', { period });
-    const cached = cache.getCached(cacheKey);
-    if (cached) return res.status(200).json(cached);
 
     const periodRange = analytics.parsePeriod(period);
     const periodBuckets = analytics.buildDateBuckets({
@@ -247,7 +243,6 @@ router.get('/dashboard', analyticsRateLimiter, async (req, res) => {
       message: 'Revenue dashboard fetched successfully'
     };
 
-    cache.setCached(cacheKey, response, REVENUE_CACHE_TTL_MS);
     return res.status(200).json(response);
   } catch (errorObj) {
     logger('REVENUE_DASHBOARD_ROUTE').error(errorObj);
@@ -263,10 +258,6 @@ router.get('/', analyticsRateLimiter, async (req, res) => {
     }
 
     const { period } = parsed.data;
-    const cacheKey = cache.buildCacheKey('revenue:summary', { period });
-    const cached = cache.getCached(cacheKey);
-    if (cached) return res.status(200).json(cached);
-
     const range = analytics.parsePeriod(period);
     const buckets = analytics.buildDateBuckets({ from: range.currentStart, to: range.currentEnd, unit: range.unit });
 
@@ -292,7 +283,6 @@ router.get('/', analyticsRateLimiter, async (req, res) => {
       message: 'Request successful'
     };
 
-    cache.setCached(cacheKey, response, REVENUE_CACHE_TTL_MS);
     return res.status(200).json(response);
   } catch (errorObj) {
     logger('REVENUE_ROUTE').error(errorObj);

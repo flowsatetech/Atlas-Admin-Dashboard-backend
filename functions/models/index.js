@@ -12,6 +12,7 @@ const campaignStat = require("./campaign-stat");
 const activityLog = require("./activity-log");
 const blogPost = require("./blog-post");
 const payment = require("./payment");
+const notification = require("./notification");
 
 module.exports = {
     common,
@@ -27,5 +28,6 @@ module.exports = {
     campaignStat,
     activityLog,
     blogPost,
-    payment
+    payment,
+    notification
 };
