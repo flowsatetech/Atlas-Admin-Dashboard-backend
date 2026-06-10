@@ -141,6 +141,19 @@ router.post('/', middlewares.adminOnly, projects, async (req, res) => {
         // eslint-disable-next-line no-unused-vars
         const { _id, ...projectOut } = newProject;
 
+        if (projectData.teamIds && projectData.teamIds.length > 0) {
+            services.NotificationService.dispatchMany(projectData.teamIds.map((memberId) => ({
+                recipientId: memberId,
+                type: 'PROJECT_ASSIGNMENT',
+                title: 'Added to Project',
+                message: `You have been added to the project: ${projectData.name}`,
+                link: `/projects/${projectData.id}`,
+                referenceId: projectData.id,
+                referenceType: 'Project',
+                createdBy: req.user?.userId
+            })), 'NEW_PROJECT');
+        }
+
         res.status(201).json({
             success: true,
             message: 'Project created successfully',
@@ -214,6 +227,22 @@ router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) =>
 
         const updatedProject = await db.updateProject(projectId, updateData);
 
+        if (updateData.teamIds && Array.isArray(updateData.teamIds)) {
+            const existingTeamIds = existing.teamIds || [];
+            const newTeamIds = updateData.teamIds.filter(id => !existingTeamIds.includes(id));
+            
+            services.NotificationService.dispatchMany(newTeamIds.map((memberId) => ({
+                recipientId: memberId,
+                type: 'PROJECT_ASSIGNMENT',
+                title: 'Added to Project',
+                message: `You have been added to the project: ${existing.name || 'Project'}`,
+                link: `/projects/${projectId}`,
+                referenceId: projectId,
+                referenceType: 'Project',
+                createdBy: req.user?.userId
+            })), 'UPDATE_PROJECT');
+        }
+
         await services.logActivity({
             type: 'project.updated',
             actorId: req.user?.userId || null,
@@ -285,6 +314,30 @@ router.post('/:projectId/comments', projects, async (req, res) => {
         };
 
         await db.addComment(commentData);
+
+        const content = validData.data.comment;
+        const mentionTokens = [...new Set(
+            [...content.matchAll(/@([A-Za-z0-9_-]+)/g)].map((match) => match[1])
+        )];
+
+        if (mentionTokens.length > 0) {
+            const mentionedUsers = await db.getUsersByMentionTokens(mentionTokens);
+            const notificationItems = mentionedUsers
+                .filter((mentionedUser) => mentionedUser.userId && mentionedUser.userId !== req.user.userId)
+                .map((mentionedUser) => ({
+                    recipientId: mentionedUser.userId,
+                    type: 'COMMENT_MENTION',
+                    title: 'You were mentioned',
+                    message: `You were mentioned in a comment on project: ${existing.name || 'Project'}`,
+                    link: `/projects/${req.params.projectId}`,
+                    referenceId: req.params.projectId,
+                    referenceType: 'Project',
+                    createdBy: req.user?.userId
+                }));
+
+            services.NotificationService.dispatchMany(notificationItems, 'ADD_COMMENT');
+        }
+
         res.status(204).send();
     } catch (e) {
         logger('ADD_COMMENT').error(e);

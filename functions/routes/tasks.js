@@ -211,6 +211,20 @@ router.post("/", middlewares.adminOnly, tasksRateLimiter, async (req, res) => {
       message: `${task.title} task was created`,
       meta: { assigneeId: task.assigneeId, status: task.status },
     });
+    
+    if (task.assigneeId) {
+      services.NotificationService.dispatch({
+        recipientId: task.assigneeId,
+        type: 'TASK_ASSIGNMENT',
+        title: 'New Task Assigned',
+        message: `You have been assigned a new task: ${task.title}`,
+        link: `/tasks/${task.id}`,
+        referenceId: task.id,
+        referenceType: 'Task',
+        createdBy: req.user?.userId
+      }, 'NEW_TASK');
+    }
+
     await services.recordAnalyticsEvent({
       pageViewsDelta: 1,
       trafficSource: "Direct",
@@ -337,6 +351,20 @@ router.patch(
         message: `${existing.title || "Task"} was updated`,
         meta: { fields: Object.keys(parsed.data) },
       });
+
+      if (updateData.assigneeId && updateData.assigneeId !== existing.assigneeId) {
+        services.NotificationService.dispatch({
+          recipientId: updateData.assigneeId,
+          type: 'TASK_ASSIGNMENT',
+          title: 'Task Assigned',
+          message: `You have been assigned to the task: ${existing.title || "Task"}`,
+          link: `/tasks/${taskId}`,
+          referenceId: taskId,
+          referenceType: 'Task',
+          createdBy: req.user?.userId
+        }, 'UPDATE_TASK');
+      }
+
       await services.recordAnalyticsEvent({
         pageViewsDelta: 1,
         trafficSource: "Direct",

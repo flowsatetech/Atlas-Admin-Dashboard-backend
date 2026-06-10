@@ -7,6 +7,7 @@ const middlewares = require('../middlewares');
 const { logger, generateToken, stripMongoId, serverError, clientError } = require('../helpers');
 const db = require('../db');
 const { createLeadSchema, updateLeadSchema, leadStatusEnum } = require('../models/lead');
+const services = require('../services');
 
 /** SETUP */
 const router = express.Router();
@@ -60,6 +61,22 @@ router.post('/', middlewares.adminOnly, leadsRateLimiter, async (req, res) => {
             updatedAt: now,
         });
 
+        if (parsed.data.assignedTo) {
+            const staffExists = await db.getUserById(parsed.data.assignedTo);
+            if (staffExists) {
+                services.NotificationService.dispatch({
+                    recipientId: staffExists.userId,
+                    type: 'LEAD_ASSIGNMENT',
+                    title: 'Lead Assigned',
+                    message: `You have been assigned to lead: ${newLead.firstName} ${newLead.lastName}`,
+                    link: `/leads/${newLead.id}`,
+                    referenceId: newLead.id,
+                    referenceType: 'Lead',
+                    createdBy: req.user?.userId
+                }, 'NEW_LEAD');
+            }
+        }
+
         return res.status(201).json({
             success: true,
             message: 'Lead added successfully',
@@ -104,6 +121,22 @@ router.patch('/:leadId', middlewares.adminOnly, leadsRateLimiter, async (req, re
         }
 
         await db.updateLead(req.params.leadId, { ...parsed.data, updatedAt: Date.now() });
+
+        if (parsed.data.assignedTo && parsed.data.assignedTo !== lead.assignedTo) {
+            const staffExists = await db.getUserById(parsed.data.assignedTo);
+            if (staffExists) {
+                services.NotificationService.dispatch({
+                    recipientId: staffExists.userId,
+                    type: 'LEAD_ASSIGNMENT',
+                    title: 'Lead Assigned',
+                    message: `You have been assigned to lead: ${lead.firstName} ${lead.lastName}`,
+                    link: `/leads/${lead.id}`,
+                    referenceId: lead.id,
+                    referenceType: 'Lead',
+                    createdBy: req.user?.userId
+                }, 'UPDATE_LEAD');
+            }
+        }
 
         return res.status(200).json({
             success: true,

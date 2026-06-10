@@ -10,6 +10,7 @@ const middlewares = require('../middlewares');
 const { logger, generateToken, serverError, clientError, uploadProfilePicture, deleteCloudinaryAsset } = require('../helpers');
 const db = require('../db');
 const { createMemberSchema, updateMemberSchema, adminChangeMemberPasswordSchema } = require('../models/user');
+const services = require('../services');
 
 /** SETUP */
 const router = express.Router();
@@ -195,6 +196,16 @@ router.patch('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res)
             updateData.fullName = `${updateData.firstName || existing.firstName} ${updateData.lastName || existing.lastName}`;
         }
         await db.updateUser(userId, updateData);
+
+        if (updateData.role && updateData.role !== existing.role) {
+            services.NotificationService.dispatch({
+                recipientId: existing.userId,
+                type: 'ROLE_CHANGE',
+                title: 'Role Updated',
+                message: `Your role has been updated to: ${updateData.role}`,
+                createdBy: req.user?.userId
+            }, 'MEMBERS_PATCH');
+        }
 
         res.status(200).json({
             success: true,

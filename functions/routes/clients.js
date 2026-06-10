@@ -168,6 +168,16 @@ router.post("/", middlewares.adminOnly, rateLimiter, async (req, res) => {
       if (!staffExists) {
         return clientError(res, 404, 'Assigned staff member not found');
       }
+      services.NotificationService.dispatch({
+          recipientId: staffExists.userId,
+          type: 'CLIENT_ASSIGNMENT',
+          title: 'Client Assigned',
+          message: `You have been assigned to client: ${newClient.fullName}`,
+          link: `/clients/${newClient.id}`,
+          referenceId: newClient.id,
+          referenceType: 'Client',
+          createdBy: req.user?.userId
+      }, 'NEW_CLIENT');
     }
 
     await db.addClient(newClient);
@@ -218,6 +228,18 @@ router.patch("/:id", middlewares.adminOnly, rateLimiter, async (req, res) => {
       const staffExists = await db.getUserById(parsed.data.assignedStaffId);
       if (!staffExists) {
         return clientError(res, 404, 'Assigned staff member not found');
+      }
+      if (parsed.data.assignedStaffId !== client.assignedStaffId) {
+          services.NotificationService.dispatch({
+              recipientId: staffExists.userId,
+              type: 'CLIENT_ASSIGNMENT',
+              title: 'Client Assigned',
+              message: `You have been assigned to client: ${client.fullName}`,
+              link: `/clients/${client.id}`,
+              referenceId: client.id,
+              referenceType: 'Client',
+              createdBy: req.user?.userId
+          }, 'UPDATE_CLIENT');
       }
     }
 

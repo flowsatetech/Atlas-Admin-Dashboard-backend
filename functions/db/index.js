@@ -16,6 +16,7 @@ let campaignStats;
 let blogPosts;
 let leads;
 let payments;
+let notifications;
 
 async function initializeDB() {
   try {
@@ -48,6 +49,7 @@ async function initializeDB() {
     blogPosts = db.collection("blogPosts");
     leads = db.collection("leads");
     payments = db.collection("payments");
+    notifications = db.collection("notifications");
 
     await users.createIndex({ email: 1 }, { unique: true });
     await images.createIndex({ id: 1 }, { unique: true });
@@ -89,6 +91,9 @@ async function initializeDB() {
     await payments.dropIndex("clientName_text_projectName_text_source_text_notes_text").catch((err) => {
       if (err.codeName !== "IndexNotFound" && err.code !== 27) throw err;
     });
+    await notifications.createIndex({ id: 1 }, { unique: true });
+    await notifications.createIndex({ recipientId: 1, createdAt: -1 });
+    await notifications.createIndex({ recipientId: 1, isRead: 1 });
 
     logger("DB").info("MongoDB initialized successfully");
 
@@ -1598,6 +1603,108 @@ async function getPaidPaymentsBetween(from, to) {
   }
 }
 
+async function addNotification(notificationData) {
+  try {
+    const result = await notifications.insertOne(notificationData);
+    return { ...notificationData, _id: result.insertedId };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function addNotifications(notificationItems = []) {
+  try {
+    if (!Array.isArray(notificationItems) || notificationItems.length === 0) return [];
+
+    const result = await notifications.insertMany(notificationItems, { ordered: false });
+    return notificationItems.map((notificationItem, index) => ({
+      ...notificationItem,
+      _id: result.insertedIds[index],
+    }));
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getNotificationsByRecipient(recipientId, { page = 1, limit = 20, unreadOnly = false } = {}) {
+  try {
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(Math.max(1, Number(limit) || 20), 100);
+    const skip = (safePage - 1) * safeLimit;
+    const query = { recipientId };
+    if (unreadOnly === true || unreadOnly === "true") query.isRead = false;
+
+    const [rows, totalCount, unreadCount] = await Promise.all([
+      notifications
+        .find(query, { projection: { _id: 0 } })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(safeLimit)
+        .toArray(),
+      notifications.countDocuments(query),
+      notifications.countDocuments({ recipientId, isRead: false }),
+    ]);
+
+    return {
+      notifications: rows,
+      totalCount,
+      unreadCount,
+      currentPage: safePage,
+      totalPages: Math.ceil(totalCount / safeLimit),
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function markNotificationAsRead(notificationId, recipientId) {
+  try {
+    const now = Date.now();
+    const result = await notifications.findOneAndUpdate(
+      { id: notificationId, recipientId },
+      { $set: { isRead: true, updatedAt: now } },
+      { returnDocument: "after", projection: { _id: 0 } },
+    );
+    return result || null;
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function markAllNotificationsAsRead(recipientId) {
+  try {
+    const result = await notifications.updateMany(
+      { recipientId, isRead: false },
+      { $set: { isRead: true, updatedAt: Date.now() } },
+    );
+    return result.modifiedCount;
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getUsersByMentionTokens(tokens = []) {
+  try {
+    const uniqueTokens = [...new Set(tokens.filter(Boolean))];
+    if (uniqueTokens.length === 0) return [];
+
+    return await users
+      .find(
+        { userId: { $in: uniqueTokens } },
+        { projection: { _id: 0, userId: 1, firstName: 1, lastName: 1, fullName: 1, email: 1 } },
+      )
+      .toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function deleteUserById(userId) {
   try {
     return await users.deleteOne({ userId });
@@ -1698,4 +1805,11 @@ module.exports = {
   updatePayment,
   deletePayment,
   getPaidPaymentsBetween,
+
+  addNotification,
+  addNotifications,
+  getNotificationsByRecipient,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  getUsersByMentionTokens,
 };
