@@ -34,6 +34,7 @@ const HAS_CLOUDINARY_CONFIG = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'C
 const SHOULD_RUN_CLOUDINARY_UPLOADS = ENABLE_CLOUDINARY_UPLOADS && HAS_CLOUDINARY_CONFIG;
 const STARTED_AT = new Date();
 const SUFFIX = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+const PROJECT_ROOT = process.cwd();
 
 const state = {
   adminCookie: '',
@@ -114,6 +115,14 @@ function isUsableHttpsUrl(value) {
   } catch (_) {
     return false;
   }
+}
+
+function readProjectFile(relativePath) {
+  return fs.readFileSync(path.resolve(PROJECT_ROOT, relativePath), 'utf8');
+}
+
+function fileExists(relativePath) {
+  return fs.existsSync(path.resolve(PROJECT_ROOT, relativePath));
 }
 
 function urlHost(value) {
@@ -342,6 +351,117 @@ async function loginAs(area, label, email, password, cookie = '') {
   return { response, cookie: authCookie, user: response.json?.data?.user || null };
 }
 
+function runNotificationWiringAudit() {
+  console.log('\n[NOTIFICATION WIRING / STATIC INVARIANTS]');
+  const area = 'Notification system wiring';
+  const serverSource = readProjectFile('server.js');
+  const notificationRoutePath = 'functions/routes/notifications.js';
+  const notificationServicePath = 'functions/services/notification.js';
+  const dbPath = 'functions/db/index.js';
+  const projectRoutePath = 'functions/routes/projects.js';
+  const notificationRouteSource = fileExists(notificationRoutePath) ? readProjectFile(notificationRoutePath) : '';
+  const notificationServiceSource = fileExists(notificationServicePath) ? readProjectFile(notificationServicePath) : '';
+  const dbSource = readProjectFile(dbPath);
+  const projectRouteSource = readProjectFile(projectRoutePath);
+  const javascriptFiles = [
+    'server.js',
+    ...fs.readdirSync(path.resolve(PROJECT_ROOT, 'functions/routes')).map((name) => `functions/routes/${name}`).filter((name) => name.endsWith('.js')),
+    ...fs.readdirSync(path.resolve(PROJECT_ROOT, 'functions/services')).map((name) => `functions/services/${name}`).filter((name) => name.endsWith('.js')),
+    'functions/db/index.js',
+  ];
+
+  assertCheck(area, 'Notification route is imported in server.js', /require\(['"]\.\/functions\/routes\/notifications['"]\)/.test(serverSource), {
+    endpoint: 'server.js',
+    expected: 'server.js requires ./functions/routes/notifications',
+    actual: 'notification route import missing',
+    severity: 'Critical',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Notification route is mounted behind auth middleware', /app\.use\(['"]\/api\/notifications['"],\s*middlewares\.authMiddleware,\s*notificationsApi\)/.test(serverSource), {
+    endpoint: 'server.js',
+    expected: 'app.use("/api/notifications", middlewares.authMiddleware, notificationsApi)',
+    actual: 'authenticated notification mount missing',
+    severity: 'Critical',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Notification route file exists', fileExists(notificationRoutePath), {
+    endpoint: notificationRoutePath,
+    expected: 'Route file exists',
+    actual: 'Route file missing',
+    severity: 'Critical',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Notification route exposes list and read endpoints', /router\.get\(['"]\/['"]/.test(notificationRouteSource) && /router\.put\(['"]\/read-all['"]/.test(notificationRouteSource) && /router\.put\(['"]\/:id\/read['"]/.test(notificationRouteSource), {
+    endpoint: notificationRoutePath,
+    expected: 'GET /, PUT /read-all, PUT /:id/read handlers exist',
+    actual: 'One or more notification route handlers are missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Notification service exists and exports bulk dispatch support', fileExists(notificationServicePath) && /class\s+NotificationService/.test(notificationServiceSource) && /static\s+dispatchMany\s*\(/.test(notificationServiceSource), {
+    endpoint: notificationServicePath,
+    expected: 'NotificationService with static dispatchMany()',
+    actual: 'NotificationService.dispatchMany missing',
+    severity: 'Critical',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Notification service bulk dispatch persists through DB bulk helper', /createNotifications\s*\([^)]*\)[\s\S]*db\.addNotifications/.test(notificationServiceSource), {
+    endpoint: notificationServicePath,
+    expected: 'createNotifications() delegates to db.addNotifications()',
+    actual: 'Bulk service path does not use DB bulk insert helper',
+    severity: 'High',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Notification DB helpers include bulk insert support', /async\s+function\s+addNotification\s*\(/.test(dbSource) && /async\s+function\s+addNotifications\s*\(/.test(dbSource) && /insertMany\s*\(/.test(dbSource), {
+    endpoint: dbPath,
+    expected: 'addNotification(), addNotifications(), and insertMany()',
+    actual: 'Notification DB helper or insertMany support missing',
+    severity: 'Critical',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Notification DB helpers include read-state operations', /getNotificationsByRecipient/.test(dbSource) && /markNotificationAsRead/.test(dbSource) && /markAllNotificationsAsRead/.test(dbSource), {
+    endpoint: dbPath,
+    expected: 'List, mark-one-read, and mark-all-read helpers exist',
+    actual: 'One or more read-state helpers missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  const projectNotificationBlocks = [...projectRouteSource.matchAll(/NotificationService\.(dispatchMany|dispatch)\s*\(/g)].map((match) => match[1]);
+  assertCheck(area, 'Project fan-out notifications use dispatchMany', projectNotificationBlocks.includes('dispatchMany') && !projectNotificationBlocks.includes('dispatch'), {
+    endpoint: projectRoutePath,
+    expected: 'Project assignment/comment fan-out uses NotificationService.dispatchMany and no per-recipient dispatch calls',
+    actual: `NotificationService calls in projects route: ${projectNotificationBlocks.join(', ') || '<none>'}`,
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  const invalidResUsages = [];
+  const mongooseReferences = [];
+  for (const relativePath of javascriptFiles) {
+    const source = readProjectFile(relativePath);
+    if (/\bmongoose\b/.test(source)) mongooseReferences.push(relativePath);
+    const invalidMatches = [...source.matchAll(/res\.(success|error)\s*\(/g)]
+      .filter(() => relativePath !== 'server.js')
+      .map((match) => `${relativePath}:${match[0]}`);
+    invalidResUsages.push(...invalidMatches);
+  }
+  assertCheck(area, 'No mongoose references remain in runtime JavaScript files', mongooseReferences.length === 0, {
+    endpoint: 'runtime JavaScript files',
+    expected: 'No mongoose references; backend uses mongodb driver helpers',
+    actual: mongooseReferences.join(', ') || 'No mongoose references found',
+    severity: 'High',
+    smokeGap: false,
+  });
+  assertCheck(area, 'No route/service code uses invalid res.success or res.error helpers', invalidResUsages.length === 0, {
+    endpoint: 'functions/routes and functions/services',
+    expected: 'No res.success()/res.error() calls outside server response normalizer definition',
+    actual: invalidResUsages.join(', ') || 'No invalid res.success/res.error calls found',
+    severity: 'High',
+    smokeGap: false,
+  });
+}
+
 async function runPreflight() {
   console.log('\n[HEALTH / DOCS / 404 / CORS / UNAUTHORIZED]');
   await expectStatus('Health/Docs/404/CORS', 'GET /api/health returns healthy response', 'GET', '/api/health', { cookie: '' }, [200]);
@@ -389,6 +509,8 @@ async function runPreflight() {
     ['GET', '/api/payments'],
     ['GET', '/api/blog'],
     ['POST', '/api/health/redis/flush'],
+    ['GET', '/api/notifications'],
+    ['PUT', '/api/notifications/read-all'],
   ];
 
   for (const [method, endpoint] of protectedRoutes) {
@@ -447,7 +569,7 @@ async function runAuthMembersAndRoleFlow() {
   });
 
   const created = await expectStatus('Members', 'POST /api/members creates staff fixture', 'POST', '/api/members', {
-    body: { firstName: 'Workflow', lastName: 'Audit', email: staffEmail, password: staffOriginalPassword, role: 'staff', job: 'Audit Fixture' },
+    body: { firstName: 'Workflow', lastName: 'Audit', email: staffEmail, phone: '+2348000000300', password: staffOriginalPassword, role: 'staff', job: 'Audit Fixture' },
   }, [201]);
   state.staffId = remember('members', created.json?.data?.user?.userId || '');
   assertCheck('Members', 'Created member response includes userId', Boolean(state.staffId), {
@@ -458,7 +580,7 @@ async function runAuthMembersAndRoleFlow() {
   });
 
   await expectStatus('Members', 'POST /api/members rejects duplicate email', 'POST', '/api/members', {
-    body: { firstName: 'Workflow', lastName: 'Audit', email: staffEmail, password: staffOriginalPassword, role: 'staff' },
+    body: { firstName: 'Workflow', lastName: 'Audit', email: staffEmail, phone: '+2348000000300', password: staffOriginalPassword, role: 'staff' },
   }, [409]);
   await expectStatus('Members', 'PATCH /api/members/:id updates staff metadata', 'PATCH', `/api/members/${state.staffId}`, {
     body: { job: `Audit Fixture ${SUFFIX}`, status: 'active' },
@@ -484,7 +606,7 @@ async function runAuthMembersAndRoleFlow() {
 
   const adminOnlyChecks = [
     ['GET', '/api/members', null],
-    ['POST', '/api/members', { firstName: 'No', lastName: 'Access', email: `no-access-${SUFFIX}@test.local`, password: staffOriginalPassword, role: 'staff' }],
+    ['POST', '/api/members', { firstName: 'No', lastName: 'Access', email: `no-access-${SUFFIX}@test.local`, phone: '+2348000000399', password: staffOriginalPassword, role: 'staff' }],
     ['POST', '/api/payments', { clientId: 'no-access-client', projectId: 'no-access-project', amount: 1, date: Date.now() }],
     ['POST', '/api/blog', { title: 'No Access', excerpt: 'No Access', content: 'No Access', category: 'Other', authorId: state.staffId }],
     ['POST', '/api/clients', { fullName: 'No Access', companyName: 'No Access LLC', email: `no-client-${SUFFIX}@test.local`, phone: '+2348000009999' }],
@@ -916,6 +1038,71 @@ async function runClientProjectTaskFlow() {
   }
 }
 
+async function runNotificationApiFlow() {
+  console.log('\n[NOTIFICATIONS]');
+  const initial = await expectStatus('Notifications', 'GET /api/notifications lists current user notifications', 'GET', '/api/notifications?limit=20', {}, [200]);
+  assertCheck('Notifications', 'Notification list response includes collection metadata', Array.isArray(initial.json?.data?.notifications) && typeof initial.json?.data?.unreadCount === 'number' && typeof initial.json?.data?.totalCount === 'number', {
+    endpoint: 'GET /api/notifications?limit=20',
+    expected: 'data.notifications array plus unreadCount and totalCount numbers',
+    actual: JSON.stringify(initial.json?.data || {}),
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  if (!state.adminUserId) {
+    skip('Notifications', 'Assignment-triggered notification flow skipped', 'Admin userId was not available');
+  } else {
+    const task = await expectStatus('Notifications', 'POST /api/tasks creates assignment notification fixture', 'POST', '/api/tasks', {
+      body: { title: `Notification audit assignment ${SUFFIX}`, assigneeId: state.adminUserId, dueDate: Date.now() + 86400000, status: 'Todo', priority: 'medium' },
+    }, [201]);
+    const taskId = remember('tasks', task.json?.data?.task?.id || '');
+
+    if (taskId) {
+      await sleep(75);
+      const unread = await expectStatus('Notifications', 'GET /api/notifications unread list includes assignment notification', 'GET', '/api/notifications?unreadOnly=true&limit=50', {}, [200]);
+      const notifications = Array.isArray(unread.json?.data?.notifications) ? unread.json.data.notifications : [];
+      const assignmentNotification = notifications.find((notification) => notification?.referenceId === taskId);
+      assertCheck('Notifications', 'Task assignment creates unread TASK_ASSIGNMENT notification for assignee', Boolean(assignmentNotification && assignmentNotification.type === 'TASK_ASSIGNMENT' && assignmentNotification.isRead === false), {
+        endpoint: 'POST /api/tasks then GET /api/notifications?unreadOnly=true',
+        expected: `Unread TASK_ASSIGNMENT notification with referenceId=${taskId}`,
+        actual: JSON.stringify(notifications.slice(0, 5)),
+        severity: 'Critical',
+        smokeGap: false,
+      });
+
+      if (assignmentNotification?.id) {
+        const readOne = await expectStatus('Notifications', 'PUT /api/notifications/:id/read marks assignment notification read', 'PUT', `/api/notifications/${assignmentNotification.id}/read`, {}, [200]);
+        assertCheck('Notifications', 'Single notification read response returns read notification', readOne.json?.data?.notification?.id === assignmentNotification.id && readOne.json?.data?.notification?.isRead === true, {
+          endpoint: 'PUT /api/notifications/:id/read',
+          expected: 'data.notification.id matches and isRead=true',
+          actual: JSON.stringify(readOne.json?.data?.notification || {}),
+          severity: 'High',
+          smokeGap: false,
+        });
+      }
+    } else {
+      skip('Notifications', 'Assignment-triggered notification flow skipped', 'Task fixture did not return an id');
+    }
+  }
+
+  const readAll = await expectStatus('Notifications', 'PUT /api/notifications/read-all marks all current user notifications read', 'PUT', '/api/notifications/read-all', {}, [200]);
+  assertCheck('Notifications', 'Mark-all response includes modifiedCount', typeof readAll.json?.data?.modifiedCount === 'number', {
+    endpoint: 'PUT /api/notifications/read-all',
+    expected: 'data.modifiedCount number',
+    actual: JSON.stringify(readAll.json?.data || {}),
+    severity: 'Medium',
+    smokeGap: false,
+  });
+  const afterReadAll = await expectStatus('Notifications', 'GET /api/notifications unread list is empty after read-all', 'GET', '/api/notifications?unreadOnly=true&limit=20', {}, [200]);
+  assertCheck('Notifications', 'Read-all clears unread notifications for current user', Array.isArray(afterReadAll.json?.data?.notifications) && afterReadAll.json.data.notifications.length === 0 && afterReadAll.json?.data?.unreadCount === 0, {
+    endpoint: 'PUT /api/notifications/read-all then GET /api/notifications?unreadOnly=true',
+    expected: 'No unread notifications remain for current user',
+    actual: JSON.stringify(afterReadAll.json?.data || {}),
+    severity: 'High',
+    smokeGap: false,
+  });
+}
+
 async function runBlogEmbedTrackingFlow() {
   console.log('\n[BLOG / EMBED / TRACKING]');
   if (!state.adminUserId) {
@@ -1276,7 +1463,7 @@ async function runPaymentsRevenueAnalyticsDashboardFlow() {
   }, [201]);
   const doneTaskId = remember('tasks', doneTask.json?.data?.task?.id || '');
   const recognizedRevenue = 4321;
-  await expectStatus('Payments/revenue/analytics/dashboard', 'PUT /api/projects/:id sets recognized revenue on completed project', 'PUT', `/api/projects/${projectId}`, {
+  await expectStatus('Payments/revenue/analytics/dashboard', 'PATCH /api/projects/:id sets recognized revenue on completed project', 'PATCH', `/api/projects/${projectId}`, {
     body: { status: 'Completed', recognizedRevenue, recognizedAt: Date.now() },
   }, [200]);
 
@@ -1352,6 +1539,7 @@ async function runModerateStressFlow() {
     { label: '20 concurrent GET /api/dashboard/metrics', method: 'GET', endpoint: '/api/dashboard/metrics', count: 20 },
     { label: '10 concurrent GET /api/payments', method: 'GET', endpoint: '/api/payments?limit=5', count: 10 },
     { label: '10 concurrent GET /api/blog', method: 'GET', endpoint: '/api/blog?limit=5', count: 10 },
+    { label: '10 concurrent GET /api/notifications', method: 'GET', endpoint: '/api/notifications?limit=5', count: 10 },
   ];
 
   for (const target of stressTargets) {
@@ -1452,6 +1640,7 @@ async function runAll() {
   console.log(`Cloudinary upload probes: ${SHOULD_RUN_CLOUDINARY_UPLOADS ? 'enabled' : 'skipped'}`);
 
   try {
+    runNotificationWiringAudit();
     await runPreflight();
     const authed = await runAuthMembersAndRoleFlow();
     if (!authed) {
@@ -1461,6 +1650,7 @@ async function runAll() {
     await runProfilePictureFlow();
     await runMediaFlow();
     await runClientProjectTaskFlow();
+    await runNotificationApiFlow();
     await runBlogEmbedTrackingFlow();
     await runLeadsAndWebhooksFlow();
     await runPaymentsRevenueAnalyticsDashboardFlow();
@@ -1535,6 +1725,7 @@ function writeReport() {
   lines.push('5. Upload trust-boundary issues, especially MIME/extension spoofing and Cloudinary-only paths.');
   lines.push('6. Derived metric inconsistencies across payments, revenue, analytics, and live dashboard aggregations.');
   lines.push('7. Moderate concurrency/rate-limit surprises on common list/detail endpoints.');
+  lines.push('8. Notification route wiring, bulk dispatch fan-out behavior, and read-state API invariants.');
   lines.push('');
   lines.push('Most likely sources based on route inspection were authorization-boundary drift and validation/cleanup inconsistencies. The audit probes above validate those assumptions with direct staging requests rather than production data.');
   lines.push('');
@@ -1545,7 +1736,9 @@ function writeReport() {
   lines.push('- Payment create/update/delete plus revenue/dashboard consistency after creating paid payments and recognized revenue projects.');
   lines.push('- Delete cleanup/orphan detection for project-linked tasks.');
   lines.push('- Pagination extremes and special-character search on lead/payment/media/list endpoints.');
-  lines.push('- Moderate concurrency bursts across health, project, task, dashboard, payment, and blog endpoints.');
+  lines.push('- Moderate concurrency bursts across health, project, task, dashboard, payment, blog, and notification endpoints.');
+  lines.push('- Notification API list/read/read-all behavior plus assignment-triggered notification delivery.');
+  lines.push('- Static notification-system wiring checks for route mounting, service/DB helpers, bulk insert support, and project fan-out dispatchMany usage.');
   lines.push('- CORS-ish disallowed-origin behavior and docs/404 protections.');
   lines.push('');
   lines.push('## Prioritized Findings');

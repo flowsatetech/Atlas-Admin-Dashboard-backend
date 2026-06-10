@@ -185,6 +185,14 @@ function cloudinarySkipReason() {
   return "Cloudinary upload smoke tests are disabled";
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function notificationItems(payload) {
+  return Array.isArray(payload?.data?.notifications) ? payload.data.notifications : [];
+}
+
 function tinyPngBuffer() {
   return Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
@@ -646,6 +654,7 @@ async function testMemberMutationEndpoints() {
         firstName: "Member",
         lastName: "Smoke",
         email: staffEmail,
+        phone: "+2348000000301",
         password: originalPassword,
         role: "staff",
         job: "Smoke Test Fixture",
@@ -703,6 +712,100 @@ async function testMembers() {
   console.log("\n[MEMBERS]");
   await check("GET  /api/members", "GET", "/api/members");
   await testMemberMutationEndpoints();
+}
+
+async function testNotifications() {
+  console.log("\n[NOTIFICATIONS]");
+  const adminRes = await req("GET", "/api/user/profile");
+  const adminId = adminRes.json?.data?.profile?.userId;
+  let taskId = null;
+
+  const initialList = await check("GET  /api/notifications", "GET", "/api/notifications?limit=20");
+  assertSmoke(
+    "GET  /api/notifications returns notification collection metadata",
+    Array.isArray(initialList?.data?.notifications)
+      && typeof initialList?.data?.unreadCount === "number"
+      && typeof initialList?.data?.totalCount === "number",
+    `received ${JSON.stringify(initialList?.data)}`,
+  );
+
+  try {
+    if (!adminId) {
+      skipSmoke("NOTIFICATION assignment trigger fixture", "could not resolve current admin user ID");
+    } else {
+      const suffix = Date.now();
+      const createdTask = await check(
+        "POST /api/tasks creates notification trigger fixture",
+        "POST",
+        "/api/tasks",
+        {
+          title: `Smoke notification assignment ${suffix}`,
+          description: "Temporary task for notification smoke coverage",
+          assigneeId: adminId,
+          dueDate: Date.now() + 86400000,
+          status: "Todo",
+          priority: "medium",
+        },
+        { expect: [201] },
+      );
+      taskId = createdTask?.data?.task?.id || null;
+
+      if (taskId) {
+        await sleep(75);
+        const triggeredList = await check(
+          "GET  /api/notifications includes task assignment notification",
+          "GET",
+          "/api/notifications?unreadOnly=true&limit=50",
+        );
+        const triggeredNotification = notificationItems(triggeredList).find((notification) => notification?.referenceId === taskId);
+        assertSmoke(
+          "TASK_ASSIGNMENT notification is created for assigned user",
+          Boolean(triggeredNotification && triggeredNotification.type === "TASK_ASSIGNMENT" && triggeredNotification.isRead === false),
+          `taskId=${taskId}, notifications=${JSON.stringify(notificationItems(triggeredList).slice(0, 5))}`,
+        );
+
+        if (triggeredNotification?.id) {
+          const readOne = await check(
+            "PUT  /api/notifications/:id/read",
+            "PUT",
+            `/api/notifications/${triggeredNotification.id}/read`,
+          );
+          assertSmoke(
+            "PUT  /api/notifications/:id/read marks one notification read",
+            readOne?.data?.notification?.id === triggeredNotification.id && readOne?.data?.notification?.isRead === true,
+            `received ${JSON.stringify(readOne?.data?.notification)}`,
+          );
+        } else {
+          const fallbackNotification = notificationItems(initialList).find((notification) => notification?.id);
+          if (fallbackNotification?.id) {
+            await check("PUT  /api/notifications/:id/read (existing fallback)", "PUT", `/api/notifications/${fallbackNotification.id}/read`);
+          } else {
+            skipSmoke("PUT  /api/notifications/:id/read", "no notification was available to mark as read");
+          }
+        }
+      } else {
+        skipSmoke("TASK_ASSIGNMENT notification trigger", "task fixture did not return an id");
+      }
+    }
+
+    const readAll = await check("PUT  /api/notifications/read-all", "PUT", "/api/notifications/read-all");
+    assertSmoke(
+      "PUT  /api/notifications/read-all returns modifiedCount",
+      typeof readAll?.data?.modifiedCount === "number",
+      `received ${JSON.stringify(readAll?.data)}`,
+    );
+
+    const unreadAfter = await check("GET  /api/notifications unread after read-all", "GET", "/api/notifications?unreadOnly=true&limit=20");
+    assertSmoke(
+      "PUT  /api/notifications/read-all clears unread notifications for current user",
+      notificationItems(unreadAfter).length === 0 && unreadAfter?.data?.unreadCount === 0,
+      `received ${JSON.stringify(unreadAfter?.data)}`,
+    );
+  } finally {
+    if (taskId) {
+      await check("DELETE /api/tasks/:id (notification fixture cleanup)", "DELETE", `/api/tasks/${taskId}`, null, { expect: [200, 404] });
+    }
+  }
 }
 
 async function testTasks() {
@@ -1115,6 +1218,8 @@ async function testUnauthorized() {
     ["GET  /api/analytics/overview", "GET", "/api/analytics/overview"],
     ["GET  /api/revenue", "GET", "/api/revenue"],
     ["GET  /api/payments", "GET", "/api/payments"],
+    ["GET  /api/notifications", "GET", "/api/notifications"],
+    ["PUT  /api/notifications/read-all", "PUT", "/api/notifications/read-all"],
   ];
   for (const [label, method, path] of routes) {
     await checkWith(`${label} → 401`, method, path, "", null, { expect: [401] });
@@ -1222,7 +1327,7 @@ async function testAdminOnly() {
   const created = await check(
     "POST /api/members (create test staff user)",
     "POST", "/api/members",
-    { firstName: "Staff", lastName: "Smoke", email: staffEmail, password: staffPassword, role: "staff" },
+    { firstName: "Staff", lastName: "Smoke", email: staffEmail, phone: "+2348000000302", password: staffPassword, role: "staff" },
     { expect: [201] }
   );
 
@@ -1300,6 +1405,7 @@ async function run() {
   await testClients();
   await testMembers();
   await testTasks();
+  await testNotifications();
   await testLeads();
   await testBlog();
   await testAnalytics();
