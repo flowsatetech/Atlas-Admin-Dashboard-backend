@@ -169,6 +169,10 @@ router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) =>
     try {
         const { projectId } = req.params;
 
+        if (Object.prototype.hasOwnProperty.call(req.body || {}, 'progress')) {
+            return clientError(res, 400, 'Project progress is derived from task completion and cannot be set manually.');
+        }
+
         const existing = await db.getProjectById(projectId);
         if (!existing) {
             return clientError(res, 404, 'Project not found');
