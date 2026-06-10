@@ -28,7 +28,6 @@ const updateProjectSchema = createProjectSchema
     .omit({ id: true, progress: true })
     .partial()
     .extend({
-        client: z.string().optional(),
         dueTime: z.number().int().nonnegative().optional(),
         assignees: z.array(z.string().min(1)).optional()
     });
