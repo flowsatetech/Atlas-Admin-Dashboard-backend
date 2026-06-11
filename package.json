@@ -20,6 +20,7 @@
     "dev:staging": "node --watch server.js --staging",
     "export:openapi": "node scripts/export-openapi.js",
     "test:cors": "node scripts/cors-test.js",
+    "test:rate-limit": "node scripts/rate-limit-test.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
     "start:staging": "node server.js --staging"
