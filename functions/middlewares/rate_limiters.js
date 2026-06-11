@@ -6,9 +6,15 @@ const { logger } = require("../helpers");
 const shouldUseRedisStore =
   process.env.RATE_LIMIT_STORE === "redis" || process.env.NODE_ENV === "production";
 
-const envNumber = (name, fallback) => {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
+const requiredEnvNumber = (name) => {
+  const rawValue = process.env[name];
+  const value = Number(rawValue);
+
+  if (!rawValue || !Number.isFinite(value) || value <= 0) {
+    throw new Error(`Missing or invalid required rate limit environment variable ${name}. Expected a positive number.`);
+  }
+
+  return value;
 };
 
 const commonOptions = {
@@ -37,198 +43,130 @@ const keyGenerator = (req) => {
   return `ip_${ipKeyGenerator(req.ip)}`;
 };
 
-const createMember = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_CREATE_MEMBER_WINDOW_MS", 60 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_CREATE_MEMBER_MAX", 10),
+const createLimiter = ({ windowEnv, maxEnv, message, keyGenerator: limiterKeyGenerator = keyGenerator, ...options }) => rateLimit({
+  windowMs: requiredEnvNumber(windowEnv),
+  max: requiredEnvNumber(maxEnv),
   store: createStore(),
-  keyGenerator,
+  keyGenerator: limiterKeyGenerator,
   ...commonOptions,
+  ...options,
+  message,
+});
+
+const authenticatedLimiter = (resource, action, message = "Too many requests. Please slow down.") => createLimiter({
+  windowEnv: `RATE_LIMIT_${resource}_${action}_WINDOW_MS`,
+  maxEnv: `RATE_LIMIT_${resource}_${action}_MAX`,
+  message: { success: false, message },
+});
+
+const createMember = createLimiter({
+  windowEnv: "RATE_LIMIT_CREATE_MEMBER_WINDOW_MS",
+  maxEnv: "RATE_LIMIT_CREATE_MEMBER_MAX",
   message: { success: false, message: "Too many accounts created. Please try again later." },
 });
 
-const authLogin = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_AUTH_LOGIN_WINDOW_MS", 15 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_AUTH_LOGIN_MAX", 10),
-  store: createStore(),
+const authLogin = createLimiter({
+  windowEnv: "RATE_LIMIT_AUTH_LOGIN_WINDOW_MS",
+  maxEnv: "RATE_LIMIT_AUTH_LOGIN_MAX",
   keyGenerator: (req) => {
     const email = String(req.body?.email || "").trim().toLowerCase();
     return email ? `login_email_${email}` : `login_fallback_${ipKeyGenerator(req.ip)}`;
   },
   skipSuccessfulRequests: true,
-  ...commonOptions,
   message: { success: false, message: "Too many login attempts. Please try again later." },
 });
 
-const authLoginIp = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_AUTH_LOGIN_IP_WINDOW_MS", 15 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_AUTH_LOGIN_IP_MAX", 25),
-  store: createStore(),
+const authLoginIp = createLimiter({
+  windowEnv: "RATE_LIMIT_AUTH_LOGIN_IP_WINDOW_MS",
+  maxEnv: "RATE_LIMIT_AUTH_LOGIN_IP_MAX",
   keyGenerator: (req) => `login_ip_${ipKeyGenerator(req.ip)}`,
   skipSuccessfulRequests: true,
-  ...commonOptions,
   message: { success: false, message: "Too many login attempts. Please try again later." },
 });
 
-const profile = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_PROFILE_WINDOW_MS", 15 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_PROFILE_MAX", 100),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
+const profile = createLimiter({
+  windowEnv: "RATE_LIMIT_PROFILE_WINDOW_MS",
+  maxEnv: "RATE_LIMIT_PROFILE_MAX",
   message: { success: false, message: "Too many requests. Please slow down." },
 });
 
-const dashboard = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_DASHBOARD_WINDOW_MS", 15 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_DASHBOARD_MAX", 120),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
-  message: { success: false, message: "Too many requests. Please slow down." },
-});
+const dashboardRead = authenticatedLimiter("DASHBOARD", "READ");
 
-const projects = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_PROJECTS_WINDOW_MS", 15 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_PROJECTS_MAX", 120),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
-  message: { success: false, message: "Too many requests. Please slow down." },
-});
+const projectsRead = authenticatedLimiter("PROJECTS", "READ");
+const projectsWrite = authenticatedLimiter("PROJECTS", "WRITE");
 
-const clients = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_CLIENTS_WINDOW_MS", 15 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_CLIENTS_MAX", 120),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
-  message: { success: false, message: "Too many requests. Please slow down." },
-});
+const clientsRead = authenticatedLimiter("CLIENTS", "READ");
+const clientsWrite = authenticatedLimiter("CLIENTS", "WRITE");
 
-const members = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_MEMBERS_WINDOW_MS", 15 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_MEMBERS_MAX", 120),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
-  message: { success: false, message: "Too many requests. Please slow down." },
-});
+const membersRead = authenticatedLimiter("MEMBERS", "READ");
+const membersWrite = authenticatedLimiter("MEMBERS", "WRITE");
 
-// Added Leads Rate Limiter
-const leads = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_LEADS_WINDOW_MS", 15 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_LEADS_MAX", 180),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
-  message: { success: false, message: "Too many lead requests. Please slow down." },
-});
+const leadsRead = authenticatedLimiter("LEADS", "READ", "Too many lead requests. Please slow down.");
+const leadsWrite = authenticatedLimiter("LEADS", "WRITE", "Too many lead requests. Please slow down.");
 
-const media = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_MEDIA_WINDOW_MS", 15 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_MEDIA_MAX", 120),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
-  message: { success: false, message: "Too many requests. Please slow down." },
-});
+const mediaRead = authenticatedLimiter("MEDIA", "READ");
+const mediaWrite = authenticatedLimiter("MEDIA", "WRITE");
 
-const analytics = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_ANALYTICS_WINDOW_MS", 15 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_ANALYTICS_MAX", 180),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
-  message: { success: false, message: "Too many analytics requests. Please slow down." },
-});
+const analyticsRead = authenticatedLimiter("ANALYTICS", "READ", "Too many analytics requests. Please slow down.");
 
-const payments = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_PAYMENTS_WINDOW_MS", 15 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_PAYMENTS_MAX", 180),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
-  message: { success: false, message: "Too many payment requests. Please slow down." },
-});
+const paymentsRead = authenticatedLimiter("PAYMENTS", "READ", "Too many payment requests. Please slow down.");
+const paymentsWrite = authenticatedLimiter("PAYMENTS", "WRITE", "Too many payment requests. Please slow down.");
 
-const tasks = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_TASKS_WINDOW_MS", 15 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_TASKS_MAX", 240),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
-  message: { success: false, message: "Too many task requests. Please slow down." },
-});
+const tasksRead = authenticatedLimiter("TASKS", "READ", "Too many task requests. Please slow down.");
+const tasksWrite = authenticatedLimiter("TASKS", "WRITE", "Too many task requests. Please slow down.");
 
-const logout = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_LOGOUT_WINDOW_MS", 60 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_LOGOUT_MAX", 40),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
+const notificationsRead = authenticatedLimiter("NOTIFICATIONS", "READ", "Too many notification requests. Please slow down.");
+const notificationsWrite = authenticatedLimiter("NOTIFICATIONS", "WRITE", "Too many notification requests. Please slow down.");
+
+const logout = createLimiter({
+  windowEnv: "RATE_LIMIT_LOGOUT_WINDOW_MS",
+  maxEnv: "RATE_LIMIT_LOGOUT_MAX",
   message: { success: false, message: "Too many logout attempts." },
 });
 
-const fourzerofour = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_404_WINDOW_MS", 5 * 60 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_404_MAX", 10),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
+const fourzerofour = createLimiter({
+  windowEnv: "RATE_LIMIT_404_WINDOW_MS",
+  maxEnv: "RATE_LIMIT_404_MAX",
   message: { success: false, message: "Too many failed requests." },
 });
 
-const health = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_HEALTH_WINDOW_MS", 60 * 1000),
-  max: envNumber("RATE_LIMIT_HEALTH_MAX", 60),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
+const health = createLimiter({
+  windowEnv: "RATE_LIMIT_HEALTH_WINDOW_MS",
+  maxEnv: "RATE_LIMIT_HEALTH_MAX",
   message: { success: false, message: "Too many health checks." },
 });
 
-const blog = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_BLOG_WINDOW_MS", 15 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_BLOG_MAX", 120),
-  store: createStore(),
-  keyGenerator,
-  ...commonOptions,
+const blog = createLimiter({
+  windowEnv: "RATE_LIMIT_BLOG_WINDOW_MS",
+  maxEnv: "RATE_LIMIT_BLOG_MAX",
   message: { success: false, message: "Too many requests. Please slow down." },
 });
 
-const blogEmbedTrack = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_BLOG_EMBED_TRACK_WINDOW_MS", 60 * 1000),
-  max: envNumber("RATE_LIMIT_BLOG_EMBED_TRACK_MAX", 30),
-  store: createStore(),
+const blogEmbedTrack = createLimiter({
+  windowEnv: "RATE_LIMIT_BLOG_EMBED_TRACK_WINDOW_MS",
+  maxEnv: "RATE_LIMIT_BLOG_EMBED_TRACK_MAX",
   keyGenerator: (req) => `embed_track_${ipKeyGenerator(req.ip)}_${req.params?.slug || ""}`,
-  ...commonOptions,
   message: { success: false, message: "Too many view track requests." },
 });
 
-const blogEmbedTrackHourly = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_BLOG_EMBED_TRACK_HOURLY_WINDOW_MS", 60 * 60 * 1000),
-  max: envNumber("RATE_LIMIT_BLOG_EMBED_TRACK_HOURLY_MAX", 600),
-  store: createStore(),
+const blogEmbedTrackHourly = createLimiter({
+  windowEnv: "RATE_LIMIT_BLOG_EMBED_TRACK_HOURLY_WINDOW_MS",
+  maxEnv: "RATE_LIMIT_BLOG_EMBED_TRACK_HOURLY_MAX",
   keyGenerator: (req) => `embed_track_hour_${ipKeyGenerator(req.ip)}_${req.params?.slug || ""}`,
-  ...commonOptions,
   message: { success: false, message: "Too many view track requests." },
 });
 
-const blogEmbedPage = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_BLOG_EMBED_PAGE_WINDOW_MS", 60 * 1000),
-  max: envNumber("RATE_LIMIT_BLOG_EMBED_PAGE_MAX", 60),
-  store: createStore(),
+const blogEmbedPage = createLimiter({
+  windowEnv: "RATE_LIMIT_BLOG_EMBED_PAGE_WINDOW_MS",
+  maxEnv: "RATE_LIMIT_BLOG_EMBED_PAGE_MAX",
   keyGenerator: (req) => `embed_page_${ipKeyGenerator(req.ip)}_${req.params?.slug || ""}`,
-  ...commonOptions,
   message: { success: false, message: "Too many embed page requests." },
 });
 
-const webhook = rateLimit({
-  windowMs: envNumber("RATE_LIMIT_WEBHOOK_WINDOW_MS", 60 * 1000),
-  max: envNumber("RATE_LIMIT_WEBHOOK_MAX", 60),
-  store: createStore(),
+const webhook = createLimiter({
+  windowEnv: "RATE_LIMIT_WEBHOOK_WINDOW_MS",
+  maxEnv: "RATE_LIMIT_WEBHOOK_MAX",
   keyGenerator: (req) => `webhook_${ipKeyGenerator(req.ip)}`,
-  ...commonOptions,
   message: { success: false, message: "Too many webhook requests." },
 });
 
@@ -239,15 +177,24 @@ module.exports = {
   health,
   profile,
   logout,
-  dashboard,
-  projects,
-  clients,
-  members,
-  leads,
-  media,
-  analytics,
-  payments,
-  tasks,
+  dashboardRead,
+  projectsRead,
+  projectsWrite,
+  clientsRead,
+  clientsWrite,
+  membersRead,
+  membersWrite,
+  leadsRead,
+  leadsWrite,
+  mediaRead,
+  mediaWrite,
+  analyticsRead,
+  paymentsRead,
+  paymentsWrite,
+  tasksRead,
+  tasksWrite,
+  notificationsRead,
+  notificationsWrite,
   fourzerofour,
   blog,
   blogEmbedPage,

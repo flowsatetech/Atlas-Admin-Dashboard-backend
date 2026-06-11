@@ -1,14 +1,58 @@
 const express = require('express');
 const router = express.Router();
+const middlewares = require('../middlewares');
 const { NotificationService } = require('../services');
 const { logger, serverError, clientError } = require('../helpers');
+
+const { notificationsRead, notificationsWrite } = middlewares.rateLimiters;
+
+/**
+ * @route   GET /api/notifications/preferences
+ * @desc    Get global notification preferences
+ * @access  Private/Admin
+ */
+router.get('/preferences', middlewares.adminOnly, notificationsRead, async (req, res) => {
+  try {
+    const preferences = await NotificationService.getPreferences();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Notification preferences fetched successfully',
+      data: { preferences },
+    });
+  } catch (error) {
+    logger('GET_NOTIFICATION_PREFERENCES').error(error);
+    return serverError(res, error, 'Failed to fetch notification preferences.');
+  }
+});
+
+/**
+ * @route   PUT /api/notifications/preferences
+ * @desc    Update global notification preferences
+ * @access  Private/Admin
+ */
+router.put('/preferences', middlewares.adminOnly, notificationsWrite, async (req, res) => {
+  try {
+    const preferences = await NotificationService.updatePreferences(req.body || {});
+
+    return res.status(200).json({
+      success: true,
+      message: 'Notification preferences updated successfully',
+      data: { preferences },
+    });
+  } catch (error) {
+    logger('UPDATE_NOTIFICATION_PREFERENCES').error(error);
+    if (error.statusCode === 400) return clientError(res, 400, error.message, error.details);
+    return serverError(res, error, 'Failed to update notification preferences.');
+  }
+});
 
 /**
  * @route   GET /api/notifications
  * @desc    Get user notifications
  * @access  Private
  */
-router.get('/', async (req, res) => {
+router.get('/', notificationsRead, async (req, res) => {
   try {
     const userId = req.user?.userId || req.db_user?.userId;
     if (!userId) return clientError(res, 401, 'Authentication required');
@@ -37,7 +81,7 @@ router.get('/', async (req, res) => {
  * @desc    Mark all user notifications as read
  * @access  Private
  */
-router.put('/read-all', async (req, res) => {
+router.put('/read-all', notificationsWrite, async (req, res) => {
   try {
     const userId = req.user?.userId || req.db_user?.userId;
     if (!userId) return clientError(res, 401, 'Authentication required');
@@ -60,7 +104,7 @@ router.put('/read-all', async (req, res) => {
  * @desc    Mark a specific notification as read
  * @access  Private
  */
-router.put('/:id/read', async (req, res) => {
+router.put('/:id/read', notificationsWrite, async (req, res) => {
   try {
     const notificationId = req.params.id;
     const userId = req.user?.userId || req.db_user?.userId;

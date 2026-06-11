@@ -18,7 +18,21 @@ const enumValues = Object.freeze({
     userRoles: ["admin", "manager", "staff", "viewer"],
     campaignSortFields: ["createdAt", "campaignName", "impressions", "clicks", "conversions", "conversionRate"],
     sortOrders: ["asc", "desc"],
-    projectStatusLabels: ["Finishing", "On Track", "At Risk"]
+    projectStatusLabels: ["Finishing", "On Track", "At Risk"],
+    notificationTypes: [
+        "TASK_ASSIGNMENT",
+        "PROJECT_ASSIGNMENT",
+        "CLIENT_ASSIGNMENT",
+        "LEAD_ASSIGNMENT",
+        "COMMENT_MENTION",
+        "ROLE_CHANGE",
+        "SYSTEM_ALERT",
+        "CLIENT_CREATED",
+        "PROJECT_STATUS_CHANGE",
+        "LEAD_STATUS_CHANGE",
+        "PROJECT_COMMENT",
+        "PASSWORD_UPDATED"
+    ]
 });
 
 const ref = (name) => ({ $ref: `#/components/schemas/${name}` });
@@ -1037,6 +1051,29 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     createdBy: examples.adminUserId,
                     createdAt: examples.createdAt,
                     updatedAt: examples.updatedAt
+                }
+            },
+            NotificationPreferences: {
+                type: "object",
+                additionalProperties: false,
+                properties: Object.fromEntries(enumValues.notificationTypes.map((type) => [
+                    type,
+                    { type: "boolean", example: true }
+                ])),
+                example: Object.fromEntries(enumValues.notificationTypes.map((type) => [type, true]))
+            },
+            UpdateNotificationPreferencesRequest: {
+                type: "object",
+                additionalProperties: false,
+                description: "Global system notification preferences controlled by admins. Send only the notification types to change; omitted types keep their current global value.",
+                properties: Object.fromEntries(enumValues.notificationTypes.map((type) => [
+                    type,
+                    { type: "boolean", example: type !== "SYSTEM_ALERT" }
+                ])),
+                example: {
+                    TASK_ASSIGNMENT: true,
+                    PROJECT_STATUS_CHANGE: false,
+                    CLIENT_CREATED: true
                 }
             },
             CreateLeadRequest: {
@@ -2927,6 +2964,56 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                         totalPages: 1
                     }, "Notifications fetched successfully"),
                     401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/notifications/preferences": {
+            get: {
+                tags: ["Notifications"],
+                operationId: "getNotificationPreferences",
+                summary: "Fetch global notification preferences",
+                description: "Admin-only. Returns the global system notification type toggles that control notification persistence for all users.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Notification preferences returned.", {
+                        type: "object",
+                        properties: {
+                            preferences: ref("NotificationPreferences")
+                        }
+                    }, { preferences: Object.fromEntries(enumValues.notificationTypes.map((type) => [type, true])) }, "Notification preferences fetched successfully"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            put: {
+                tags: ["Notifications"],
+                operationId: "updateNotificationPreferences",
+                summary: "Update global notification preferences",
+                description: "Admin-only. Updates the global system notification type toggles for all users. Omitted types keep their current global value.",
+                security: [{ cookieAuth: [] }],
+                requestBody: jsonRequestBody("UpdateNotificationPreferencesRequest", {
+                    TASK_ASSIGNMENT: false,
+                    PROJECT_STATUS_CHANGE: true
+                }, "Global notification preference toggles. Send only the types to change."),
+                responses: {
+                    200: successResponse("Notification preferences updated.", {
+                        type: "object",
+                        properties: {
+                            preferences: ref("NotificationPreferences")
+                        }
+                    }, {
+                        preferences: {
+                            ...Object.fromEntries(enumValues.notificationTypes.map((type) => [type, true])),
+                            TASK_ASSIGNMENT: false
+                        }
+                    }, "Notification preferences updated successfully"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
                 }

@@ -7,7 +7,7 @@ const db = require("../db");
 const { analytics: analyticsContracts } = require("../contracts");
 
 const router = express.Router();
-const { analytics: analyticsRateLimiter } = middlewares.rateLimiters;
+const { analyticsRead } = middlewares.rateLimiters;
 
 const trafficQuerySchema = z.object({
     range: z.enum(["7d", "30d", "3months", "6months", "12months"]).default("7d")
@@ -65,7 +65,7 @@ function aggregateTrafficSources(snapshotRows = []) {
         .sort((a, b) => b.percentage - a.percentage);
 }
 
-router.get("/overview", analyticsRateLimiter, async (req, res) => {
+router.get("/overview", analyticsRead, async (req, res) => {
     try {
         const range = analytics.parsePeriod("30d");
 
@@ -137,7 +137,7 @@ router.get("/overview", analyticsRateLimiter, async (req, res) => {
     }
 });
 
-router.get("/traffic", analyticsRateLimiter, async (req, res) => {
+router.get("/traffic", analyticsRead, async (req, res) => {
     try {
         const parsed = trafficQuerySchema.safeParse(req.query);
         if (!parsed.success) {
@@ -204,7 +204,7 @@ router.get("/traffic", analyticsRateLimiter, async (req, res) => {
     }
 });
 
-router.get("/sources", analyticsRateLimiter, async (req, res) => {
+router.get("/sources", analyticsRead, async (req, res) => {
     try {
         const parsed = sourcesQuerySchema.safeParse(req.query);
         if (!parsed.success) {
@@ -229,7 +229,7 @@ router.get("/sources", analyticsRateLimiter, async (req, res) => {
     }
 });
 
-router.get("/campaigns", analyticsRateLimiter, async (req, res) => {
+router.get("/campaigns", analyticsRead, async (req, res) => {
     try {
         const parsed = campaignsQuerySchema.safeParse(req.query);
         if (!parsed.success) {
@@ -279,7 +279,7 @@ router.get("/campaigns", analyticsRateLimiter, async (req, res) => {
     }
 });
 
-router.get("/distribution", analyticsRateLimiter, async (req, res) => {
+router.get("/distribution", analyticsRead, async (req, res) => {
     try {
         const range = analytics.parsePeriod("30d");
         const [snapshots, leads, activeClients] = await Promise.all([

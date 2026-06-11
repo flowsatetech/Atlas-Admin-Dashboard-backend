@@ -17,11 +17,11 @@ const services = require('../services');
  * Global variables referenced in this file are defined here
  */
 const router = express.Router();
-const { projects } = middlewares.rateLimiters;
+const { projectsRead, projectsWrite } = middlewares.rateLimiters;
 
 /** MAIN PROJECT ROUTES */
 
-router.get('/stats', projects, async (req, res) => {
+router.get('/stats', projectsRead, async (req, res) => {
     try {
         const stats = await db.getProjectStats();
         res.status(200).json({
@@ -35,7 +35,7 @@ router.get('/stats', projects, async (req, res) => {
     }
 });
 
-router.get('/', projects, async (req, res) => {
+router.get('/', projectsRead, async (req, res) => {
     try {
         const querySchema = models.common.paginationQuerySchema.extend({
             status: z.string().optional().default("")
@@ -64,7 +64,7 @@ router.get('/', projects, async (req, res) => {
     }
 });
 
-router.get('/:projectId', projects, async (req, res) => {
+router.get('/:projectId', projectsRead, async (req, res) => {
     try {
         const project = await db.getProjectDetailById(req.params.projectId);
 
@@ -103,7 +103,7 @@ router.get('/:projectId', projects, async (req, res) => {
     }
 });
 
-router.post('/', middlewares.adminOnly, projects, async (req, res) => {
+router.post('/', middlewares.adminOnly, projectsWrite, async (req, res) => {
     try {
         if (Object.prototype.hasOwnProperty.call(req.body || {}, 'progress')) {
             return clientError(res, 400, 'Project progress is derived from task completion and cannot be set manually.');
@@ -165,7 +165,7 @@ router.post('/', middlewares.adminOnly, projects, async (req, res) => {
     }
 });
 
-router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
+router.patch('/:projectId', middlewares.adminOnly, projectsWrite, async (req, res) => {
     try {
         const { projectId } = req.params;
 
@@ -247,6 +247,22 @@ router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) =>
             })), 'UPDATE_PROJECT');
         }
 
+        if (Object.prototype.hasOwnProperty.call(incoming, 'status') && incoming.status !== existing.status) {
+            const statusRecipients = [...new Set((updateData.teamIds || existing.teamIds || [])
+                .filter((memberId) => memberId && memberId !== req.user?.userId))];
+
+            services.NotificationService.dispatchMany(statusRecipients.map((memberId) => ({
+                recipientId: memberId,
+                type: 'PROJECT_STATUS_CHANGE',
+                title: 'Project Status Updated',
+                message: `${existing.name || 'Project'} moved from ${existing.status || 'Unknown'} to ${incoming.status}`,
+                link: `/projects/${projectId}`,
+                referenceId: projectId,
+                referenceType: 'Project',
+                createdBy: req.user?.userId
+            })), 'UPDATE_PROJECT');
+        }
+
         await services.logActivity({
             type: 'project.updated',
             actorId: req.user?.userId || null,
@@ -273,7 +289,7 @@ router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) =>
     }
 });
 
-router.delete('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
+router.delete('/:projectId', middlewares.adminOnly, projectsWrite, async (req, res) => {
     try {
         const existing = await db.getProjectById(req.params.projectId);
 
@@ -289,7 +305,7 @@ router.delete('/:projectId', middlewares.adminOnly, projects, async (req, res) =
     }
 });
 
-router.post('/:projectId/comments', projects, async (req, res) => {
+router.post('/:projectId/comments', projectsWrite, async (req, res) => {
     try {
         const existing = await db.getProjectById(req.params.projectId);
 
@@ -324,23 +340,41 @@ router.post('/:projectId/comments', projects, async (req, res) => {
             [...content.matchAll(/@([A-Za-z0-9_-]+)/g)].map((match) => match[1])
         )];
 
-        if (mentionTokens.length > 0) {
-            const mentionedUsers = await db.getUsersByMentionTokens(mentionTokens);
-            const notificationItems = mentionedUsers
-                .filter((mentionedUser) => mentionedUser.userId && mentionedUser.userId !== req.user.userId)
-                .map((mentionedUser) => ({
-                    recipientId: mentionedUser.userId,
-                    type: 'COMMENT_MENTION',
-                    title: 'You were mentioned',
-                    message: `You were mentioned in a comment on project: ${existing.name || 'Project'}`,
-                    link: `/projects/${req.params.projectId}`,
-                    referenceId: req.params.projectId,
-                    referenceType: 'Project',
-                    createdBy: req.user?.userId
-                }));
+        const mentionedUsers = mentionTokens.length > 0
+            ? await db.getUsersByMentionTokens(mentionTokens)
+            : [];
+        const mentionedRecipientIds = new Set(mentionedUsers
+            .filter((mentionedUser) => mentionedUser.userId && mentionedUser.userId !== req.user.userId)
+            .map((mentionedUser) => mentionedUser.userId));
 
-            services.NotificationService.dispatchMany(notificationItems, 'ADD_COMMENT');
-        }
+        const mentionNotifications = [...mentionedRecipientIds].map((recipientId) => ({
+            recipientId,
+            type: 'COMMENT_MENTION',
+            title: 'You were mentioned',
+            message: `You were mentioned in a comment on project: ${existing.name || 'Project'}`,
+            link: `/projects/${req.params.projectId}`,
+            referenceId: req.params.projectId,
+            referenceType: 'Project',
+            createdBy: req.user?.userId
+        }));
+
+        const commentNotifications = [...new Set(existing.teamIds || [])]
+            .filter((memberId) => memberId && memberId !== req.user.userId && !mentionedRecipientIds.has(memberId))
+            .map((memberId) => ({
+                recipientId: memberId,
+                type: 'PROJECT_COMMENT',
+                title: 'New Project Comment',
+                message: `Someone commented on project: ${existing.name || 'Project'}`,
+                link: `/projects/${req.params.projectId}`,
+                referenceId: req.params.projectId,
+                referenceType: 'Project',
+                createdBy: req.user?.userId
+            }));
+
+        services.NotificationService.dispatchMany([
+            ...mentionNotifications,
+            ...commentNotifications,
+        ], 'ADD_COMMENT');
 
         res.status(204).send();
     } catch (e) {
@@ -349,7 +383,7 @@ router.post('/:projectId/comments', projects, async (req, res) => {
     }
 });
 
-router.get('/:projectId/comments', projects, async (req, res) => {
+router.get('/:projectId/comments', projectsRead, async (req, res) => {
     try {
         const existing = await db.getProjectById(req.params.projectId);
         if (!existing) {
