@@ -139,6 +139,7 @@ const examples = {
     postId: "post_digital_strategy_001",
     slug: "getting-started-with-digital-marketing",
     leadId: "lead_quote_request_001",
+    notificationId: "notification_001",
     imageId: "8dce7fb2a3e34ad6b0a51d8f6e0c771c",
     fileId: "media_file_001",
     timestamp: 1775779200000,
@@ -164,6 +165,20 @@ const examples = {
         status: "active",
         avatarUrl: null,
         lastLogin: 1775600000000,
+        createdAt: 1775600000000,
+        updatedAt: 1775686400000
+    },
+    notification: {
+        id: "notification_001",
+        recipientId: "2854abb8528fe1806d4a75d4f81035ef",
+        type: "TASK_ASSIGNMENT",
+        title: "New task assigned",
+        message: "Prepare launch checklist was assigned to you.",
+        link: "/api/tasks/task_launch_plan_001",
+        referenceId: "task_launch_plan_001",
+        referenceType: "task",
+        isRead: false,
+        createdBy: "6d62ab4046f47a11a8e70b92a57a889c",
         createdAt: 1775600000000,
         updatedAt: 1775686400000
     },
@@ -383,6 +398,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
         { name: "Media", description: "Image uploads/replacement and general file metadata." },
         { name: "Blog", description: "Authenticated blog administration, public embed rendering, and view tracking." },
         { name: "Leads", description: "Lead pipeline records used by the admin dashboard." },
+        { name: "Notifications", description: "User notification inbox and read-state updates." },
         { name: "Webhooks", description: "Bearer-token protected public lead ingestion endpoints." },
         { name: "Health", description: "Service health and maintenance endpoints." },
         { name: "Docs", description: "Swagger UI and raw OpenAPI specification endpoints." }
@@ -409,6 +425,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             Limit20: queryParam("limit", { type: "integer", minimum: 1, maximum: 100, default: 20 }, "Maximum number of task records to return.", 20),
             ActivityLimit: queryParam("limit", { type: "integer", minimum: 1, maximum: 50, default: 10 }, "Maximum number of activity rows to return.", 10),
             InProgressLimit: queryParam("limit", { type: "integer", minimum: 1, maximum: 20, default: 4 }, "Maximum number of in-progress projects to return.", 4),
+            NotificationUnreadOnly: queryParam("unreadOnly", { type: "boolean", default: false }, "Return unread notifications only.", false),
             Search: queryParam("search", { type: "string" }, "Case-insensitive search text where supported by the endpoint.", "acme"),
             ClientStatus: queryParam("status", { type: "string", enum: enumValues.clientStatuses }, "Filter clients by lifecycle status.", "Active"),
             ProjectStatus: queryParam("status", { type: "string", enum: enumValues.projectStatuses }, "Filter projects by project status.", "InProgress"),
@@ -430,6 +447,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             ClientIdPath: pathParam("id", "Client custom ID token.", examples.clientId),
             ProjectIdPath: pathParam("projectId", "Project custom ID token.", examples.projectId),
             TaskIdPath: pathParam("taskId", "Task custom ID token.", examples.taskId),
+            NotificationIdPath: pathParam("id", "Notification custom ID token.", examples.notificationId),
             PaymentIdPath: pathParam("paymentId", "Payment custom ID token.", examples.paymentId),
             PostIdPath: pathParam("postId", "Blog post custom ID token.", examples.postId),
             BlogSlugPath: pathParam("slug", "URL-safe blog slug. The embed route only accepts lowercase letters, numbers, and hyphens.", examples.slug),
@@ -988,6 +1006,38 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     updatedAt: ref("Timestamp")
                 },
                 example: examples.lead
+            },
+            Notification: {
+                type: "object",
+                required: ["id", "recipientId", "type", "title", "message", "isRead", "createdAt", "updatedAt"],
+                properties: {
+                    id: { type: "string", example: examples.notificationId },
+                    recipientId: { type: "string", example: examples.userId },
+                    type: { type: "string", example: "TASK_ASSIGNMENT" },
+                    title: { type: "string", example: "New task assigned" },
+                    message: { type: "string", example: "Prepare launch checklist was assigned to you." },
+                    link: { type: "string", nullable: true, example: "/api/tasks/task_launch_plan_001" },
+                    referenceId: { type: "string", nullable: true, example: examples.taskId },
+                    referenceType: { type: "string", nullable: true, example: "task" },
+                    isRead: { type: "boolean", example: false },
+                    createdBy: { type: "string", nullable: true, example: examples.adminUserId },
+                    createdAt: ref("Timestamp"),
+                    updatedAt: ref("Timestamp")
+                },
+                example: {
+                    id: examples.notificationId,
+                    recipientId: examples.userId,
+                    type: "TASK_ASSIGNMENT",
+                    title: "New task assigned",
+                    message: "Prepare launch checklist was assigned to you.",
+                    link: "/api/tasks/task_launch_plan_001",
+                    referenceId: examples.taskId,
+                    referenceType: "task",
+                    isRead: false,
+                    createdBy: examples.adminUserId,
+                    createdAt: examples.createdAt,
+                    updatedAt: examples.updatedAt
+                }
             },
             CreateLeadRequest: {
                 type: "object",
@@ -2848,6 +2898,79 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     404: htmlResponse("Post not found, unpublished, or slug format invalid.", "<p>Post not found.</p>"),
                     500: htmlResponse("Unexpected render error.", "<p>An error occurred.</p>"),
                     503: htmlResponse("Embed template file is missing or unavailable.", "<p>Service temporarily unavailable.</p>")
+                }
+            }
+        },
+        "/api/notifications": {
+            get: {
+                tags: ["Notifications"],
+                operationId: "listNotifications",
+                summary: "Fetch notifications",
+                description: "Returns the signed-in user's notifications with pagination and optional unread-only filtering.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("Page"), parameterRef("Limit20"), parameterRef("NotificationUnreadOnly")],
+                responses: {
+                    200: successResponse("Notifications returned.", {
+                        type: "object",
+                        properties: {
+                            notifications: { type: "array", items: ref("Notification") },
+                            totalCount: { type: "integer", minimum: 0, example: 1 },
+                            unreadCount: { type: "integer", minimum: 0, example: 0 },
+                            currentPage: { type: "integer", minimum: 1, example: 1 },
+                            totalPages: { type: "integer", minimum: 0, example: 1 }
+                        }
+                    }, {
+                        notifications: [examples.notification],
+                        totalCount: 1,
+                        unreadCount: 0,
+                        currentPage: 1,
+                        totalPages: 1
+                    }, "Notifications fetched successfully"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/notifications/read-all": {
+            put: {
+                tags: ["Notifications"],
+                operationId: "markAllNotificationsAsRead",
+                summary: "Mark all notifications as read",
+                description: "Marks the signed-in user's unread notifications as read.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Notifications updated.", {
+                        type: "object",
+                        properties: {
+                            modifiedCount: { type: "integer", minimum: 0, example: 3 }
+                        }
+                    }, { modifiedCount: 3 }, "Notifications marked as read successfully"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/notifications/{id}/read": {
+            put: {
+                tags: ["Notifications"],
+                operationId: "markNotificationAsRead",
+                summary: "Mark a notification as read",
+                description: "Marks one notification as read for the signed-in user.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("NotificationIdPath")],
+                responses: {
+                    200: successResponse("Notification updated.", {
+                        type: "object",
+                        properties: {
+                            notification: ref("Notification")
+                        }
+                    }, { notification: examples.notification }, "Notification marked as read"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Notification not found.", 404, "Notification not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
                 }
             }
         },
