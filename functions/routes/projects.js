@@ -17,11 +17,11 @@ const services = require('../services');
  * Global variables referenced in this file are defined here
  */
 const router = express.Router();
-const { projects } = middlewares.rateLimiters;
+const { projectsRead, projectsWrite } = middlewares.rateLimiters;
 
 /** MAIN PROJECT ROUTES */
 
-router.get('/stats', projects, async (req, res) => {
+router.get('/stats', projectsRead, async (req, res) => {
     try {
         const stats = await db.getProjectStats();
         res.status(200).json({
@@ -35,7 +35,7 @@ router.get('/stats', projects, async (req, res) => {
     }
 });
 
-router.get('/', projects, async (req, res) => {
+router.get('/', projectsRead, async (req, res) => {
     try {
         const querySchema = models.common.paginationQuerySchema.extend({
             status: z.string().optional().default("")
@@ -64,7 +64,7 @@ router.get('/', projects, async (req, res) => {
     }
 });
 
-router.get('/:projectId', projects, async (req, res) => {
+router.get('/:projectId', projectsRead, async (req, res) => {
     try {
         const project = await db.getProjectDetailById(req.params.projectId);
 
@@ -103,7 +103,7 @@ router.get('/:projectId', projects, async (req, res) => {
     }
 });
 
-router.post('/', middlewares.adminOnly, projects, async (req, res) => {
+router.post('/', middlewares.adminOnly, projectsWrite, async (req, res) => {
     try {
         if (Object.prototype.hasOwnProperty.call(req.body || {}, 'progress')) {
             return clientError(res, 400, 'Project progress is derived from task completion and cannot be set manually.');
@@ -165,7 +165,7 @@ router.post('/', middlewares.adminOnly, projects, async (req, res) => {
     }
 });
 
-router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
+router.patch('/:projectId', middlewares.adminOnly, projectsWrite, async (req, res) => {
     try {
         const { projectId } = req.params;
 
@@ -273,7 +273,7 @@ router.patch('/:projectId', middlewares.adminOnly, projects, async (req, res) =>
     }
 });
 
-router.delete('/:projectId', middlewares.adminOnly, projects, async (req, res) => {
+router.delete('/:projectId', middlewares.adminOnly, projectsWrite, async (req, res) => {
     try {
         const existing = await db.getProjectById(req.params.projectId);
 
@@ -289,7 +289,7 @@ router.delete('/:projectId', middlewares.adminOnly, projects, async (req, res) =
     }
 });
 
-router.post('/:projectId/comments', projects, async (req, res) => {
+router.post('/:projectId/comments', projectsWrite, async (req, res) => {
     try {
         const existing = await db.getProjectById(req.params.projectId);
 
@@ -349,7 +349,7 @@ router.post('/:projectId/comments', projects, async (req, res) => {
     }
 });
 
-router.get('/:projectId/comments', projects, async (req, res) => {
+router.get('/:projectId/comments', projectsRead, async (req, res) => {
     try {
         const existing = await db.getProjectById(req.params.projectId);
         if (!existing) {

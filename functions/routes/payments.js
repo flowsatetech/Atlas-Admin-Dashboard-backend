@@ -8,7 +8,7 @@ const models = require("../models");
 const services = require("../services");
 
 const router = express.Router();
-const { payments: paymentsRateLimiter } = middlewares.rateLimiters;
+const { paymentsRead, paymentsWrite } = middlewares.rateLimiters;
 
 const emptyToUndefined = (value) => (value === "" ? undefined : value);
 const PAYMENT_LEGACY_RELATION_FIELDS = ["clientName", "projectName", "project"];
@@ -70,7 +70,7 @@ async function validatePaymentReferences(clientId, projectId) {
   return { client, project };
 }
 
-router.get("/", paymentsRateLimiter, async (req, res) => {
+router.get("/", paymentsRead, async (req, res) => {
   try {
     const parsed = paymentListQuerySchema.safeParse(req.query);
     if (!parsed.success) {
@@ -112,7 +112,7 @@ router.get("/", paymentsRateLimiter, async (req, res) => {
   }
 });
 
-router.post("/", middlewares.adminOnly, paymentsRateLimiter, async (req, res) => {
+router.post("/", middlewares.adminOnly, paymentsWrite, async (req, res) => {
   try {
     const parsed = models.payment.createPaymentSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -158,7 +158,7 @@ router.post("/", middlewares.adminOnly, paymentsRateLimiter, async (req, res) =>
   }
 });
 
-router.get("/:paymentId", paymentsRateLimiter, async (req, res) => {
+router.get("/:paymentId", paymentsRead, async (req, res) => {
   try {
     const payment = await db.getPaymentById(req.params.paymentId);
     if (!payment) {
@@ -176,7 +176,7 @@ router.get("/:paymentId", paymentsRateLimiter, async (req, res) => {
   }
 });
 
-router.patch("/:paymentId", middlewares.adminOnly, paymentsRateLimiter, async (req, res) => {
+router.patch("/:paymentId", middlewares.adminOnly, paymentsWrite, async (req, res) => {
   try {
     const existing = await db.getPaymentById(req.params.paymentId);
     if (!existing) {
@@ -221,7 +221,7 @@ router.patch("/:paymentId", middlewares.adminOnly, paymentsRateLimiter, async (r
   }
 });
 
-router.delete("/:paymentId", middlewares.adminOnly, paymentsRateLimiter, async (req, res) => {
+router.delete("/:paymentId", middlewares.adminOnly, paymentsWrite, async (req, res) => {
   try {
     const existing = await db.getPaymentById(req.params.paymentId);
     if (!existing) {

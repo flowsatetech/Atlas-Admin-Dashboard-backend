@@ -19,7 +19,7 @@ const services = require("../services");
 const { mediaFileSchema } = require("../models/media-file");
 
 const router = express.Router();
-const { media: mediaRateLimiter } = middlewares.rateLimiters;
+const { mediaRead, mediaWrite } = middlewares.rateLimiters;
 
 /**
  * @swagger
@@ -134,7 +134,7 @@ function buildMediaFileRecord({ id, fileName, type, mimeType, sizeBytes, storage
  * 200:
  * description: A list of image objects
  */
-router.get("/images/all", mediaRateLimiter, async (req, res) => {
+router.get("/images/all", mediaRead, async (req, res) => {
   try {
     const images = await db.getImages();
     res.status(200).json({
@@ -160,7 +160,7 @@ router.get("/images/all", mediaRateLimiter, async (req, res) => {
  * summary: Retrieve uploaded and registered media files
  * tags: [Media]
  */
-router.get("/files", mediaRateLimiter, async (req, res) => {
+router.get("/files", mediaRead, async (req, res) => {
   try {
     const parsed = listFilesQuerySchema.safeParse(req.query);
     if (!parsed.success) {
@@ -189,7 +189,7 @@ router.get("/files", mediaRateLimiter, async (req, res) => {
  * summary: Redirect to the actual image URL by ID
  * tags: [Media]
  */
-router.get("/images/:imageId", mediaRateLimiter, async (req, res) => {
+router.get("/images/:imageId", mediaRead, async (req, res) => {
   try {
     const { imageId } = req.params;
     const image = await db.findImageById(imageId);
@@ -208,7 +208,7 @@ router.get("/images/:imageId", mediaRateLimiter, async (req, res) => {
  * summary: Retrieve media file metadata and direct URL
  * tags: [Media]
  */
-router.get("/files/:fileId", mediaRateLimiter, async (req, res) => {
+router.get("/files/:fileId", mediaRead, async (req, res) => {
   try {
     const { fileId } = req.params;
     const file = await db.getMediaFileById(fileId);
@@ -234,7 +234,7 @@ router.get("/files/:fileId", mediaRateLimiter, async (req, res) => {
  */
 router.post(
   "/images/new",
-  mediaRateLimiter,
+  mediaWrite,
   uploadMiddleware,
   async (req, res) => {
     try {
@@ -281,7 +281,7 @@ router.post(
  */
 router.post(
   "/files",
-  mediaRateLimiter,
+  mediaWrite,
   fileUploadMiddleware,
   async (req, res) => {
     try {
@@ -338,7 +338,7 @@ router.post(
  * summary: Register an HTTPS media file URL
  * tags: [Media]
  */
-router.post("/files/url", mediaRateLimiter, async (req, res) => {
+router.post("/files/url", mediaWrite, async (req, res) => {
   try {
     const parsed = registerFileUrlSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -395,7 +395,7 @@ router.post("/files/url", mediaRateLimiter, async (req, res) => {
  */
 router.put(
   "/images/:imageId/replace",
-  mediaRateLimiter,
+  mediaWrite,
   uploadMiddleware,
   async (req, res) => {
     try {
@@ -444,7 +444,7 @@ router.put(
  * summary: Delete media file metadata and provider asset when present
  * tags: [Media]
  */
-router.delete("/files/:fileId", mediaRateLimiter, async (req, res) => {
+router.delete("/files/:fileId", mediaWrite, async (req, res) => {
   try {
     const { fileId } = req.params;
     const file = await db.getMediaFileById(fileId);

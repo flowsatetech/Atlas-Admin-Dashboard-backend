@@ -11,7 +11,7 @@ const services = require('../services');
 
 /** SETUP */
 const router = express.Router();
-const { leads: leadsRateLimiter } = middlewares.rateLimiters;
+const { leadsRead, leadsWrite } = middlewares.rateLimiters;
 
 const emptyToUndefined = (value) => (value === "" ? undefined : value);
 const listLeadsQuerySchema = z.object({
@@ -24,7 +24,7 @@ const listLeadsQuerySchema = z.object({
 /** MAIN LEADS ROUTES */
 
 // 1. GET /api/leads - Paginated list of leads with search
-router.get('/', leadsRateLimiter, async (req, res) => {
+router.get('/', leadsRead, async (req, res) => {
     try {
         const parsed = listLeadsQuerySchema.safeParse(req.query);
         if (!parsed.success) {
@@ -46,7 +46,7 @@ router.get('/', leadsRateLimiter, async (req, res) => {
 });
 
 // 2. POST /api/leads - Add a new lead
-router.post('/', middlewares.adminOnly, leadsRateLimiter, async (req, res) => {
+router.post('/', middlewares.adminOnly, leadsWrite, async (req, res) => {
     try {
         const parsed = createLeadSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -89,7 +89,7 @@ router.post('/', middlewares.adminOnly, leadsRateLimiter, async (req, res) => {
 });
 
 // 3. GET /api/leads/:leadId - Get details of a single lead
-router.get('/:leadId', leadsRateLimiter, async (req, res) => {
+router.get('/:leadId', leadsRead, async (req, res) => {
     try {
         const lead = await db.getLeadById(req.params.leadId);
         if (!lead) {
@@ -108,7 +108,7 @@ router.get('/:leadId', leadsRateLimiter, async (req, res) => {
 });
 
 // 4. PATCH /api/leads/:leadId - Update an individual lead
-router.patch('/:leadId', middlewares.adminOnly, leadsRateLimiter, async (req, res) => {
+router.patch('/:leadId', middlewares.adminOnly, leadsWrite, async (req, res) => {
     try {
         const parsed = updateLeadSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -149,7 +149,7 @@ router.patch('/:leadId', middlewares.adminOnly, leadsRateLimiter, async (req, re
 });
 
 // 5. DELETE /api/leads/:leadId - Delete an individual lead
-router.delete('/:leadId', middlewares.adminOnly, leadsRateLimiter, async (req, res) => {
+router.delete('/:leadId', middlewares.adminOnly, leadsWrite, async (req, res) => {
     try {
         const lead = await db.getLeadById(req.params.leadId);
         if (!lead) {

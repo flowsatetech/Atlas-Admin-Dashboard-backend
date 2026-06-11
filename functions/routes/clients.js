@@ -7,7 +7,7 @@ const { clientStatusEnum, createClientSchema, updateClientSchema, listClientsQue
 const services = require("../services");
 
 const router = express.Router();
-const { clients: rateLimiter } = middlewares.rateLimiters;
+const { clientsRead, clientsWrite } = middlewares.rateLimiters;
 
 function formatClientForList(clientDoc, managerName = "Unassigned") {
   const assignedStaffId = clientDoc.assignedStaffId || null;
@@ -35,7 +35,7 @@ function formatClientForList(clientDoc, managerName = "Unassigned") {
  * GET /api/clients/stats
  * Aggregates client baseline card statistics from the collection
  */
-router.get("/stats", rateLimiter, async (req, res) => {
+router.get("/stats", clientsRead, async (req, res) => {
   try {
     const stats = await db.getClientStats();
     
@@ -50,7 +50,7 @@ router.get("/stats", rateLimiter, async (req, res) => {
   }
 });
 
-router.get("/", rateLimiter, async (req, res) => {
+router.get("/", clientsRead, async (req, res) => {
   try {
     const parsedQuery = listClientsQuerySchema.safeParse(req.query);
     if (!parsedQuery.success) {
@@ -94,7 +94,7 @@ router.get("/", rateLimiter, async (req, res) => {
  * GET /api/clients/:id
  * Fetches details for an individual client document
  */
-router.get("/:id", rateLimiter, async (req, res) => {
+router.get("/:id", clientsRead, async (req, res) => {
   try {
     const client = await db.getClientById(req.params.id);
     if (!client) {
@@ -137,7 +137,7 @@ router.get("/:id", rateLimiter, async (req, res) => {
   }
 });
 
-router.post("/", middlewares.adminOnly, rateLimiter, async (req, res) => {
+router.post("/", middlewares.adminOnly, clientsWrite, async (req, res) => {
   try {
     const parsed = createClientSchema.safeParse({ ...req.body, id: generateToken() });
     if (!parsed.success) {
@@ -212,7 +212,7 @@ router.post("/", middlewares.adminOnly, rateLimiter, async (req, res) => {
  * PATCH /api/clients/:id
  * Implements optional field mutations securely for existing client records
  */
-router.patch("/:id", middlewares.adminOnly, rateLimiter, async (req, res) => {
+router.patch("/:id", middlewares.adminOnly, clientsWrite, async (req, res) => {
   try {
     const parsed = updateClientSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -273,7 +273,7 @@ router.patch("/:id", middlewares.adminOnly, rateLimiter, async (req, res) => {
  * DELETE /api/clients/:id
  * Clears an active client record from the project database collection
  */
-router.delete("/:id", middlewares.adminOnly, rateLimiter, async (req, res) => {
+router.delete("/:id", middlewares.adminOnly, clientsWrite, async (req, res) => {
   try {
     const client = await db.getClientById(req.params.id);
     if (!client) {
