@@ -1,14 +1,40 @@
 const { z, baseEntityFields } = require("./common");
 
-const notificationTypeEnum = z.enum([
+const notificationTypes = [
   'TASK_ASSIGNMENT',
   'PROJECT_ASSIGNMENT',
   'CLIENT_ASSIGNMENT',
   'LEAD_ASSIGNMENT',
   'COMMENT_MENTION',
   'ROLE_CHANGE',
-  'SYSTEM_ALERT'
-]);
+  'SYSTEM_ALERT',
+  'CLIENT_CREATED',
+  'PROJECT_STATUS_CHANGE',
+  'LEAD_STATUS_CHANGE',
+  'PROJECT_COMMENT',
+  'PASSWORD_UPDATED'
+];
+
+const notificationTypeEnum = z.enum(notificationTypes);
+
+const notificationPreferencesShape = notificationTypes.reduce((shape, type) => {
+  shape[type] = z.boolean();
+  return shape;
+}, {});
+
+const notificationPreferencesSchema = z.object(notificationPreferencesShape);
+const updateNotificationPreferencesSchema = notificationPreferencesSchema.partial().strict();
+const defaultNotificationPreferences = Object.freeze(
+  notificationTypes.reduce((preferences, type) => {
+    preferences[type] = true;
+    return preferences;
+  }, {})
+);
+
+const normalizeNotificationPreferences = (preferences = {}) => ({
+  ...defaultNotificationPreferences,
+  ...notificationPreferencesSchema.partial().parse(preferences || {})
+});
 
 const notificationSchema = z.object({
   ...baseEntityFields,
@@ -33,7 +59,12 @@ const createNotificationSchema = notificationSchema.omit({
 });
 
 module.exports = {
+  notificationTypes,
   notificationTypeEnum,
   notificationSchema,
-  createNotificationSchema
+  createNotificationSchema,
+  notificationPreferencesSchema,
+  updateNotificationPreferencesSchema,
+  defaultNotificationPreferences,
+  normalizeNotificationPreferences
 };

@@ -14,7 +14,7 @@ const services = require('../services');
 
 /** SETUP */
 const router = express.Router();
-const { members: membersRateLimiter, createMember: createMemberRateLimiter } = middlewares.rateLimiters;
+const { membersRead, membersWrite, createMember: createMemberRateLimiter } = middlewares.rateLimiters;
 
 const profilePictureUpload = multer({
     limits: { fileSize: 5 * 1024 * 1024 },
@@ -67,7 +67,7 @@ const formatMember = (member) => ({
 /** MAIN USER ROUTES */
 
 // 1. GET /api/members - Paginated list of staff
-router.get('/', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
+router.get('/', middlewares.adminOnly, membersRead, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = Math.min(parseInt(req.query.limit) || 10, 100);
@@ -146,7 +146,7 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
 });
 
 // 3. PUT /api/members/:id/password - Change a member's password (admin only)
-router.put('/:id/password', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
+router.put('/:id/password', middlewares.adminOnly, membersWrite, async (req, res) => {
     try {
         const validData = adminChangeMemberPasswordSchema.safeParse(req.body);
         if (!validData.success) {
@@ -166,6 +166,17 @@ router.put('/:id/password', middlewares.adminOnly, membersRateLimiter, async (re
             updatedAt: Date.now()
         });
 
+        services.NotificationService.dispatch({
+            recipientId: existing.userId,
+            type: 'PASSWORD_UPDATED',
+            title: 'Password Updated',
+            message: 'Your account password was updated by an administrator.',
+            link: '/profile',
+            referenceId: existing.userId,
+            referenceType: 'User',
+            createdBy: req.user?.userId
+        }, 'MEMBERS_PASSWORD_PUT');
+
         res.status(200).json({
             success: true,
             message: 'Member password updated successfully'
@@ -177,7 +188,7 @@ router.put('/:id/password', middlewares.adminOnly, membersRateLimiter, async (re
 });
 
 // 4. PATCH /api/members/:id - Update staff member
-router.patch('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
+router.patch('/:id', middlewares.adminOnly, membersWrite, async (req, res) => {
     try {
         const validData = updateMemberSchema.safeParse(req.body);
         if (!validData.success) {
@@ -218,7 +229,7 @@ router.patch('/:id', middlewares.adminOnly, membersRateLimiter, async (req, res)
 });
 
 // 5. PUT /api/members/:id/picture - Upload or replace a staff member's profile picture (admin only)
-router.put('/:id/picture', middlewares.adminOnly, membersRateLimiter, profilePictureUploadMiddleware, async (req, res) => {
+router.put('/:id/picture', middlewares.adminOnly, membersWrite, profilePictureUploadMiddleware, async (req, res) => {
     try {
         const memberId = req.params.id;
         const member = await db.getUserById(memberId);
@@ -268,7 +279,7 @@ router.put('/:id/picture', middlewares.adminOnly, membersRateLimiter, profilePic
 });
 
 // 6. DELETE /api/members/:memberId - Delete staff member (admin only)
-router.delete('/:memberId', middlewares.adminOnly, membersRateLimiter, async (req, res) => {
+router.delete('/:memberId', middlewares.adminOnly, membersWrite, async (req, res) => {
     try {
         const member = await db.getUserById(req.params.memberId);
         if (!member) {

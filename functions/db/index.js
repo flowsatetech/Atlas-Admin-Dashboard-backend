@@ -17,6 +17,9 @@ let blogPosts;
 let leads;
 let payments;
 let notifications;
+let systemSettings;
+
+const NOTIFICATION_PREFERENCES_SETTING_KEY = "notification_preferences";
 
 async function initializeDB() {
   try {
@@ -50,6 +53,7 @@ async function initializeDB() {
     leads = db.collection("leads");
     payments = db.collection("payments");
     notifications = db.collection("notifications");
+    systemSettings = db.collection("system_settings");
 
     await users.createIndex({ email: 1 }, { unique: true });
     await images.createIndex({ id: 1 }, { unique: true });
@@ -94,6 +98,7 @@ async function initializeDB() {
     await notifications.createIndex({ id: 1 }, { unique: true });
     await notifications.createIndex({ recipientId: 1, createdAt: -1 });
     await notifications.createIndex({ recipientId: 1, isRead: 1 });
+    await systemSettings.createIndex({ key: 1 }, { unique: true });
 
     logger("DB").info("MongoDB initialized successfully");
 
@@ -197,6 +202,24 @@ async function getUsersByIds(userIds = []) {
       .find(
         { userId: { $in: userIds } },
         { projection: { _id: 0, userId: 1, firstName: 1, lastName: 1, email: 1 } },
+      )
+      .toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getUsersByRoles(roles = []) {
+  try {
+    if (!Array.isArray(roles) || roles.length === 0) return [];
+    const uniqueRoles = [...new Set(roles.filter(Boolean))];
+    if (uniqueRoles.length === 0) return [];
+
+    return await users
+      .find(
+        { role: { $in: uniqueRoles } },
+        { projection: { _id: 0, userId: 1, firstName: 1, lastName: 1, email: 1, role: 1 } },
       )
       .toArray();
   } catch (err) {
@@ -1705,6 +1728,37 @@ async function getUsersByMentionTokens(tokens = []) {
   }
 }
 
+async function getGlobalNotificationPreferences() {
+  try {
+    const setting = await systemSettings.findOne(
+      { key: NOTIFICATION_PREFERENCES_SETTING_KEY },
+      { projection: { _id: 0, key: 1, notificationPreferences: 1 } },
+    );
+    return setting?.notificationPreferences || null;
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function updateGlobalNotificationPreferences(notificationPreferences) {
+  try {
+    const now = Date.now();
+    const result = await systemSettings.findOneAndUpdate(
+      { key: NOTIFICATION_PREFERENCES_SETTING_KEY },
+      {
+        $set: { notificationPreferences, updatedAt: now },
+        $setOnInsert: { key: NOTIFICATION_PREFERENCES_SETTING_KEY, createdAt: now },
+      },
+      { upsert: true, returnDocument: "after", projection: { _id: 0, key: 1, notificationPreferences: 1 } },
+    );
+    return result || null;
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function deleteUserById(userId) {
   try {
     return await users.deleteOne({ userId });
@@ -1724,6 +1778,7 @@ module.exports = {
   getUserByEmail,
   getUserById,
   getUsersByIds,
+  getUsersByRoles,
   updateUser,
   deleteUserById,
   getProjectsPaginated,
@@ -1812,4 +1867,6 @@ module.exports = {
   markNotificationAsRead,
   markAllNotificationsAsRead,
   getUsersByMentionTokens,
+  getGlobalNotificationPreferences,
+  updateGlobalNotificationPreferences,
 };

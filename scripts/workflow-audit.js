@@ -358,11 +358,21 @@ function runNotificationWiringAudit() {
   const notificationRoutePath = 'functions/routes/notifications.js';
   const notificationServicePath = 'functions/services/notification.js';
   const dbPath = 'functions/db/index.js';
+  const swaggerPath = 'functions/docs/swagger.js';
   const projectRoutePath = 'functions/routes/projects.js';
+  const clientRoutePath = 'functions/routes/clients.js';
+  const leadRoutePath = 'functions/routes/leads.js';
+  const memberRoutePath = 'functions/routes/members.js';
+  const notificationModelPath = 'functions/models/notification.js';
   const notificationRouteSource = fileExists(notificationRoutePath) ? readProjectFile(notificationRoutePath) : '';
   const notificationServiceSource = fileExists(notificationServicePath) ? readProjectFile(notificationServicePath) : '';
   const dbSource = readProjectFile(dbPath);
+  const swaggerSource = readProjectFile(swaggerPath);
   const projectRouteSource = readProjectFile(projectRoutePath);
+  const clientRouteSource = readProjectFile(clientRoutePath);
+  const leadRouteSource = readProjectFile(leadRoutePath);
+  const memberRouteSource = readProjectFile(memberRoutePath);
+  const notificationModelSource = readProjectFile(notificationModelPath);
   const javascriptFiles = [
     'server.js',
     ...fs.readdirSync(path.resolve(PROJECT_ROOT, 'functions/routes')).map((name) => `functions/routes/${name}`).filter((name) => name.endsWith('.js')),
@@ -423,6 +433,104 @@ function runNotificationWiringAudit() {
     endpoint: dbPath,
     expected: 'List, mark-one-read, and mark-all-read helpers exist',
     actual: 'One or more read-state helpers missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Notification route exposes admin preference endpoints', /router\.get\(['"]\/preferences['"],[\s\S]*middlewares\.adminOnly[\s\S]*notificationsRead/.test(notificationRouteSource) && /router\.put\(['"]\/preferences['"],[\s\S]*middlewares\.adminOnly[\s\S]*notificationsWrite/.test(notificationRouteSource), {
+    endpoint: notificationRoutePath,
+    expected: 'GET /preferences and PUT /preferences use adminOnly plus notification read/write limiters',
+    actual: 'Notification preference routes missing or not admin-protected',
+    severity: 'High',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Notification model defines preference schemas and defaults', /notificationPreferencesSchema/.test(notificationModelSource) && /updateNotificationPreferencesSchema/.test(notificationModelSource) && /defaultNotificationPreferences/.test(notificationModelSource) && /normalizeNotificationPreferences/.test(notificationModelSource), {
+    endpoint: notificationModelPath,
+    expected: 'Preference schema, partial update schema, default map, and normalizer are exported',
+    actual: 'One or more notification preference model exports are missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Notification DB helpers include global preference persistence', /system_settings/.test(dbSource) && /getGlobalNotificationPreferences/.test(dbSource) && /updateGlobalNotificationPreferences/.test(dbSource), {
+    endpoint: dbPath,
+    expected: 'Global notification preference get/update helpers persist to system_settings',
+    actual: 'Global notification preference DB helpers or system_settings collection are missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Notification service filters globally disabled notification types before insert', /getGlobalNotificationPreferences/.test(notificationServiceSource) && /normalizeNotificationPreferences/.test(notificationServiceSource) && /enabledNotificationItems/.test(notificationServiceSource) && /db\.addNotifications\(enabledNotificationItems\)/.test(notificationServiceSource), {
+    endpoint: notificationServicePath,
+    expected: 'createNotifications() loads global preferences once and inserts only globally enabled items',
+    actual: 'Global preference-aware notification filtering is missing from service bulk path',
+    severity: 'Critical',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Swagger documents notification preference endpoints', /NotificationPreferences/.test(swaggerSource) && /UpdateNotificationPreferencesRequest/.test(swaggerSource) && /\/api\/notifications\/preferences/.test(swaggerSource), {
+    endpoint: swaggerPath,
+    expected: 'Preference schemas plus /api/notifications/preferences path are documented',
+    actual: 'Swagger preference endpoint or schemas missing',
+    severity: 'Medium',
+    smokeGap: false,
+  });
+
+  const requiredNotificationTypes = [
+    'TASK_ASSIGNMENT',
+    'PROJECT_ASSIGNMENT',
+    'CLIENT_ASSIGNMENT',
+    'LEAD_ASSIGNMENT',
+    'COMMENT_MENTION',
+    'ROLE_CHANGE',
+    'SYSTEM_ALERT',
+    'CLIENT_CREATED',
+    'PROJECT_STATUS_CHANGE',
+    'LEAD_STATUS_CHANGE',
+    'PROJECT_COMMENT',
+    'PASSWORD_UPDATED',
+  ];
+  const missingNotificationTypes = requiredNotificationTypes.filter((type) => !notificationModelSource.includes(`'${type}'`) && !notificationModelSource.includes(`"${type}"`));
+  assertCheck(area, 'Notification model includes required workflow event types', missingNotificationTypes.length === 0, {
+    endpoint: notificationModelPath,
+    expected: `Notification enum includes ${requiredNotificationTypes.join(', ')}`,
+    actual: missingNotificationTypes.length ? `Missing: ${missingNotificationTypes.join(', ')}` : 'All required notification types are present',
+    severity: 'Critical',
+    smokeGap: false,
+  });
+
+  assertCheck(area, 'Notification DB helpers include role recipient lookup', /async\s+function\s+getUsersByRoles\s*\(/.test(dbSource) && /getUsersByRoles/.test(dbSource), {
+    endpoint: dbPath,
+    expected: 'getUsersByRoles() helper is implemented and exported',
+    actual: 'Role recipient lookup helper missing or not exported',
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  assertCheck(area, 'New client notifications are wired for admin fan-out', /CLIENT_CREATED/.test(clientRouteSource) && /getUsersByRoles\s*\(/.test(clientRouteSource) && /NotificationService\.dispatchMany\s*\(/.test(clientRouteSource), {
+    endpoint: clientRoutePath,
+    expected: 'POST /api/clients emits CLIENT_CREATED through dispatchMany to role recipients',
+    actual: 'CLIENT_CREATED dispatchMany wiring missing from clients route',
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  assertCheck(area, 'Project status and comment notifications are wired for fan-out', /PROJECT_STATUS_CHANGE/.test(projectRouteSource) && /PROJECT_COMMENT/.test(projectRouteSource) && /COMMENT_MENTION/.test(projectRouteSource), {
+    endpoint: projectRoutePath,
+    expected: 'Projects route wires PROJECT_STATUS_CHANGE, PROJECT_COMMENT, and COMMENT_MENTION notifications',
+    actual: 'One or more project notification triggers are missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  assertCheck(area, 'Lead status notifications are wired with duplicate-safe fan-out', /LEAD_STATUS_CHANGE/.test(leadRouteSource) && /new\s+Set\s*\(/.test(leadRouteSource) && /NotificationService\.dispatchMany\s*\(/.test(leadRouteSource), {
+    endpoint: leadRoutePath,
+    expected: 'PATCH /api/leads/:leadId emits LEAD_STATUS_CHANGE through duplicate-safe dispatchMany',
+    actual: 'LEAD_STATUS_CHANGE dispatchMany wiring missing from leads route',
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  assertCheck(area, 'Password update notifications are wired', /PASSWORD_UPDATED/.test(memberRouteSource) && /NotificationService\.dispatch\s*\(/.test(memberRouteSource), {
+    endpoint: memberRoutePath,
+    expected: 'PUT /api/members/:id/password emits PASSWORD_UPDATED to the member',
+    actual: 'PASSWORD_UPDATED dispatch wiring missing from members route',
     severity: 'High',
     smokeGap: false,
   });
@@ -1083,6 +1191,31 @@ async function runNotificationApiFlow() {
     } else {
       skip('Notifications', 'Assignment-triggered notification flow skipped', 'Task fixture did not return an id');
     }
+  }
+
+  const preferences = await expectStatus('Notifications', 'GET /api/notifications/preferences returns global preference toggles', 'GET', '/api/notifications/preferences', {}, [200]);
+  assertCheck('Notifications', 'Global preference response includes known notification type toggles', preferences.json?.data?.preferences && typeof preferences.json.data.preferences.TASK_ASSIGNMENT === 'boolean' && typeof preferences.json.data.preferences.PROJECT_STATUS_CHANGE === 'boolean', {
+    endpoint: 'GET /api/notifications/preferences',
+    expected: 'data.preferences includes global boolean toggles for known notification types',
+    actual: JSON.stringify(preferences.json?.data || {}),
+    severity: 'High',
+    smokeGap: false,
+  });
+  const originalTaskAssignmentPreference = preferences.json?.data?.preferences?.TASK_ASSIGNMENT;
+  const disabledPreference = await expectStatus('Notifications', 'PUT /api/notifications/preferences disables TASK_ASSIGNMENT globally', 'PUT', '/api/notifications/preferences', {
+    body: { TASK_ASSIGNMENT: false },
+  }, [200]);
+  assertCheck('Notifications', 'Global preference update accepts partial type toggles', disabledPreference.json?.data?.preferences?.TASK_ASSIGNMENT === false && typeof disabledPreference.json?.data?.preferences?.PROJECT_STATUS_CHANGE === 'boolean', {
+    endpoint: 'PUT /api/notifications/preferences',
+    expected: 'TASK_ASSIGNMENT=false globally and unspecified types remain present',
+    actual: JSON.stringify(disabledPreference.json?.data || {}),
+    severity: 'High',
+    smokeGap: false,
+  });
+  if (originalTaskAssignmentPreference !== undefined) {
+    await expectStatus('Notifications', 'PUT /api/notifications/preferences restores global TASK_ASSIGNMENT preference', 'PUT', '/api/notifications/preferences', {
+      body: { TASK_ASSIGNMENT: originalTaskAssignmentPreference },
+    }, [200]);
   }
 
   const readAll = await expectStatus('Notifications', 'PUT /api/notifications/read-all marks all current user notifications read', 'PUT', '/api/notifications/read-all', {}, [200]);

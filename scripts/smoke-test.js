@@ -730,6 +730,43 @@ async function testNotifications() {
   );
 
   try {
+    const initialPreferences = await check("GET  /api/notifications/preferences", "GET", "/api/notifications/preferences");
+    assertSmoke(
+      "GET  /api/notifications/preferences returns global preference toggles",
+      initialPreferences?.data?.preferences
+        && typeof initialPreferences.data.preferences.TASK_ASSIGNMENT === "boolean"
+        && typeof initialPreferences.data.preferences.PROJECT_STATUS_CHANGE === "boolean",
+      `received ${JSON.stringify(initialPreferences?.data)}`,
+    );
+
+    const originalTaskAssignmentPreference = initialPreferences?.data?.preferences?.TASK_ASSIGNMENT;
+    const disabledPreferences = await check(
+      "PUT  /api/notifications/preferences disables one type globally",
+      "PUT",
+      "/api/notifications/preferences",
+      { TASK_ASSIGNMENT: false },
+    );
+    assertSmoke(
+      "PUT  /api/notifications/preferences accepts partial global toggles",
+      disabledPreferences?.data?.preferences?.TASK_ASSIGNMENT === false
+        && typeof disabledPreferences?.data?.preferences?.PROJECT_STATUS_CHANGE === "boolean",
+      `received ${JSON.stringify(disabledPreferences?.data)}`,
+    );
+
+    const restoredPreferences = await check(
+      "PUT  /api/notifications/preferences restores one global type",
+      "PUT",
+      "/api/notifications/preferences",
+      { TASK_ASSIGNMENT: originalTaskAssignmentPreference !== undefined ? originalTaskAssignmentPreference : true },
+    );
+    assertSmoke(
+      "PUT  /api/notifications/preferences preserves full global preference response shape",
+      restoredPreferences?.data?.preferences
+        && typeof restoredPreferences.data.preferences.TASK_ASSIGNMENT === "boolean"
+        && typeof restoredPreferences.data.preferences.PASSWORD_UPDATED === "boolean",
+      `received ${JSON.stringify(restoredPreferences?.data)}`,
+    );
+
     let notificationToMark = notificationItems(initialList).find((notification) => notification?.id && !notification?.isRead)
       || notificationItems(initialList).find((notification) => notification?.id)
       || null;
