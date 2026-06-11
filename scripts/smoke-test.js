@@ -523,7 +523,7 @@ async function testProjectTaskDerivedProgress() {
     );
 
     await check("PATCH /api/projects/:id rejects manual progress", "PATCH", `/api/projects/${projectId}`, { progress: 10 }, { expect: [400] });
-    await check("PUT  /api/projects/:id rejects manual progress", "PUT", `/api/projects/${projectId}`, { progress: 25 }, { expect: [400] });
+    await check("PUT  /api/projects/:id is not supported", "PUT", `/api/projects/${projectId}`, { progress: 25 }, { expect: [404] });
 
     await check("PATCH /api/tasks/:id completes remaining project task", "PATCH", `/api/tasks/${firstTaskId}`, { status: "Done" });
     const completeDetail = await check(
@@ -730,6 +730,10 @@ async function testNotifications() {
   );
 
   try {
+    let notificationToMark = notificationItems(initialList).find((notification) => notification?.id && !notification?.isRead)
+      || notificationItems(initialList).find((notification) => notification?.id)
+      || null;
+
     if (!adminId) {
       skipSmoke("NOTIFICATION assignment trigger fixture", "could not resolve current admin user ID");
     } else {
@@ -763,29 +767,27 @@ async function testNotifications() {
           Boolean(triggeredNotification && triggeredNotification.type === "TASK_ASSIGNMENT" && triggeredNotification.isRead === false),
           `taskId=${taskId}, notifications=${JSON.stringify(notificationItems(triggeredList).slice(0, 5))}`,
         );
-
-        if (triggeredNotification?.id) {
-          const readOne = await check(
-            "PUT  /api/notifications/:id/read",
-            "PUT",
-            `/api/notifications/${triggeredNotification.id}/read`,
-          );
-          assertSmoke(
-            "PUT  /api/notifications/:id/read marks one notification read",
-            readOne?.data?.notification?.id === triggeredNotification.id && readOne?.data?.notification?.isRead === true,
-            `received ${JSON.stringify(readOne?.data?.notification)}`,
-          );
-        } else {
-          const fallbackNotification = notificationItems(initialList).find((notification) => notification?.id);
-          if (fallbackNotification?.id) {
-            await check("PUT  /api/notifications/:id/read (existing fallback)", "PUT", `/api/notifications/${fallbackNotification.id}/read`);
-          } else {
-            skipSmoke("PUT  /api/notifications/:id/read", "no notification was available to mark as read");
-          }
-        }
+        if (triggeredNotification?.id) notificationToMark = triggeredNotification;
       } else {
         skipSmoke("TASK_ASSIGNMENT notification trigger", "task fixture did not return an id");
       }
+    }
+
+    if (notificationToMark?.id) {
+      const readOne = await check(
+        notificationToMark.referenceId === taskId
+          ? "PUT  /api/notifications/:id/read"
+          : "PUT  /api/notifications/:id/read (existing fallback)",
+        "PUT",
+        `/api/notifications/${notificationToMark.id}/read`,
+      );
+      assertSmoke(
+        "PUT  /api/notifications/:id/read marks one notification read",
+        readOne?.data?.notification?.id === notificationToMark.id && readOne?.data?.notification?.isRead === true,
+        `received ${JSON.stringify(readOne?.data?.notification)}`,
+      );
+    } else {
+      skipSmoke("PUT  /api/notifications/:id/read", "no notification was available to mark as read");
     }
 
     const readAll = await check("PUT  /api/notifications/read-all", "PUT", "/api/notifications/read-all");
@@ -1311,7 +1313,7 @@ async function testConflict() {
   await check(
     "POST /api/members (duplicate email) → 409",
     "POST", "/api/members",
-    { firstName: "Dup", lastName: "User", email: EMAIL, password: PASSWORD, role: "staff" },
+    { firstName: "Dup", lastName: "User", email: EMAIL, phone: "+2348000000398", password: PASSWORD, role: "staff" },
     { expect: [409] }
   );
 }
