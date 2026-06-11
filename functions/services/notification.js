@@ -1,6 +1,10 @@
 const db = require('../db');
 const { logger, generateToken } = require('../helpers');
-const { createNotificationSchema } = require('../models/notification');
+const {
+  createNotificationSchema,
+  updateNotificationPreferencesSchema,
+  normalizeNotificationPreferences,
+} = require('../models/notification');
 
 class NotificationService {
   static async createNotification(data) {
@@ -29,7 +33,12 @@ class NotificationService {
       };
     });
 
-    return db.addNotifications(notificationItems);
+    const preferences = await this.getPreferences();
+    const enabledNotificationItems = notificationItems.filter((item) => preferences[item.type] !== false);
+
+    if (enabledNotificationItems.length === 0) return [];
+
+    return db.addNotifications(enabledNotificationItems);
   }
 
   static dispatch(data, logScope = 'NOTIFICATION') {
@@ -50,6 +59,30 @@ class NotificationService {
 
   static async getUserNotifications(userId, options = {}) {
     return db.getNotificationsByRecipient(userId, options);
+  }
+
+  static async getPreferences() {
+    const preferences = await db.getGlobalNotificationPreferences();
+    return normalizeNotificationPreferences(preferences);
+  }
+
+  static async updatePreferences(preferencesUpdate) {
+    const parsed = updateNotificationPreferencesSchema.safeParse(preferencesUpdate);
+    if (!parsed.success) {
+      const error = new Error('Invalid notification preferences');
+      error.statusCode = 400;
+      error.details = parsed.error.issues;
+      throw error;
+    }
+
+    const currentPreferences = await this.getPreferences();
+    const notificationPreferences = normalizeNotificationPreferences({
+      ...currentPreferences,
+      ...parsed.data,
+    });
+    const updated = await db.updateGlobalNotificationPreferences(notificationPreferences);
+
+    return normalizeNotificationPreferences(updated?.notificationPreferences);
   }
 
   static async markAsRead(notificationId, userId) {

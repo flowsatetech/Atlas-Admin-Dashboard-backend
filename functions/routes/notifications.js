@@ -7,6 +7,47 @@ const { logger, serverError, clientError } = require('../helpers');
 const { notificationsRead, notificationsWrite } = middlewares.rateLimiters;
 
 /**
+ * @route   GET /api/notifications/preferences
+ * @desc    Get global notification preferences
+ * @access  Private/Admin
+ */
+router.get('/preferences', middlewares.adminOnly, notificationsRead, async (req, res) => {
+  try {
+    const preferences = await NotificationService.getPreferences();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Notification preferences fetched successfully',
+      data: { preferences },
+    });
+  } catch (error) {
+    logger('GET_NOTIFICATION_PREFERENCES').error(error);
+    return serverError(res, error, 'Failed to fetch notification preferences.');
+  }
+});
+
+/**
+ * @route   PUT /api/notifications/preferences
+ * @desc    Update global notification preferences
+ * @access  Private/Admin
+ */
+router.put('/preferences', middlewares.adminOnly, notificationsWrite, async (req, res) => {
+  try {
+    const preferences = await NotificationService.updatePreferences(req.body || {});
+
+    return res.status(200).json({
+      success: true,
+      message: 'Notification preferences updated successfully',
+      data: { preferences },
+    });
+  } catch (error) {
+    logger('UPDATE_NOTIFICATION_PREFERENCES').error(error);
+    if (error.statusCode === 400) return clientError(res, 400, error.message, error.details);
+    return serverError(res, error, 'Failed to update notification preferences.');
+  }
+});
+
+/**
  * @route   GET /api/notifications
  * @desc    Get user notifications
  * @access  Private
