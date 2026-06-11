@@ -166,6 +166,17 @@ router.put('/:id/password', middlewares.adminOnly, membersWrite, async (req, res
             updatedAt: Date.now()
         });
 
+        services.NotificationService.dispatch({
+            recipientId: existing.userId,
+            type: 'PASSWORD_UPDATED',
+            title: 'Password Updated',
+            message: 'Your account password was updated by an administrator.',
+            link: '/profile',
+            referenceId: existing.userId,
+            referenceType: 'User',
+            createdBy: req.user?.userId
+        }, 'MEMBERS_PASSWORD_PUT');
+
         res.status(200).json({
             success: true,
             message: 'Member password updated successfully'

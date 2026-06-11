@@ -138,6 +138,25 @@ router.patch('/:leadId', middlewares.adminOnly, leadsWrite, async (req, res) => 
             }
         }
 
+        if (Object.prototype.hasOwnProperty.call(parsed.data, 'status') && parsed.data.status !== lead.status) {
+            const adminRecipients = await db.getUsersByRoles(['admin', 'manager']);
+            const recipientIds = new Set([
+                parsed.data.assignedTo || lead.assignedTo,
+                ...adminRecipients.map((recipient) => recipient.userId),
+            ].filter((recipientId) => recipientId && recipientId !== req.user?.userId));
+
+            services.NotificationService.dispatchMany([...recipientIds].map((recipientId) => ({
+                recipientId,
+                type: 'LEAD_STATUS_CHANGE',
+                title: 'Lead Status Updated',
+                message: `${lead.firstName} ${lead.lastName} moved from ${lead.status || 'Unknown'} to ${parsed.data.status}`,
+                link: `/leads/${lead.id}`,
+                referenceId: lead.id,
+                referenceType: 'Lead',
+                createdBy: req.user?.userId
+            })), 'UPDATE_LEAD');
+        }
+
         return res.status(200).json({
             success: true,
             message: 'Lead updated successfully',

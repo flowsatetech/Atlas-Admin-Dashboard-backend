@@ -247,6 +247,22 @@ router.patch('/:projectId', middlewares.adminOnly, projectsWrite, async (req, re
             })), 'UPDATE_PROJECT');
         }
 
+        if (Object.prototype.hasOwnProperty.call(incoming, 'status') && incoming.status !== existing.status) {
+            const statusRecipients = [...new Set((updateData.teamIds || existing.teamIds || [])
+                .filter((memberId) => memberId && memberId !== req.user?.userId))];
+
+            services.NotificationService.dispatchMany(statusRecipients.map((memberId) => ({
+                recipientId: memberId,
+                type: 'PROJECT_STATUS_CHANGE',
+                title: 'Project Status Updated',
+                message: `${existing.name || 'Project'} moved from ${existing.status || 'Unknown'} to ${incoming.status}`,
+                link: `/projects/${projectId}`,
+                referenceId: projectId,
+                referenceType: 'Project',
+                createdBy: req.user?.userId
+            })), 'UPDATE_PROJECT');
+        }
+
         await services.logActivity({
             type: 'project.updated',
             actorId: req.user?.userId || null,
@@ -324,23 +340,41 @@ router.post('/:projectId/comments', projectsWrite, async (req, res) => {
             [...content.matchAll(/@([A-Za-z0-9_-]+)/g)].map((match) => match[1])
         )];
 
-        if (mentionTokens.length > 0) {
-            const mentionedUsers = await db.getUsersByMentionTokens(mentionTokens);
-            const notificationItems = mentionedUsers
-                .filter((mentionedUser) => mentionedUser.userId && mentionedUser.userId !== req.user.userId)
-                .map((mentionedUser) => ({
-                    recipientId: mentionedUser.userId,
-                    type: 'COMMENT_MENTION',
-                    title: 'You were mentioned',
-                    message: `You were mentioned in a comment on project: ${existing.name || 'Project'}`,
-                    link: `/projects/${req.params.projectId}`,
-                    referenceId: req.params.projectId,
-                    referenceType: 'Project',
-                    createdBy: req.user?.userId
-                }));
+        const mentionedUsers = mentionTokens.length > 0
+            ? await db.getUsersByMentionTokens(mentionTokens)
+            : [];
+        const mentionedRecipientIds = new Set(mentionedUsers
+            .filter((mentionedUser) => mentionedUser.userId && mentionedUser.userId !== req.user.userId)
+            .map((mentionedUser) => mentionedUser.userId));
 
-            services.NotificationService.dispatchMany(notificationItems, 'ADD_COMMENT');
-        }
+        const mentionNotifications = [...mentionedRecipientIds].map((recipientId) => ({
+            recipientId,
+            type: 'COMMENT_MENTION',
+            title: 'You were mentioned',
+            message: `You were mentioned in a comment on project: ${existing.name || 'Project'}`,
+            link: `/projects/${req.params.projectId}`,
+            referenceId: req.params.projectId,
+            referenceType: 'Project',
+            createdBy: req.user?.userId
+        }));
+
+        const commentNotifications = [...new Set(existing.teamIds || [])]
+            .filter((memberId) => memberId && memberId !== req.user.userId && !mentionedRecipientIds.has(memberId))
+            .map((memberId) => ({
+                recipientId: memberId,
+                type: 'PROJECT_COMMENT',
+                title: 'New Project Comment',
+                message: `Someone commented on project: ${existing.name || 'Project'}`,
+                link: `/projects/${req.params.projectId}`,
+                referenceId: req.params.projectId,
+                referenceType: 'Project',
+                createdBy: req.user?.userId
+            }));
+
+        services.NotificationService.dispatchMany([
+            ...mentionNotifications,
+            ...commentNotifications,
+        ], 'ADD_COMMENT');
 
         res.status(204).send();
     } catch (e) {

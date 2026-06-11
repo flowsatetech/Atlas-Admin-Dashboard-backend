@@ -359,10 +359,18 @@ function runNotificationWiringAudit() {
   const notificationServicePath = 'functions/services/notification.js';
   const dbPath = 'functions/db/index.js';
   const projectRoutePath = 'functions/routes/projects.js';
+  const clientRoutePath = 'functions/routes/clients.js';
+  const leadRoutePath = 'functions/routes/leads.js';
+  const memberRoutePath = 'functions/routes/members.js';
+  const notificationModelPath = 'functions/models/notification.js';
   const notificationRouteSource = fileExists(notificationRoutePath) ? readProjectFile(notificationRoutePath) : '';
   const notificationServiceSource = fileExists(notificationServicePath) ? readProjectFile(notificationServicePath) : '';
   const dbSource = readProjectFile(dbPath);
   const projectRouteSource = readProjectFile(projectRoutePath);
+  const clientRouteSource = readProjectFile(clientRoutePath);
+  const leadRouteSource = readProjectFile(leadRoutePath);
+  const memberRouteSource = readProjectFile(memberRoutePath);
+  const notificationModelSource = readProjectFile(notificationModelPath);
   const javascriptFiles = [
     'server.js',
     ...fs.readdirSync(path.resolve(PROJECT_ROOT, 'functions/routes')).map((name) => `functions/routes/${name}`).filter((name) => name.endsWith('.js')),
@@ -423,6 +431,69 @@ function runNotificationWiringAudit() {
     endpoint: dbPath,
     expected: 'List, mark-one-read, and mark-all-read helpers exist',
     actual: 'One or more read-state helpers missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  const requiredNotificationTypes = [
+    'TASK_ASSIGNMENT',
+    'PROJECT_ASSIGNMENT',
+    'CLIENT_ASSIGNMENT',
+    'LEAD_ASSIGNMENT',
+    'COMMENT_MENTION',
+    'ROLE_CHANGE',
+    'SYSTEM_ALERT',
+    'CLIENT_CREATED',
+    'PROJECT_STATUS_CHANGE',
+    'LEAD_STATUS_CHANGE',
+    'PROJECT_COMMENT',
+    'PASSWORD_UPDATED',
+  ];
+  const missingNotificationTypes = requiredNotificationTypes.filter((type) => !notificationModelSource.includes(`'${type}'`) && !notificationModelSource.includes(`"${type}"`));
+  assertCheck(area, 'Notification model includes required workflow event types', missingNotificationTypes.length === 0, {
+    endpoint: notificationModelPath,
+    expected: `Notification enum includes ${requiredNotificationTypes.join(', ')}`,
+    actual: missingNotificationTypes.length ? `Missing: ${missingNotificationTypes.join(', ')}` : 'All required notification types are present',
+    severity: 'Critical',
+    smokeGap: false,
+  });
+
+  assertCheck(area, 'Notification DB helpers include role recipient lookup', /async\s+function\s+getUsersByRoles\s*\(/.test(dbSource) && /getUsersByRoles/.test(dbSource), {
+    endpoint: dbPath,
+    expected: 'getUsersByRoles() helper is implemented and exported',
+    actual: 'Role recipient lookup helper missing or not exported',
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  assertCheck(area, 'New client notifications are wired for admin fan-out', /CLIENT_CREATED/.test(clientRouteSource) && /getUsersByRoles\s*\(/.test(clientRouteSource) && /NotificationService\.dispatchMany\s*\(/.test(clientRouteSource), {
+    endpoint: clientRoutePath,
+    expected: 'POST /api/clients emits CLIENT_CREATED through dispatchMany to role recipients',
+    actual: 'CLIENT_CREATED dispatchMany wiring missing from clients route',
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  assertCheck(area, 'Project status and comment notifications are wired for fan-out', /PROJECT_STATUS_CHANGE/.test(projectRouteSource) && /PROJECT_COMMENT/.test(projectRouteSource) && /COMMENT_MENTION/.test(projectRouteSource), {
+    endpoint: projectRoutePath,
+    expected: 'Projects route wires PROJECT_STATUS_CHANGE, PROJECT_COMMENT, and COMMENT_MENTION notifications',
+    actual: 'One or more project notification triggers are missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  assertCheck(area, 'Lead status notifications are wired with duplicate-safe fan-out', /LEAD_STATUS_CHANGE/.test(leadRouteSource) && /new\s+Set\s*\(/.test(leadRouteSource) && /NotificationService\.dispatchMany\s*\(/.test(leadRouteSource), {
+    endpoint: leadRoutePath,
+    expected: 'PATCH /api/leads/:leadId emits LEAD_STATUS_CHANGE through duplicate-safe dispatchMany',
+    actual: 'LEAD_STATUS_CHANGE dispatchMany wiring missing from leads route',
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  assertCheck(area, 'Password update notifications are wired', /PASSWORD_UPDATED/.test(memberRouteSource) && /NotificationService\.dispatch\s*\(/.test(memberRouteSource), {
+    endpoint: memberRoutePath,
+    expected: 'PUT /api/members/:id/password emits PASSWORD_UPDATED to the member',
+    actual: 'PASSWORD_UPDATED dispatch wiring missing from members route',
     severity: 'High',
     smokeGap: false,
   });

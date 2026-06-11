@@ -205,6 +205,24 @@ async function getUsersByIds(userIds = []) {
   }
 }
 
+async function getUsersByRoles(roles = []) {
+  try {
+    if (!Array.isArray(roles) || roles.length === 0) return [];
+    const uniqueRoles = [...new Set(roles.filter(Boolean))];
+    if (uniqueRoles.length === 0) return [];
+
+    return await users
+      .find(
+        { role: { $in: uniqueRoles } },
+        { projection: { _id: 0, userId: 1, firstName: 1, lastName: 1, email: 1, role: 1 } },
+      )
+      .toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function updateUser(userId, updateData) {
   try {
     const result = await users.updateOne({ userId }, { $set: updateData });
@@ -1724,6 +1742,7 @@ module.exports = {
   getUserByEmail,
   getUserById,
   getUsersByIds,
+  getUsersByRoles,
   updateUser,
   deleteUserById,
   getProjectsPaginated,

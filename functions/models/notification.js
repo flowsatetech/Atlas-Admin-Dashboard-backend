@@ -7,7 +7,12 @@ const notificationTypeEnum = z.enum([
   'LEAD_ASSIGNMENT',
   'COMMENT_MENTION',
   'ROLE_CHANGE',
-  'SYSTEM_ALERT'
+  'SYSTEM_ALERT',
+  'CLIENT_CREATED',
+  'PROJECT_STATUS_CHANGE',
+  'LEAD_STATUS_CHANGE',
+  'PROJECT_COMMENT',
+  'PASSWORD_UPDATED'
 ]);
 
 const notificationSchema = z.object({

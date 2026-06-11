@@ -181,6 +181,22 @@ router.post("/", middlewares.adminOnly, clientsWrite, async (req, res) => {
     }
 
     await db.addClient(newClient);
+
+    const adminRecipients = await db.getUsersByRoles(['admin', 'manager']);
+    const clientCreatedNotifications = adminRecipients
+      .filter((recipient) => recipient.userId && recipient.userId !== req.user?.userId)
+      .map((recipient) => ({
+        recipientId: recipient.userId,
+        type: 'CLIENT_CREATED',
+        title: 'New Client Created',
+        message: `${newClient.fullName} was added as a new client`,
+        link: `/clients/${newClient.id}`,
+        referenceId: newClient.id,
+        referenceType: 'Client',
+        createdBy: req.user?.userId
+      }));
+
+    services.NotificationService.dispatchMany(clientCreatedNotifications, 'NEW_CLIENT');
     await services.logActivity({
       type: "client.created",
       actorId: req.user?.userId || null,
