@@ -54,7 +54,6 @@ router.post(
   "/redis/flush",
   middlewares.authMiddleware,
   middlewares.adminOnly,
-  healthLimiter,
   async (req, res) => {
     try {
       if (!redisClient?.isOpen) {
