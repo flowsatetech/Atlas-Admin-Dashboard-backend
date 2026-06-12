@@ -67,7 +67,7 @@ const formatMember = (member) => ({
 /** MAIN USER ROUTES */
 
 // 1. GET /api/members - Paginated list of staff
-router.get('/', middlewares.adminOnly, membersRead, async (req, res) => {
+router.get('/', membersRead, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = Math.min(parseInt(req.query.limit) || 10, 100);
