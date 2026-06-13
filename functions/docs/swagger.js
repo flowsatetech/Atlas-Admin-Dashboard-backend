@@ -259,8 +259,6 @@ const examples = {
         description: "Refresh the public website, messaging, and conversion pages.",
         deadline: 1775779200000,
         budget: 45000,
-        recognizedRevenue: null,
-        recognizedAt: null,
         priority: "High",
         status: "InProgress",
         teamIds: ["2854abb8528fe1806d4a75d4f81035ef"],
@@ -406,7 +404,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
         { name: "Revenue", description: "Revenue time series and revenue dashboard aggregations." },
         { name: "Payments", description: "Payment records for clients and projects." },
         { name: "Clients", description: "Client CRM records, status cards, details, and admin mutations." },
-        { name: "Projects", description: "Projects, derived progress, comments, revenue recognition, and project status management." },
+        { name: "Projects", description: "Projects, derived progress, comments, and project status management." },
         { name: "Tasks", description: "Task assignment, filtering, task details, and task lifecycle operations." },
         { name: "Members", description: "Staff account management. These routes are admin-only." },
         { name: "Media", description: "Image uploads/replacement and general file metadata." },
@@ -732,8 +730,6 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     description: { type: "string", default: "", example: "Refresh the public website, messaging, and conversion pages." },
                     deadline: ref("Timestamp"),
                     budget: { type: "number", minimum: 0, default: 0, example: 45000 },
-                    recognizedRevenue: { type: "number", nullable: true, minimum: 0, default: null, example: null },
-                    recognizedAt: { allOf: [ref("Timestamp")], nullable: true, example: null },
                     priority: { type: "string", enum: enumValues.projectPriorities, default: "Medium", example: "High" },
                     status: {
                         type: "string",
@@ -793,8 +789,6 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     description: { type: "string", default: "", example: "Refresh website messaging and conversion pages." },
                     deadline: ref("Timestamp"),
                     budget: { type: "number", minimum: 0, default: 0, example: 45000 },
-                    recognizedRevenue: { type: "number", nullable: true, minimum: 0, default: null, example: null },
-                    recognizedAt: { allOf: [ref("Timestamp")], nullable: true, default: null, example: null },
                     priority: { type: "string", enum: enumValues.projectPriorities, default: "Medium", example: "High" },
                     status: { type: "string", enum: enumValues.projectStatuses, default: "Planned", example: "Planned" },
                     teamIds: { type: "array", items: { type: "string", minLength: 1 }, default: [], description: "Each id must match an existing user.", example: [examples.userId] },
@@ -810,8 +804,6 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     description: { type: "string", example: "Updated scope after kickoff." },
                     deadline: ref("Timestamp"),
                     budget: { type: "number", minimum: 0, example: 50000 },
-                    recognizedRevenue: { type: "number", nullable: true, minimum: 0, example: null },
-                    recognizedAt: { allOf: [ref("Timestamp")], nullable: true, example: null },
                     priority: { type: "string", enum: enumValues.projectPriorities, example: "Urgent" },
                     status: { type: "string", enum: enumValues.projectStatuses, example: "InProgress" },
                     teamIds: { type: "array", items: { type: "string" }, example: [examples.userId, examples.adminUserId] },
@@ -820,21 +812,18 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             },
             UpdateProjectFinancialRequest: {
                 type: "object",
-                description: "Admin project update route for revenue recognition, assignees, and status. recognizedRevenue and recognizedAt must be sent together and are only valid when the final status is Completed.",
+                description: "Admin project update route for assignees, budget, and status.",
                 properties: {
                     name: { type: "string", minLength: 1, example: "Website Redesign" },
                     client: { type: "string", description: "Legacy client field supported by this route.", example: examples.clientId },
                     dueTime: { allOf: [ref("Timestamp")], description: "Legacy due timestamp field supported by this route." },
                     assignees: { type: "array", items: { type: "string" }, description: "Array of existing user IDs.", example: [examples.userId] },
                     budget: { type: "number", minimum: 0, example: 45000 },
-                    status: { type: "string", enum: enumValues.projectStatuses, example: "Completed" },
-                    recognizedRevenue: { type: "number", minimum: 0, nullable: true, example: 45000 },
-                    recognizedAt: { allOf: [ref("Timestamp")], nullable: true, example: 1775779200000 }
+                    status: { type: "string", enum: enumValues.projectStatuses, example: "Completed" }
                 },
                 example: {
                     status: "Completed",
-                    recognizedRevenue: 45000,
-                    recognizedAt: 1775779200000
+                    budget: 45000
                 }
             },
             Comment: {
@@ -2208,15 +2197,14 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             put: {
                 tags: ["Projects"],
                 operationId: "updateProjectFinancialsAndStatus",
-                summary: "Update project status, assignees, and revenue recognition",
-                description: "Admin-only update route for legacy fields, status, assignees, budget, and revenue recognition. recognizedRevenue and recognizedAt must be provided together and are only allowed when status resolves to Completed.",
+                summary: "Update project status, assignees, and budget",
+                description: "Admin-only update route for legacy fields, status, assignees, and budget.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("ProjectIdPath")],
                 requestBody: jsonRequestBody("UpdateProjectFinancialRequest", {
                     status: "Completed",
-                    recognizedRevenue: 45000,
-                    recognizedAt: 1775779200000
-                }, "Project status/revenue update payload."),
+                    budget: 45000
+                }, "Project status/budget update payload."),
                 responses: {
                     200: emptySuccessResponse("Project updated successfully.", "Project updated successfully"),
                     400: responseRef("BadRequest"),

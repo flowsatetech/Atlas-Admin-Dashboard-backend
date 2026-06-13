@@ -200,24 +200,7 @@ router.patch('/:projectId', middlewares.adminOnly, projectsWrite, async (req, re
             }
         }
 
-        if ((Object.prototype.hasOwnProperty.call(incoming, 'recognizedRevenue') ||
-            Object.prototype.hasOwnProperty.call(incoming, 'recognizedAt')) &&
-            !(Object.prototype.hasOwnProperty.call(incoming, 'recognizedRevenue') &&
-              Object.prototype.hasOwnProperty.call(incoming, 'recognizedAt'))) {
-            return clientError(res, 400, 'recognizedRevenue and recognizedAt must be provided together');
-        }
-
         const nextStatus = incoming.status || existing.status;
-        const nextRecognizedRevenue = Object.prototype.hasOwnProperty.call(incoming, 'recognizedRevenue')
-            ? incoming.recognizedRevenue
-            : existing.recognizedRevenue;
-        const nextRecognizedAt = Object.prototype.hasOwnProperty.call(incoming, 'recognizedAt')
-            ? incoming.recognizedAt
-            : existing.recognizedAt;
-
-        if (nextStatus !== 'Completed' && (nextRecognizedRevenue != null || nextRecognizedAt != null)) {
-            return clientError(res, 400, 'recognizedRevenue and recognizedAt are only allowed for Completed projects');
-        }
 
         const updateData = {
             ...incoming,
