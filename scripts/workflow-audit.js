@@ -1596,9 +1596,14 @@ async function runPaymentsRevenueAnalyticsDashboardFlow() {
   }, [201]);
   const doneTaskId = remember('tasks', doneTask.json?.data?.task?.id || '');
   const recognizedRevenue = 4321;
-  await expectStatus('Payments/revenue/analytics/dashboard', 'PATCH /api/projects/:id sets recognized revenue on completed project', 'PATCH', `/api/projects/${projectId}`, {
-    body: { status: 'Completed', recognizedRevenue, recognizedAt: Date.now() },
+  await expectStatus('Payments/revenue/analytics/dashboard', 'PATCH /api/projects/:id sets status to Completed', 'PATCH', `/api/projects/${projectId}`, {
+    body: { status: 'Completed' },
   }, [200]);
+
+  const recognizedPayment = await expectStatus('Payments/revenue/analytics/dashboard', 'POST /api/payments creates recognized revenue payment', 'POST', `/api/payments`, {
+    body: { clientId, projectId, amount: recognizedRevenue, status: 'Paid', date: Date.now() },
+  }, [201]);
+  const recognizedPaymentId = remember('payments', recognizedPayment.json?.data?.payment?.id || '');
 
   await sleep(20);
   const revenueDashboard = await expectStatus('Payments/revenue/analytics/dashboard', 'GET /api/revenue/dashboard returns recognized revenue dashboard', 'GET', '/api/revenue/dashboard?period=3months', {}, [200]);
@@ -1644,6 +1649,10 @@ async function runPaymentsRevenueAnalyticsDashboardFlow() {
     await expectStatus('Payments/revenue/analytics/dashboard', 'DELETE /api/payments/:id deletes payment', 'DELETE', `/api/payments/${paymentId}`, {}, [200]);
     forget('payments', paymentId);
     await expectStatus('Payments/revenue/analytics/dashboard', 'GET /api/payments/:id after delete returns 404', 'GET', `/api/payments/${paymentId}`, {}, [404]);
+  }
+  if (recognizedPaymentId) {
+    await expectStatus('Payments/revenue/analytics/dashboard', 'DELETE /api/payments/:id deletes recognized payment fixture', 'DELETE', `/api/payments/${recognizedPaymentId}`, {}, [200, 404]);
+    forget('payments', recognizedPaymentId);
   }
   if (doneTaskId) {
     await expectStatus('Payments/revenue/analytics/dashboard', 'DELETE /api/tasks/:id deletes revenue task fixture', 'DELETE', `/api/tasks/${doneTaskId}`, {}, [200, 404]);

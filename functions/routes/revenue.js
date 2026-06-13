@@ -42,12 +42,8 @@ function getQuarterRanges(nowTs = Date.now()) {
   };
 }
 
-function sumRecognizedRevenue(projects = []) {
-  return projects.reduce((sum, project) => sum + (Number(project.recognizedRevenue) || 0), 0);
-}
-
-function sumPendingRevenue(projects = []) {
-  return projects.reduce((sum, project) => sum + (Number(project.budget) || 0), 0);
+function sumPayments(payments = []) {
+  return payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
 }
 
 function roundMoney(value) {
@@ -68,34 +64,33 @@ function toSummaryMetric(value, currentValue, previousValue, compareLabel = 'vs 
   };
 }
 
-function buildClientMap(clients = []) {
-  return new Map(clients.map((client) => [client.id, client]));
+function buildMap(items = []) {
+  return new Map(items.map((item) => [item.id, item]));
 }
 
-function getProjectClient(project, clientMap) {
-  const clientId = project.clientId || '';
-  return clientMap.get(clientId) || null;
+function getPaymentSource(payment, clientMap, projectMap) {
+  if (payment.source) return payment.source;
+  const project = projectMap.get(payment.projectId || '');
+  if (project?.source) return project.source;
+  const client = clientMap.get(payment.clientId || '');
+  return client?.leadSource || 'Direct';
 }
 
-function getProjectSource(project, clientMap) {
-  const client = getProjectClient(project, clientMap);
-  return project.source || client?.leadSource || 'Direct';
-}
-
-function getProjectService(project) {
-  return project.service || project.category || project.type || 'Other';
+function getPaymentService(payment, projectMap) {
+  const project = projectMap.get(payment.projectId || '');
+  return project?.service || project?.category || project?.type || 'Other';
 }
 
 function sortByAmountDesc(items) {
   return items.sort((a, b) => b.amount - a.amount);
 }
 
-function groupRevenueBy(projects, getKey) {
+function groupRevenueBy(payments, getKey) {
   const totals = new Map();
 
-  for (const project of projects) {
-    const key = getKey(project) || 'Other';
-    totals.set(key, (totals.get(key) || 0) + (Number(project.recognizedRevenue) || 0));
+  for (const payment of payments) {
+    const key = getKey(payment) || 'Other';
+    totals.set(key, (totals.get(key) || 0) + (Number(payment.amount) || 0));
   }
 
   return totals;
@@ -129,56 +124,59 @@ router.get('/dashboard', analyticsRead, async (req, res) => {
     const quarterRange = getQuarterRanges();
 
     const [
-      periodRevenueProjects,
-      previousPeriodRevenueProjects,
-      currentMonthRevenueProjects,
-      previousMonthRevenueProjects,
-      currentQuarterRevenueProjects,
-      previousQuarterRevenueProjects,
-      beforePreviousQuarterRevenueProjects,
-      currentMonthPendingProjects,
-      previousMonthPendingProjects,
-      clients
+      periodRevenuePayments,
+      previousPeriodRevenuePayments,
+      currentMonthRevenuePayments,
+      previousMonthRevenuePayments,
+      currentQuarterRevenuePayments,
+      previousQuarterRevenuePayments,
+      beforePreviousQuarterRevenuePayments,
+      currentMonthPendingPayments,
+      previousMonthPendingPayments,
+      clients,
+      projects
     ] = await Promise.all([
-      db.getRecognizedRevenueProjectsBetween(periodRange.currentStart, periodRange.currentEnd),
-      db.getRecognizedRevenueProjectsBetween(periodRange.previousStart, periodRange.previousEnd),
-      db.getRecognizedRevenueProjectsBetween(monthRange.currentStart, monthRange.currentEnd),
-      db.getRecognizedRevenueProjectsBetween(monthRange.previousStart, monthRange.previousEnd),
-      db.getRecognizedRevenueProjectsBetween(quarterRange.currentStart, quarterRange.currentEnd),
-      db.getRecognizedRevenueProjectsBetween(quarterRange.previousStart, quarterRange.previousEnd),
-      db.getRecognizedRevenueProjectsBetween(quarterRange.beforePreviousStart, quarterRange.beforePreviousEnd),
-      db.getPendingRevenueProjectsBetween(monthRange.currentStart, monthRange.currentEnd),
-      db.getPendingRevenueProjectsBetween(monthRange.previousStart, monthRange.previousEnd),
-      db.getClients()
+      db.getPaidPaymentsBetween(periodRange.currentStart, periodRange.currentEnd),
+      db.getPaidPaymentsBetween(periodRange.previousStart, periodRange.previousEnd),
+      db.getPaidPaymentsBetween(monthRange.currentStart, monthRange.currentEnd),
+      db.getPaidPaymentsBetween(monthRange.previousStart, monthRange.previousEnd),
+      db.getPaidPaymentsBetween(quarterRange.currentStart, quarterRange.currentEnd),
+      db.getPaidPaymentsBetween(quarterRange.previousStart, quarterRange.previousEnd),
+      db.getPaidPaymentsBetween(quarterRange.beforePreviousStart, quarterRange.beforePreviousEnd),
+      db.getPendingPaymentsBetween(monthRange.currentStart, monthRange.currentEnd),
+      db.getPendingPaymentsBetween(monthRange.previousStart, monthRange.previousEnd),
+      db.getClients(),
+      db.getProjects()
     ]);
 
-    const clientMap = buildClientMap(clients);
-    const periodRevenueTotal = sumRecognizedRevenue(periodRevenueProjects);
-    const previousPeriodRevenueTotal = sumRecognizedRevenue(previousPeriodRevenueProjects);
-    const monthlyRevenueTotal = sumRecognizedRevenue(currentMonthRevenueProjects);
-    const previousMonthlyRevenueTotal = sumRecognizedRevenue(previousMonthRevenueProjects);
-    const currentQuarterRevenueTotal = sumRecognizedRevenue(currentQuarterRevenueProjects);
-    const previousQuarterRevenueTotal = sumRecognizedRevenue(previousQuarterRevenueProjects);
-    const beforePreviousQuarterRevenueTotal = sumRecognizedRevenue(beforePreviousQuarterRevenueProjects);
-    const pendingPaymentsTotal = sumPendingRevenue(currentMonthPendingProjects);
-    const previousPendingPaymentsTotal = sumPendingRevenue(previousMonthPendingProjects);
+    const clientMap = buildMap(clients);
+    const projectMap = buildMap(projects);
+    const periodRevenueTotal = sumPayments(periodRevenuePayments);
+    const previousPeriodRevenueTotal = sumPayments(previousPeriodRevenuePayments);
+    const monthlyRevenueTotal = sumPayments(currentMonthRevenuePayments);
+    const previousMonthlyRevenueTotal = sumPayments(previousMonthRevenuePayments);
+    const currentQuarterRevenueTotal = sumPayments(currentQuarterRevenuePayments);
+    const previousQuarterRevenueTotal = sumPayments(previousQuarterRevenuePayments);
+    const beforePreviousQuarterRevenueTotal = sumPayments(beforePreviousQuarterRevenuePayments);
+    const pendingPaymentsTotal = sumPayments(currentMonthPendingPayments);
+    const previousPendingPaymentsTotal = sumPayments(previousMonthPendingPayments);
     const growthRate = analytics.percentageChange(currentQuarterRevenueTotal, previousQuarterRevenueTotal);
     const previousGrowthRate = analytics.percentageChange(previousQuarterRevenueTotal, beforePreviousQuarterRevenueTotal);
     const growthRateChange = growthRate - previousGrowthRate;
 
     const revenueSeries = periodBuckets.map((bucket) => {
-      const total = periodRevenueProjects.reduce((sum, project) => {
-        const recognizedAt = Number(project.recognizedAt || 0);
-        return recognizedAt >= bucket.start && recognizedAt <= bucket.end
-          ? sum + (Number(project.recognizedRevenue) || 0)
+      const total = periodRevenuePayments.reduce((sum, payment) => {
+        const paymentDate = Number(payment.date || 0);
+        return paymentDate >= bucket.start && paymentDate <= bucket.end
+          ? sum + (Number(payment.amount) || 0)
           : sum;
       }, 0);
       return roundMoney(total);
     });
 
-    const sourceTotals = groupRevenueBy(periodRevenueProjects, (project) => getProjectSource(project, clientMap));
-    const serviceTotals = groupRevenueBy(periodRevenueProjects, getProjectService);
-    const clientTotals = groupRevenueBy(periodRevenueProjects, (project) => project.clientId || 'unknown');
+    const sourceTotals = groupRevenueBy(periodRevenuePayments, (payment) => getPaymentSource(payment, clientMap, projectMap));
+    const serviceTotals = groupRevenueBy(periodRevenuePayments, (payment) => getPaymentService(payment, projectMap));
+    const clientTotals = groupRevenueBy(periodRevenuePayments, (payment) => payment.clientId || 'unknown');
 
     const revenueBySource = sortByAmountDesc([...sourceTotals.entries()].map(([source, amount]) => ({
       source,
@@ -261,13 +259,13 @@ router.get('/', analyticsRead, async (req, res) => {
     const range = analytics.parsePeriod(period);
     const buckets = analytics.buildDateBuckets({ from: range.currentStart, to: range.currentEnd, unit: range.unit });
 
-    const recognizedRevenueProjects = await db.getRecognizedRevenueProjectsBetween(range.currentStart, range.currentEnd);
+    const recognizedRevenuePayments = await db.getPaidPaymentsBetween(range.currentStart, range.currentEnd);
 
     const revenueSeries = buckets.map((bucket) => {
-      const total = recognizedRevenueProjects.reduce((sum, project) => {
-        const recognizedAt = Number(new Date(project.recognizedAt).valueOf());
-        const amount = Number(project.recognizedRevenue) || 0;
-        return recognizedAt >= bucket.start && recognizedAt <= bucket.end ? sum + amount : sum;
+      const total = recognizedRevenuePayments.reduce((sum, payment) => {
+        const paymentDate = Number(payment.date || 0);
+        const amount = Number(payment.amount) || 0;
+        return paymentDate >= bucket.start && paymentDate <= bucket.end ? sum + amount : sum;
       }, 0);
       return Number(total.toFixed(2));
     });

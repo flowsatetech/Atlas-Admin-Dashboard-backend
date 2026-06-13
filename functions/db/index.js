@@ -324,77 +324,6 @@ async function getProjectsCreatedBetween(from, to) {
   }
 }
 
-async function getRecognizedRevenueProjectsBetween(from, to) {
-  try {
-    return await projects
-      .aggregate([
-        ...projectTaskProgressLookupStages,
-        {
-          $match: {
-            status: "Completed",
-            recognizedAt: { $gte: from, $lte: to },
-            recognizedRevenue: { $type: "number", $gt: 0 },
-          },
-        },
-        {
-          $project: {
-            _id: 0,
-            id: 1,
-            name: 1,
-            status: 1,
-            client: 1,
-            clientId: 1,
-            source: 1,
-            service: 1,
-            category: 1,
-            type: 1,
-            recognizedAt: 1,
-            recognizedRevenue: 1,
-          },
-        },
-      ])
-      .toArray();
-  } catch (err) {
-    logger("DB").error(err);
-    throw err;
-  }
-}
-
-async function getPendingRevenueProjectsBetween(from, to) {
-  try {
-    return await projects
-      .aggregate([
-        ...projectTaskProgressLookupStages,
-        {
-          $match: {
-            status: { $nin: ["Completed", "Cancelled"] },
-            createdAt: { $gte: from, $lte: to },
-            budget: { $type: "number", $gt: 0 },
-          },
-        },
-        {
-          $project: {
-            _id: 0,
-            id: 1,
-            name: 1,
-            status: 1,
-            client: 1,
-            clientId: 1,
-            budget: 1,
-            totalTasks: 1,
-            completedTasks: 1,
-            progress: 1,
-            createdAt: 1,
-          },
-        },
-      ])
-      .toArray();
-  } catch (err) {
-    logger("DB").error(err);
-    throw err;
-  }
-}
-
 async function getInProgressProjects(limit = 4) {
   try {
     return await projects
@@ -1617,7 +1546,21 @@ async function getPaidPaymentsBetween(from, to) {
     return await payments
       .find(
         { status: "Paid", date: { $gte: from, $lte: to } },
-        { projection: { _id: 0, id: 1, amount: 1, date: 1, clientId: 1, projectId: 1 } },
+        { projection: { _id: 0, id: 1, amount: 1, date: 1, clientId: 1, projectId: 1, source: 1 } },
+      )
+      .toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getPendingPaymentsBetween(from, to) {
+  try {
+    return await payments
+      .find(
+        { status: "Pending", date: { $gte: from, $lte: to } },
+        { projection: { _id: 0, id: 1, amount: 1, date: 1, clientId: 1, projectId: 1, source: 1 } },
       )
       .toArray();
   } catch (err) {
@@ -1792,8 +1735,6 @@ module.exports = {
   updateProjectById,
   countProjectsByFilter,
   getProjectsCreatedBetween,
-  getRecognizedRevenueProjectsBetween,
-  getPendingRevenueProjectsBetween,
   getInProgressProjects,
   getClientById,
   getClients,
@@ -1860,6 +1801,7 @@ module.exports = {
   updatePayment,
   deletePayment,
   getPaidPaymentsBetween,
+  getPendingPaymentsBetween,
 
   addNotification,
   addNotifications,
