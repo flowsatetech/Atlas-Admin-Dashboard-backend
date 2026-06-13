@@ -11,7 +11,6 @@ const router = express.Router();
 const { paymentsRead, paymentsWrite } = middlewares.rateLimiters;
 
 const emptyToUndefined = (value) => (value === "" ? undefined : value);
-const PAYMENT_LEGACY_RELATION_FIELDS = ["clientName", "projectName", "project"];
 
 const paymentListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -199,7 +198,6 @@ router.patch("/:paymentId", middlewares.adminOnly, paymentsWrite, async (req, re
       ...parsed.data,
       updatedAt: Date.now(),
     };
-    for (const field of PAYMENT_LEGACY_RELATION_FIELDS) delete updateData[field];
 
     const updatedPayment = await db.updatePayment(req.params.paymentId, updateData);
     await services.logActivity({
