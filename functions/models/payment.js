@@ -29,7 +29,7 @@ const paymentSchema = z.object({
   date: dateInputSchema,
   source: nullableStringSchema,
   notes: z.string().default(""),
-}).strict();
+});
 
 const createPaymentSchema = z.object({
   clientId: requiredIdSchema,
@@ -39,7 +39,7 @@ const createPaymentSchema = z.object({
   date: dateInputSchema,
   source: nullableStringSchema,
   notes: z.string().default(""),
-}).strict();
+});
 
 const updatePaymentSchema = z.object({
   clientId: requiredIdSchema.optional(),
@@ -49,7 +49,7 @@ const updatePaymentSchema = z.object({
   date: dateInputSchema.optional(),
   source: nullableStringInputSchema.optional(),
   notes: z.string().optional(),
-}).strict();
+});
 
 module.exports = {
   paymentStatusEnum,
