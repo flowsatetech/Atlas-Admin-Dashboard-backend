@@ -193,12 +193,14 @@ function notificationItems(payload) {
   return Array.isArray(payload?.data?.notifications) ? payload.data.notifications : [];
 }
 
-function tinyPngBuffer() {
-  return Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
-    "base64",
-  );
-}
+// Minimal valid PNG (1x1 pixel, red)
+const tinyPngBuffer = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==', 'base64');
+
+// Minimal valid JPEG
+const tinyJpegBuffer = Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsM', 'base64');
+
+// Generic binary buffer for non-image file uploads
+const tinyBinaryBuffer = Buffer.from('Hello, this is a test file for upload.', 'utf-8');
 
 // ─── auth helpers ─────────────────────────────────────────────────────────────
 
@@ -239,6 +241,7 @@ async function login() {
 async function testHealth() {
   console.log("\n[HEALTH]");
   await check("GET  /api/health", "GET", "/api/health");
+  await check("POST /api/health/redis/flush", "POST", "/api/health/redis/flush", null, { expect: [200] });
 
   try {
     const res = await fetch(`${BASE_URL}/api/health`, {
@@ -292,7 +295,7 @@ async function testProfilePictureEndpoints() {
     "PUT",
     "/api/user/profile/picture",
     {
-      files: [{ name: "picture", filename: "avatar.png", contentType: "image/png", content: tinyPngBuffer() }],
+      files: [{ name: "picture", filename: "avatar.png", contentType: "image/png", content: tinyPngBuffer }],
     },
   );
   assertSmoke(
@@ -597,6 +600,31 @@ async function testProjectFiles(projectId) {
     { expect: [400] },
   );
 
+  if (!SHOULD_RUN_CLOUDINARY_UPLOADS) {
+    skipSmoke("POST /api/projects/:id/files valid upload", cloudinarySkipReason());
+  } else {
+    const uploaded = await checkMultipart(
+      "POST /api/projects/:id/files uploads valid binary",
+      "POST",
+      `/api/projects/${projectId}/files`,
+      {
+        files: [{ name: "file", filename: "project-file.txt", contentType: "text/plain", content: tinyBinaryBuffer }],
+      },
+      { expect: [201] }
+    );
+    const fileId = uploaded?.data?.file?.id;
+
+    if (fileId) {
+      const listAfterUpload = await check("GET  /api/projects/:id/files (after upload)", "GET", `/api/projects/${projectId}/files`);
+      assertSmoke(
+        "GET  /api/projects/:id/files returns uploaded file",
+        Array.isArray(listAfterUpload?.data?.files) && listAfterUpload.data.files.some(f => f?.id === fileId),
+        `expected file in array, received ${JSON.stringify(listAfterUpload?.data?.files)}`
+      );
+      await check("DELETE /api/projects/:id/files/:fileId", "DELETE", `/api/projects/${projectId}/files/${fileId}`, null, { expect: [200] });
+    }
+  }
+
   // DELETE — unknown file → 404
   await check("DELETE /api/projects/:id/files/:fileId (not found) → 404", "DELETE", `/api/projects/${projectId}/files/no-such-file-id`, null, { expect: [404] });
 
@@ -658,9 +686,13 @@ async function testProjects() {
       assertProjectHasClientDetails("GET  /api/projects/:id existing row has populated client", detail.data.project, detail.data.project.clientId);
     }
     await check("GET  /api/projects/:id/comments", "GET", `/api/projects/${projectId}/comments`);
+    await check("POST /api/projects/:id/comments", "POST", `/api/projects/${projectId}/comments`, { comment: "Smoke test comment" }, { expect: [204] });
+    await check("PATCH /api/projects/:id (financials)", "PATCH", `/api/projects/${projectId}`, { budget: 9999 }, { expect: [200] });
   } else {
     skipSmoke("GET  /api/projects/:id", "no project ID available");
     skipSmoke("GET  /api/projects/:id/comments", "no project ID available");
+    skipSmoke("POST /api/projects/:id/comments", "no project ID available");
+    skipSmoke("PATCH /api/projects/:id (financials)", "no project ID available");
   }
 
   const emptyStatus = `smoke-empty-status-${Date.now()}`;
@@ -991,6 +1023,54 @@ async function testLeads() {
   }
 }
 
+async function testBlogAdmin() {
+  const adminRes = await req("GET", "/api/user/profile");
+  const adminId = adminRes.json?.data?.profile?.userId;
+
+  if (!adminId) {
+    skipSmoke("POST /api/blog (blog admin)", "no admin user ID available");
+    return;
+  }
+  
+  const suffix = Date.now();
+  const createdPost = await check(
+    "POST /api/blog creates a post",
+    "POST",
+    "/api/blog",
+    {
+      title: `Smoke Blog Post ${suffix}`,
+      content: "This is a smoke test post.",
+      category: "Technology",
+      tags: ["smoke", "test"],
+      status: "published",
+      authorId: adminId,
+    },
+    { expect: [201] }
+  );
+  
+  const newPostId = createdPost?.data?.post?.id;
+  const newPostSlug = createdPost?.data?.post?.slug;
+
+  if (newPostId) {
+    await check("PUT  /api/blog/:id updates the post", "PUT", `/api/blog/${newPostId}`, { title: `Updated Smoke Blog ${suffix}` }, { expect: [200] });
+    
+    await testBlogEmbedTracking(newPostSlug);
+
+    await check("DELETE /api/blog/:id deletes the post", "DELETE", `/api/blog/${newPostId}`, null, { expect: [200] });
+  }
+}
+
+async function testBlogEmbedTracking(slug) {
+  if (!slug) {
+    skipSmoke("GET  /embed/:slug and track", "no slug available");
+    return;
+  }
+  await check("POST /api/blog/track/:slug tracks view", "POST", `/api/blog/track/${slug}`, {}, { expect: [200] });
+  
+  const embedRes = await req("GET", `/embed/${slug}`);
+  assertSmoke("GET  /embed/:slug returns embed HTML", embedRes.status === 200 && embedRes.headers.get("content-type")?.includes("text/html"), `received ${embedRes.status}`);
+}
+
 async function testBlog() {
   console.log("\n[BLOG]");
   await check("GET  /api/blog/stats", "GET", "/api/blog/stats");
@@ -1002,6 +1082,8 @@ async function testBlog() {
   } else {
     skipSmoke("GET  /api/blog/:id", "no post ID available");
   }
+
+  await testBlogAdmin();
 }
 
 async function testAnalytics() {
@@ -1188,6 +1270,40 @@ async function testPayments() {
     if (projectId) await check("DELETE /api/projects/:id (payment ID fixture cleanup)", "DELETE", `/api/projects/${projectId}`, null, { expect: [204, 404] });
     if (mismatchClientId) await check("DELETE /api/clients/:id (payment mismatch fixture cleanup)", "DELETE", `/api/clients/${mismatchClientId}`, null, { expect: [200, 404] });
     if (clientId) await check("DELETE /api/clients/:id (payment ID fixture cleanup)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200, 404] });
+  }
+}
+
+async function testMediaImages() {
+  console.log("\n[MEDIA IMAGES]");
+  await check("GET  /api/media/images/all", "GET", "/api/media/images/all");
+
+  if (!SHOULD_RUN_CLOUDINARY_UPLOADS) {
+    skipSmoke("POST /api/media/images/new", cloudinarySkipReason());
+    return;
+  }
+
+  const uploaded = await checkMultipart(
+    "POST /api/media/images/new",
+    "POST",
+    "/api/media/images/new",
+    {
+      files: [{ name: "image", filename: "test.png", contentType: "image/png", content: tinyPngBuffer }],
+    },
+    { expect: [201] }
+  );
+
+  const imageId = uploaded?.data?.id;
+  if (imageId) {
+    await check("GET  /api/media/images/:imageId", "GET", `/api/media/images/${imageId}`);
+    await checkMultipart(
+      "PUT  /api/media/images/:imageId/replace",
+      "PUT",
+      `/api/media/images/${imageId}/replace`,
+      {
+        files: [{ name: "image", filename: "test-replace.png", contentType: "image/png", content: tinyPngBuffer }],
+      },
+      { expect: [200] }
+    );
   }
 }
 
@@ -1518,6 +1634,7 @@ async function run() {
   await testAnalytics();
   await testRevenue();
   await testPayments();
+  await testMediaImages();
   await testMediaFiles();
   await testWebhooks();
 

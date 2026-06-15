@@ -97,16 +97,14 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function tinyPngBuffer() {
-  return Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
-    'base64',
-  );
-}
+// Minimal valid PNG (1x1 pixel, red)
+const tinyPngBuffer = () => Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==', 'base64');
 
-function tinyBinaryBuffer() {
-  return Buffer.from([0x41, 0x54, 0x4c, 0x41, 0x53, 0x00, 0xff, 0x10, 0x20, 0x30, 0x7f, 0x80, 0x42, 0x49, 0x4e]);
-}
+// Minimal valid JPEG
+const tinyJpegBuffer = () => Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsM', 'base64');
+
+// Generic binary buffer for non-image file uploads
+const tinyBinaryBuffer = () => Buffer.from('Hello, this is a test file for upload.', 'utf-8');
 
 function isUsableHttpsUrl(value) {
   try {
@@ -906,6 +904,29 @@ async function runProfilePictureFlow() {
   });
 }
 
+async function runMediaImagesFlow() {
+  console.log('\n[MEDIA IMAGES]');
+  await expectStatus('Media images', 'GET /api/media/images/all lists images', 'GET', '/api/media/images/all', {}, [200]);
+
+  if (!SHOULD_RUN_CLOUDINARY_UPLOADS) {
+    skip('Media images', 'Valid binary image upload skipped', 'Cloudinary uploads require WORKFLOW_AUDIT_ENABLE_CLOUDINARY_UPLOADS=true and configured Cloudinary credentials');
+    return;
+  }
+
+  const pngContent = tinyPngBuffer();
+  const uploaded = await expectStatus('Media images', 'POST /api/media/images/new accepts valid PNG upload', 'POST', '/api/media/images/new', {
+    multipart: { files: [{ name: 'image', filename: `workflow-audit-${SUFFIX}.png`, contentType: 'image/png', content: pngContent }] },
+  }, [201]);
+
+  const uploadedImageId = uploaded.json?.data?.id || '';
+  if (uploadedImageId) {
+    await expectStatus('Media images', 'GET /api/media/images/:imageId returns image redirect', 'GET', `/api/media/images/${uploadedImageId}`, { redirect: 'manual' }, [302]);
+    await expectStatus('Media images', 'PUT /api/media/images/:imageId/replace replaces image', 'PUT', `/api/media/images/${uploadedImageId}/replace`, {
+      multipart: { files: [{ name: 'image', filename: `workflow-audit-replace-${SUFFIX}.png`, contentType: 'image/png', content: pngContent }] },
+    }, [200]);
+  }
+}
+
 async function runMediaFlow() {
   console.log('\n[MEDIA FILES]');
   await expectStatus('Media files', 'GET /api/media/files lists files', 'GET', '/api/media/files?limit=10', {}, [200]);
@@ -1140,6 +1161,37 @@ async function runClientProjectTaskFlow() {
       severity: 'High',
       smokeGap: false,
     });
+
+    if (SHOULD_RUN_CLOUDINARY_UPLOADS) {
+      const fileUploaded = await expectStatus('Clients/projects/tasks', 'POST /api/projects/:projectId/files uploads valid binary', 'POST', `/api/projects/${projectId}/files`, {
+        multipart: { files: [{ name: 'file', filename: `project-audit-${SUFFIX}.bin`, contentType: 'application/octet-stream', content: tinyBinaryBuffer() }] },
+      }, [201]);
+      const projFileId = fileUploaded.json?.data?.file?.id || '';
+      
+      if (projFileId) {
+        const filesList = await expectStatus('Clients/projects/tasks', 'GET /api/projects/:projectId/files lists project files', 'GET', `/api/projects/${projectId}/files`, {}, [200]);
+        assertCheck('Clients/projects/tasks', 'Uploaded file appears in project files list', Array.isArray(filesList.json?.data?.files) && filesList.json.data.files.some(f => f.id === projFileId), {
+          endpoint: `GET /api/projects/${projectId}/files`,
+          expected: `file with id ${projFileId}`,
+          actual: JSON.stringify(filesList.json?.data?.files || []),
+          severity: 'Medium',
+          smokeGap: false,
+        });
+
+        await expectStatus('Clients/projects/tasks', 'DELETE /api/projects/:projectId/files/:fileId cleans up project file', 'DELETE', `/api/projects/${projectId}/files/${projFileId}`, {}, [200]);
+        
+        const filesListAfter = await expectStatus('Clients/projects/tasks', 'GET /api/projects/:projectId/files verifies cleanup', 'GET', `/api/projects/${projectId}/files`, {}, [200]);
+        assertCheck('Clients/projects/tasks', 'Deleted file is no longer in project files list', Array.isArray(filesListAfter.json?.data?.files) && !filesListAfter.json.data.files.some(f => f.id === projFileId), {
+          endpoint: `GET /api/projects/${projectId}/files after delete`,
+          expected: `file id ${projFileId} not present`,
+          actual: 'file was still found',
+          severity: 'High',
+          smokeGap: false,
+        });
+      }
+    } else {
+      skip('Clients/projects/tasks', 'Project file upload cycle skipped', 'Cloudinary uploads disabled');
+    }
 
     await expectStatus('Clients/projects/tasks', 'DELETE /api/projects/:id deletes workflow project', 'DELETE', `/api/projects/${projectId}`, {}, [204]);
     forget('projects', projectId);
@@ -1764,6 +1816,27 @@ async function runModerateStressFlow() {
   }
 }
 
+async function runRedisFlushFlow() {
+  console.log('\n[REDIS FLUSH]');
+  const flushRes = await expectStatus('Redis flush', 'POST /api/health/redis/flush succeeds', 'POST', '/api/health/redis/flush', {}, [200]);
+  assertCheck('Redis flush', 'Redis flush responds with success', flushRes.json?.success === true, {
+    endpoint: 'POST /api/health/redis/flush',
+    expected: 'success: true',
+    actual: `success: ${flushRes.json?.success}`,
+    severity: 'Medium',
+    smokeGap: false,
+  });
+
+  const dashboardRes = await expectStatus('Redis flush', 'GET /api/dashboard/metrics after flush returns valid data', 'GET', '/api/dashboard/metrics', {}, [200]);
+  assertCheck('Redis flush', 'Dashboard metrics are refreshed and valid', typeof dashboardRes.json?.data?.totalClients?.value === 'number', {
+    endpoint: 'GET /api/dashboard/metrics',
+    expected: 'totalClients.value is a number',
+    actual: typeof dashboardRes.json?.data?.totalClients?.value,
+    severity: 'High',
+    smokeGap: false,
+  });
+}
+
 async function runLogoutFlow() {
   console.log('\n[LOGOUT / STALE COOKIE]');
   if (!state.adminCookie) return;
@@ -1822,6 +1895,7 @@ async function runAll() {
       return;
     }
     await runProfilePictureFlow();
+    await runMediaImagesFlow();
     await runMediaFlow();
     await runClientProjectTaskFlow();
     await runNotificationApiFlow();
@@ -1829,6 +1903,7 @@ async function runAll() {
     await runLeadsAndWebhooksFlow();
     await runPaymentsRevenueAnalyticsDashboardFlow();
     await runModerateStressFlow();
+    await runRedisFlushFlow();
   } finally {
     await cleanupFixtures();
     await runLogoutFlow();

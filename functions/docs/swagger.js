@@ -2269,6 +2269,87 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 }
             }
         },
+        "/api/projects/{projectId}/files": {
+            get: {
+                tags: ["Projects"],
+                operationId: "listProjectFiles",
+                summary: "Get files for a project",
+                description: "Verifies the project exists, then returns paginated files associated with that project.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ProjectIdPath"), parameterRef("Page"), parameterRef("MediaFileLimit")],
+                responses: {
+                    200: successResponse("Project files returned.", {
+                        type: "object",
+                        properties: {
+                            files: { type: "array", items: ref("MediaFile") },
+                            pagination: ref("Pagination")
+                        }
+                    }, {
+                        files: [examples.mediaFile],
+                        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 }
+                    }, "Fetch project files success"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Project not found.", 404, "Project not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            post: {
+                tags: ["Projects"],
+                operationId: "uploadProjectFile",
+                summary: "Upload a file to a project",
+                description: "Uploads a file via multipart/form-data, stores it in the configured storage provider, and links it to the specified project.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ProjectIdPath")],
+                requestBody: {
+                    required: true,
+                    description: "Multipart payload with the file to upload.",
+                    content: {
+                        "multipart/form-data": {
+                            schema: {
+                                type: "object",
+                                required: ["file"],
+                                properties: {
+                                    file: { type: "string", format: "binary", description: "The file to upload. Maximum size is configured by the server (default 50MB)." }
+                                }
+                            }
+                        }
+                    }
+                },
+                responses: {
+                    201: successResponse("Project file uploaded successfully.", {
+                        type: "object",
+                        properties: { file: ref("MediaFile") }
+                    }, { file: examples.mediaFile }, "Project file uploaded successfully", 201),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Project not found.", 404, "Project not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/projects/{projectId}/files/{fileId}": {
+            delete: {
+                tags: ["Projects"],
+                operationId: "deleteProjectFile",
+                summary: "Delete a file from a project",
+                description: "Deletes a specific file from a project and removes it from the storage provider.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ProjectIdPath"), parameterRef("FileIdPath")],
+                responses: {
+                    200: successResponse("Project file deleted successfully.", {
+                        type: "object",
+                        properties: { id: { type: "string", example: examples.fileId } }
+                    }, { id: examples.fileId }, "Project file deleted successfully"),
+                    400: errorResponse("File does not belong to this project.", 400, "File does not belong to this project"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Project or file not found.", 404, "Project not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
         "/api/tasks": {
             get: {
                 tags: ["Tasks"],

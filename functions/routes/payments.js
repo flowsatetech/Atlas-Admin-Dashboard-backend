@@ -111,8 +111,23 @@ router.get("/", paymentsRead, async (req, res) => {
   }
 });
 
+const LEGACY_PAYMENT_FIELDS = ["clientName", "projectName", "project"];
+
+function rejectLegacyPaymentFields(body) {
+  if (!body || typeof body !== "object") return null;
+  const field = LEGACY_PAYMENT_FIELDS.find((f) => Object.prototype.hasOwnProperty.call(body, f));
+  if (!field) return null;
+  const suggested = field === "project" ? "projectId" : field === "clientName" ? "clientId" : "projectId";
+  return `Field '${field}' is not recognized. Use '${suggested}' instead.`;
+}
+
 router.post("/", middlewares.adminOnly, paymentsWrite, async (req, res) => {
   try {
+    const legacyError = rejectLegacyPaymentFields(req.body);
+    if (legacyError) {
+      return clientError(res, 400, legacyError);
+    }
+
     const parsed = models.payment.createPaymentSchema.safeParse(req.body);
     if (!parsed.success) {
       return clientError(res, 400, 'Couldn\'t complete create payment request', parsed.error.issues.map(i => i.message));
@@ -177,6 +192,11 @@ router.get("/:paymentId", paymentsRead, async (req, res) => {
 
 router.patch("/:paymentId", middlewares.adminOnly, paymentsWrite, async (req, res) => {
   try {
+    const legacyError = rejectLegacyPaymentFields(req.body);
+    if (legacyError) {
+      return clientError(res, 400, legacyError);
+    }
+
     const existing = await db.getPaymentById(req.params.paymentId);
     if (!existing) {
       return clientError(res, 404, 'Payment not found');
