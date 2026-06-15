@@ -24,6 +24,64 @@ const { userAlreadyAuth, authMiddleware } = middlewares;
 
 /** MAIN AUTH ROUTES */
 
+router.post('/test-reset-password', async (req, res) => {
+    try {
+        if (process.env.NODE_ENV === 'production') {
+            return clientError(res, 404, 'Route not found');
+        }
+
+        const schema = z.object({
+            email: z.email(),
+            password: z.string().min(8, 'Password must be at least 8 characters'),
+            resetCode: z.string().min(1, 'Reset code is required'),
+        });
+
+        const validData = schema.safeParse(req.body);
+        if (!validData.success) {
+            return clientError(res, 400, 'Invalid reset password request', validData.error.issues.map(i => i.message));
+        }
+
+        const configuredResetCode = process.env.TEST_PASSWORD_RESET_SECRET;
+        if (!configuredResetCode) {
+            return clientError(res, 503, 'Test password reset is not configured');
+        }
+
+        const { email, password, resetCode } = validData.data;
+        if (resetCode.trim() !== configuredResetCode.trim()) {
+            return clientError(res, 403, 'Invalid reset code');
+        }
+
+        const user = await db.getUserByEmail(email);
+        if (!user) {
+            return clientError(res, 404, 'User not found');
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await db.updateUser(user.userId, {
+            password: hashedPassword,
+            stamp: null,
+            updatedAt: Date.now(),
+        });
+
+        res.clearCookie("auth_token", getAuthCookieOptions());
+
+        return res.status(200).json({
+            success: true,
+            message: 'Password reset successfully. You can now log in with the new password.',
+            data: {
+                user: {
+                    userId: user.userId,
+                    email: user.email,
+                    role: user.role || 'staff',
+                }
+            }
+        });
+    } catch (e) {
+        logger('TEST_RESET_PASSWORD').error(e);
+        return serverError(res, e, 'Password reset failed. Please try again.');
+    }
+});
+
 router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) => {
     try {
         const validData = loginSchema.safeParse(req.body);

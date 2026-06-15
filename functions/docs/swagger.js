@@ -1,4 +1,15 @@
-const serverUrl = process.env.SERVER_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+function normalizeServerUrl(value) {
+    const fallback = `http://localhost:${process.env.PORT || 3000}`;
+    const rawValue = String(value || fallback).trim();
+
+    if (/^https?:\/\//i.test(rawValue) || rawValue.startsWith("/")) {
+        return rawValue;
+    }
+
+    return `http://${rawValue}`;
+}
+
+const serverUrl = normalizeServerUrl(process.env.SERVER_BASE_URL);
 
 const enumValues = Object.freeze({
     clientStatuses: ["Lead", "Active", "Inactive", "Archived"],
@@ -392,8 +403,12 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
     },
     servers: [
         {
+            url: "/",
+            description: "Same origin"
+        },
+        {
             url: serverUrl,
-            description: "Current URL"
+            description: "Configured server URL"
         },
     ],
     tags: [
@@ -561,6 +576,16 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     email: { type: "string", format: "email", example: "admin@atlas.example" },
                     password: { type: "string", minLength: 8, format: "password", example: "StrongPass123" },
                     rememberMe: { type: "boolean", default: false, description: "If true, the JWT cookie lasts 30 days. Otherwise it lasts one hour.", example: true }
+                }
+            },
+            TestResetPasswordRequest: {
+                type: "object",
+                required: ["email", "password", "resetCode"],
+                description: "Development/test-only password reset helper. Disabled when NODE_ENV=production.",
+                properties: {
+                    email: { type: "string", format: "email", example: "admin@atlas.example" },
+                    password: { type: "string", minLength: 8, format: "password", example: "NewStrongPass123" },
+                    resetCode: { type: "string", format: "password", description: "Must match TEST_PASSWORD_RESET_SECRET.", example: "change-this-test-reset-code" }
                 }
             },
             Member: {
@@ -1458,6 +1483,45 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     400: responseRef("BadRequest"),
                     401: responseRef("Unauthorized"),
                     429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/auth/test-reset-password": {
+            post: {
+                tags: ["Auth"],
+                operationId: "testResetPassword",
+                summary: "Reset password for testing",
+                description: "Development/test-only helper that resets a user's password after validating resetCode against TEST_PASSWORD_RESET_SECRET. It hashes the new password and clears the user's session stamp so old cookies are revoked. This route returns 404 when NODE_ENV=production.",
+                requestBody: jsonRequestBody("TestResetPasswordRequest", {
+                    email: "admin@atlas.example",
+                    password: "NewStrongPass123",
+                    resetCode: "change-this-test-reset-code"
+                }, "Test reset payload."),
+                responses: {
+                    200: successResponse("Password reset successfully.", {
+                        type: "object",
+                        properties: {
+                            user: {
+                                type: "object",
+                                properties: {
+                                    userId: { type: "string", example: examples.userId },
+                                    email: { type: "string", format: "email", example: "admin@atlas.example" },
+                                    role: { type: "string", example: "admin" }
+                                }
+                            }
+                        }
+                    }, {
+                        user: {
+                            userId: examples.userId,
+                            email: "admin@atlas.example",
+                            role: "admin"
+                        }
+                    }, "Password reset successfully. You can now log in with the new password."),
+                    400: responseRef("BadRequest"),
+                    403: responseRef("Forbidden"),
+                    404: responseRef("NotFound"),
+                    503: responseRef("ServiceUnavailable"),
                     500: responseRef("ServerError")
                 }
             }

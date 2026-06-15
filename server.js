@@ -1,7 +1,9 @@
 /** INJECT ENV VARS
- * Load environment variables from the appropriate .env file.
+ * Load environment variables from the configured env file, falling back to .env.
  */
-require('dotenv').config({ path: '.env.staging' });
+const fs = require('fs');
+const envPath = process.env.ENV_FILE || (fs.existsSync('.env.staging') ? '.env.staging' : '.env');
+require('dotenv').config({ path: envPath });
 
 /** IMPORT
  * All libraries / local exports / packages are imported here
