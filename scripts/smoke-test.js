@@ -574,6 +574,71 @@ async function testProjectTaskDerivedProgress() {
   if (clientId) await check("DELETE /api/clients/:id (project progress fixture cleanup)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200] });
 }
 
+async function testProjectFiles(projectId) {
+  if (!projectId) {
+    skipSmoke("PROJECT FILE ENDPOINTS", "no project ID available");
+    return;
+  }
+
+  // GET — list files for a project (empty initially)
+  const listEmpty = await check("GET  /api/projects/:id/files (empty)", "GET", `/api/projects/${projectId}/files`);
+  assertSmoke(
+    "GET  /api/projects/:id/files returns empty list",
+    Array.isArray(listEmpty?.data?.files) && listEmpty.data.files.length === 0,
+    `expected empty files array, received ${JSON.stringify(listEmpty?.data?.files)}`
+  );
+
+  // POST — missing file → 400
+  await checkMultipart(
+    "POST /api/projects/:id/files (missing file) → 400",
+    "POST",
+    `/api/projects/${projectId}/files`,
+    {},
+    { expect: [400] },
+  );
+
+  // DELETE — unknown file → 404
+  await check("DELETE /api/projects/:id/files/:fileId (not found) → 404", "DELETE", `/api/projects/${projectId}/files/no-such-file-id`, null, { expect: [404] });
+
+  // POST — register a file via URL and then POST it to the project (simulated)
+  // We use the "register file URL" endpoint + then call our project file endpoints with URL approach
+  // Actually, let's register a file URL first via media route, then try to add it to the project
+  const suffix = Date.now();
+  const registered = await check(
+    "POST /api/media/files/url (project file fixture)",
+    "POST",
+    "/api/media/files/url",
+    {
+      url: `https://cdn.example.com/project-smoke-${suffix}.pdf`,
+      fileName: `project-smoke-${suffix}.pdf`,
+      type: "document",
+      mimeType: "application/pdf",
+      sizeBytes: 42,
+    },
+    { expect: [201] }
+  );
+  const registeredFileId = registered?.data?.file?.id;
+
+  if (!registeredFileId) {
+    skipSmoke("POST /api/projects/:id/files URL fixture", "could not register file URL fixture");
+    return;
+  }
+
+  // We can't attach the registered URL file to the project via the POST upload endpoint (requires multipart),
+  // but we can verify the DELETE and list flows
+
+  // List to confirm the file is not associated with our project
+  const listAfterMedia = await check("GET  /api/projects/:id/files (still empty)", "GET", `/api/projects/${projectId}/files`);
+  assertSmoke(
+    "GET  /api/projects/:id/files still empty after unrelated media creation",
+    Array.isArray(listAfterMedia?.data?.files) && listAfterMedia.data.files.length === 0,
+    `expected empty, received ${JSON.stringify(listAfterMedia?.data?.files)}`
+  );
+
+  // Clean up the registered file
+  await check("DELETE /api/media/files/:id (project file fixture cleanup)", "DELETE", `/api/media/files/${registeredFileId}`, null, { expect: [200] });
+}
+
 async function testProjects() {
   console.log("\n[PROJECTS]");
   await check("GET  /api/projects/stats", "GET", "/api/projects/stats");
@@ -617,6 +682,9 @@ async function testProjects() {
 
   await testProjectClientPopulation();
   await testProjectTaskDerivedProgress();
+
+  // Project file endpoints
+  await testProjectFiles(projectId);
 
   // PATCH — progress is derived from linked tasks and cannot be set manually
   if (projectId) {

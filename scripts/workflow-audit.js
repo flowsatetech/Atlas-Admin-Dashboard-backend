@@ -364,7 +364,9 @@ function runNotificationWiringAudit() {
   const leadRoutePath = 'functions/routes/leads.js';
   const memberRoutePath = 'functions/routes/members.js';
   const notificationModelPath = 'functions/models/notification.js';
+  const mediaFileModelPath = 'functions/models/media-file.js';
   const notificationRouteSource = fileExists(notificationRoutePath) ? readProjectFile(notificationRoutePath) : '';
+  const mediaFileModelSource = fileExists(mediaFileModelPath) ? readProjectFile(mediaFileModelPath) : '';
   const notificationServiceSource = fileExists(notificationServicePath) ? readProjectFile(notificationServicePath) : '';
   const dbSource = readProjectFile(dbPath);
   const swaggerSource = readProjectFile(swaggerPath);
@@ -540,6 +542,36 @@ function runNotificationWiringAudit() {
     endpoint: projectRoutePath,
     expected: 'Project assignment/comment fan-out uses NotificationService.dispatchMany and no per-recipient dispatch calls',
     actual: `NotificationService calls in projects route: ${projectNotificationBlocks.join(', ') || '<none>'}`,
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  // Project file endpoints
+  assertCheck(area, 'Project file upload route is wired in projects route', /router\.post\(['"]\/:projectId\/files['"],\s*projectsWrite,\s*projectFileUploadMiddleware/.test(projectRouteSource), {
+    endpoint: projectRoutePath,
+    expected: 'POST /:projectId/files route handler with projectFileUploadMiddleware',
+    actual: 'Project file upload POST route is missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Project file list route is wired in projects route', /router\.get\(['"]\/:projectId\/files['"],\s*projectsRead/.test(projectRouteSource), {
+    endpoint: projectRoutePath,
+    expected: 'GET /:projectId/files route handler',
+    actual: 'Project file list GET route is missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Project file delete route is wired in projects route', /router\.delete\(['"]\/:projectId\/files\/:fileId['"],\s*projectsWrite/.test(projectRouteSource), {
+    endpoint: projectRoutePath,
+    expected: 'DELETE /:projectId/files/:fileId route handler',
+    actual: 'Project file delete DELETE route is missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Media file model includes projectId field', /projectId:\s*z\.string\(\)\.min\(1\)\.nullable\(\)\.default\(null\)/.test(mediaFileModelSource), {
+    endpoint: 'functions/models/media-file.js',
+    expected: 'mediaFileSchema.projectId as nullable string default null',
+    actual: 'projectId field missing from media-file model',
     severity: 'High',
     smokeGap: false,
   });
