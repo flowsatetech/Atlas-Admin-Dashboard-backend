@@ -17,9 +17,6 @@ let blogPosts;
 let leads;
 let payments;
 let notifications;
-let systemSettings;
-
-const NOTIFICATION_PREFERENCES_SETTING_KEY = "notification_preferences";
 
 async function initializeDB() {
   try {
@@ -53,13 +50,13 @@ async function initializeDB() {
     leads = db.collection("leads");
     payments = db.collection("payments");
     notifications = db.collection("notifications");
-    systemSettings = db.collection("system_settings");
 
     await users.createIndex({ email: 1 }, { unique: true });
     await images.createIndex({ id: 1 }, { unique: true });
     await mediaFiles.createIndex({ id: 1 }, { unique: true });
     await mediaFiles.createIndex({ uploadedBy: 1 });
     await mediaFiles.createIndex({ type: 1 });
+    await mediaFiles.createIndex({ projectId: 1 });
     await mediaFiles.createIndex({ createdAt: -1 });
     await clients.createIndex({ id: 1 }, { unique: true });
     await clients.createIndex({ status: 1 });
@@ -98,7 +95,6 @@ async function initializeDB() {
     await notifications.createIndex({ id: 1 }, { unique: true });
     await notifications.createIndex({ recipientId: 1, createdAt: -1 });
     await notifications.createIndex({ recipientId: 1, isRead: 1 });
-    await systemSettings.createIndex({ key: 1 }, { unique: true });
 
     logger("DB").info("MongoDB initialized successfully");
 
@@ -1183,6 +1179,53 @@ async function addMediaFile(fileData) {
   }
 }
 
+async function getMediaFilesByProjectId({ projectId, page = 1, limit = 100 } = {}) {
+  try {
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(Math.max(1, Number(limit) || 100), 100);
+    const skip = (safePage - 1) * safeLimit;
+    const query = { projectId };
+
+    const [files, total] = await Promise.all([
+      mediaFiles.find(query).sort({ createdAt: -1 }).skip(skip).limit(safeLimit).toArray(),
+      mediaFiles.countDocuments(query),
+    ]);
+
+    return {
+      files,
+      pagination: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function addFileToProject(projectId, fileId) {
+  try {
+    await projects.updateOne({ id: projectId }, { $push: { files: fileId } });
+    return true;
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function removeFileFromProject(projectId, fileId) {
+  try {
+    await projects.updateOne({ id: projectId }, { $pull: { files: fileId } });
+    return true;
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function deleteMediaFileById(fileId) {
   try {
     const result = await mediaFiles.deleteOne({ id: fileId });
@@ -1671,31 +1714,34 @@ async function getUsersByMentionTokens(tokens = []) {
   }
 }
 
-async function getGlobalNotificationPreferences() {
+async function getUserNotificationPreferencesMap(userIds = []) {
   try {
-    const setting = await systemSettings.findOne(
-      { key: NOTIFICATION_PREFERENCES_SETTING_KEY },
-      { projection: { _id: 0, key: 1, notificationPreferences: 1 } },
-    );
-    return setting?.notificationPreferences || null;
+    if (!Array.isArray(userIds) || userIds.length === 0) return {};
+    const docs = await users
+      .find(
+        { userId: { $in: userIds } },
+        { projection: { _id: 0, userId: 1, notificationPreferences: 1 } },
+      )
+      .toArray();
+
+    const map = {};
+    for (const doc of docs) {
+      map[doc.userId] = doc.notificationPreferences || {};
+    }
+    return map;
   } catch (err) {
     logger("DB").error(err);
     throw err;
   }
 }
 
-async function updateGlobalNotificationPreferences(notificationPreferences) {
+async function updateUserNotificationPreferences(userId, notificationPreferences) {
   try {
-    const now = Date.now();
-    const result = await systemSettings.findOneAndUpdate(
-      { key: NOTIFICATION_PREFERENCES_SETTING_KEY },
-      {
-        $set: { notificationPreferences, updatedAt: now },
-        $setOnInsert: { key: NOTIFICATION_PREFERENCES_SETTING_KEY, createdAt: now },
-      },
-      { upsert: true, returnDocument: "after", projection: { _id: 0, key: 1, notificationPreferences: 1 } },
+    const result = await users.updateOne(
+      { userId },
+      { $set: { notificationPreferences, updatedAt: Date.now() } },
     );
-    return result || null;
+    return { changes: result.modifiedCount };
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -1777,6 +1823,9 @@ module.exports = {
   getMediaFiles,
   getMediaFileById,
   addMediaFile,
+  getMediaFilesByProjectId,
+  addFileToProject,
+  removeFileFromProject,
   deleteMediaFileById,
   addComment,
   getCommentsByProjectId,
@@ -1809,6 +1858,6 @@ module.exports = {
   markNotificationAsRead,
   markAllNotificationsAsRead,
   getUsersByMentionTokens,
-  getGlobalNotificationPreferences,
-  updateGlobalNotificationPreferences,
+  getUserNotificationPreferencesMap,
+  updateUserNotificationPreferences,
 };

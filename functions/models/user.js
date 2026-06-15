@@ -16,7 +16,21 @@ const userSchema = z.object({
     authProvider: z.enum(["atlas", "google"]).default("atlas"),
     passwordHash: z.string().min(1).nullable().default(null),
     stamp: z.string().nullable().default(null),
-    lastLogin: z.number().int().nonnegative().nullable().default(null)
+    lastLogin: z.number().int().nonnegative().nullable().default(null),
+    notificationPreferences: z.object({
+        TASK_ASSIGNMENT: z.boolean().default(true),
+        PROJECT_ASSIGNMENT: z.boolean().default(true),
+        CLIENT_ASSIGNMENT: z.boolean().default(true),
+        LEAD_ASSIGNMENT: z.boolean().default(true),
+        COMMENT_MENTION: z.boolean().default(true),
+        ROLE_CHANGE: z.boolean().default(true),
+        SYSTEM_ALERT: z.boolean().default(true),
+        CLIENT_CREATED: z.boolean().default(true),
+        PROJECT_STATUS_CHANGE: z.boolean().default(true),
+        LEAD_STATUS_CHANGE: z.boolean().default(true),
+        PROJECT_COMMENT: z.boolean().default(true),
+        PASSWORD_UPDATED: z.boolean().default(true),
+    }).optional().default({})
 });
 
 const createUserSchema = userSchema.omit({

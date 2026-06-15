@@ -28,8 +28,10 @@ const { mediaRead, mediaWrite } = middlewares.rateLimiters;
  * description: Media image and file upload API
  */
 
+const MAX_FILE_SIZE = Number(process.env.MAX_FILE_SIZE_BYTES) || 50 * 1024 * 1024;
+
 const upload = multer({
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: MAX_FILE_SIZE },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith("image/")) cb(null, true);
     else cb(new Error("Only image files are allowed"), false);
@@ -38,7 +40,7 @@ const upload = multer({
 });
 
 const fileUpload = multer({
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: MAX_FILE_SIZE },
   storage: multer.memoryStorage(),
 });
 

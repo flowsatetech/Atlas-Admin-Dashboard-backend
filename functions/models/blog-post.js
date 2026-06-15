@@ -9,6 +9,7 @@ const blogPostCategoryEnum = z.enum([
     "Social Media",
     "Content Marketing",
     "Email Marketing",
+    "Technology",
     "Other"
 ]);
 
@@ -16,7 +17,7 @@ const blogPostSchema = z.object({
     ...baseEntityFields,
     title: z.string().min(1),
     slug: z.string().min(1),
-    excerpt: z.string().min(1),
+    excerpt: z.string().default(""),
     content: z.string().default(""),
     category: blogPostCategoryEnum,
     authorId: z.string().min(1),

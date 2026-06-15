@@ -193,12 +193,14 @@ function notificationItems(payload) {
   return Array.isArray(payload?.data?.notifications) ? payload.data.notifications : [];
 }
 
-function tinyPngBuffer() {
-  return Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
-    "base64",
-  );
-}
+// Minimal valid PNG (1x1 pixel, red)
+const tinyPngBuffer = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==', 'base64');
+
+// Minimal valid JPEG
+const tinyJpegBuffer = Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsM', 'base64');
+
+// Generic binary buffer for non-image file uploads
+const tinyBinaryBuffer = Buffer.from('Hello, this is a test file for upload.', 'utf-8');
 
 // ─── auth helpers ─────────────────────────────────────────────────────────────
 
@@ -239,6 +241,7 @@ async function login() {
 async function testHealth() {
   console.log("\n[HEALTH]");
   await check("GET  /api/health", "GET", "/api/health");
+  await check("POST /api/health/redis/flush", "POST", "/api/health/redis/flush", null, { expect: [200] });
 
   try {
     const res = await fetch(`${BASE_URL}/api/health`, {
@@ -292,7 +295,7 @@ async function testProfilePictureEndpoints() {
     "PUT",
     "/api/user/profile/picture",
     {
-      files: [{ name: "picture", filename: "avatar.png", contentType: "image/png", content: tinyPngBuffer() }],
+      files: [{ name: "picture", filename: "avatar.png", contentType: "image/png", content: tinyPngBuffer }],
     },
   );
   assertSmoke(
@@ -574,6 +577,96 @@ async function testProjectTaskDerivedProgress() {
   if (clientId) await check("DELETE /api/clients/:id (project progress fixture cleanup)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200] });
 }
 
+async function testProjectFiles(projectId) {
+  if (!projectId) {
+    skipSmoke("PROJECT FILE ENDPOINTS", "no project ID available");
+    return;
+  }
+
+  // GET — list files for a project (empty initially)
+  const listEmpty = await check("GET  /api/projects/:id/files (empty)", "GET", `/api/projects/${projectId}/files`);
+  assertSmoke(
+    "GET  /api/projects/:id/files returns empty list",
+    Array.isArray(listEmpty?.data?.files) && listEmpty.data.files.length === 0,
+    `expected empty files array, received ${JSON.stringify(listEmpty?.data?.files)}`
+  );
+
+  // POST — missing file → 400
+  await checkMultipart(
+    "POST /api/projects/:id/files (missing file) → 400",
+    "POST",
+    `/api/projects/${projectId}/files`,
+    {},
+    { expect: [400] },
+  );
+
+  if (!SHOULD_RUN_CLOUDINARY_UPLOADS) {
+    skipSmoke("POST /api/projects/:id/files valid upload", cloudinarySkipReason());
+  } else {
+    const uploaded = await checkMultipart(
+      "POST /api/projects/:id/files uploads valid binary",
+      "POST",
+      `/api/projects/${projectId}/files`,
+      {
+        files: [{ name: "file", filename: "project-file.txt", contentType: "text/plain", content: tinyBinaryBuffer }],
+      },
+      { expect: [201] }
+    );
+    const fileId = uploaded?.data?.file?.id;
+
+    if (fileId) {
+      const listAfterUpload = await check("GET  /api/projects/:id/files (after upload)", "GET", `/api/projects/${projectId}/files`);
+      assertSmoke(
+        "GET  /api/projects/:id/files returns uploaded file",
+        Array.isArray(listAfterUpload?.data?.files) && listAfterUpload.data.files.some(f => f?.id === fileId),
+        `expected file in array, received ${JSON.stringify(listAfterUpload?.data?.files)}`
+      );
+      await check("DELETE /api/projects/:id/files/:fileId", "DELETE", `/api/projects/${projectId}/files/${fileId}`, null, { expect: [200] });
+    }
+  }
+
+  // DELETE — unknown file → 404
+  await check("DELETE /api/projects/:id/files/:fileId (not found) → 404", "DELETE", `/api/projects/${projectId}/files/no-such-file-id`, null, { expect: [404] });
+
+  // POST — register a file via URL and then POST it to the project (simulated)
+  // We use the "register file URL" endpoint + then call our project file endpoints with URL approach
+  // Actually, let's register a file URL first via media route, then try to add it to the project
+  const suffix = Date.now();
+  const registered = await check(
+    "POST /api/media/files/url (project file fixture)",
+    "POST",
+    "/api/media/files/url",
+    {
+      url: `https://cdn.example.com/project-smoke-${suffix}.pdf`,
+      fileName: `project-smoke-${suffix}.pdf`,
+      type: "document",
+      mimeType: "application/pdf",
+      sizeBytes: 42,
+    },
+    { expect: [201] }
+  );
+  const registeredFileId = registered?.data?.file?.id;
+
+  if (!registeredFileId) {
+    skipSmoke("POST /api/projects/:id/files URL fixture", "could not register file URL fixture");
+    return;
+  }
+
+  // We can't attach the registered URL file to the project via the POST upload endpoint (requires multipart),
+  // but we can verify the DELETE and list flows
+
+  // List to confirm the file is not associated with our project
+  const listAfterMedia = await check("GET  /api/projects/:id/files (still empty)", "GET", `/api/projects/${projectId}/files`);
+  assertSmoke(
+    "GET  /api/projects/:id/files still empty after unrelated media creation",
+    Array.isArray(listAfterMedia?.data?.files) && listAfterMedia.data.files.length === 0,
+    `expected empty, received ${JSON.stringify(listAfterMedia?.data?.files)}`
+  );
+
+  // Clean up the registered file
+  await check("DELETE /api/media/files/:id (project file fixture cleanup)", "DELETE", `/api/media/files/${registeredFileId}`, null, { expect: [200] });
+}
+
 async function testProjects() {
   console.log("\n[PROJECTS]");
   await check("GET  /api/projects/stats", "GET", "/api/projects/stats");
@@ -593,9 +686,13 @@ async function testProjects() {
       assertProjectHasClientDetails("GET  /api/projects/:id existing row has populated client", detail.data.project, detail.data.project.clientId);
     }
     await check("GET  /api/projects/:id/comments", "GET", `/api/projects/${projectId}/comments`);
+    await check("POST /api/projects/:id/comments", "POST", `/api/projects/${projectId}/comments`, { comment: "Smoke test comment" }, { expect: [204] });
+    await check("PATCH /api/projects/:id (financials)", "PATCH", `/api/projects/${projectId}`, { budget: 9999 }, { expect: [200] });
   } else {
     skipSmoke("GET  /api/projects/:id", "no project ID available");
     skipSmoke("GET  /api/projects/:id/comments", "no project ID available");
+    skipSmoke("POST /api/projects/:id/comments", "no project ID available");
+    skipSmoke("PATCH /api/projects/:id (financials)", "no project ID available");
   }
 
   const emptyStatus = `smoke-empty-status-${Date.now()}`;
@@ -617,6 +714,9 @@ async function testProjects() {
 
   await testProjectClientPopulation();
   await testProjectTaskDerivedProgress();
+
+  // Project file endpoints
+  await testProjectFiles(projectId);
 
   // PATCH — progress is derived from linked tasks and cannot be set manually
   if (projectId) {
@@ -719,6 +819,8 @@ async function testNotifications() {
   const adminRes = await req("GET", "/api/user/profile");
   const adminId = adminRes.json?.data?.profile?.userId;
   let taskId = null;
+  let staffCookie = null;
+  let staffId = null;
 
   const initialList = await check("GET  /api/notifications", "GET", "/api/notifications?limit=20");
   assertSmoke(
@@ -730,9 +832,10 @@ async function testNotifications() {
   );
 
   try {
+    // ── Per-user preferences (admin) ──
     const initialPreferences = await check("GET  /api/notifications/preferences", "GET", "/api/notifications/preferences");
     assertSmoke(
-      "GET  /api/notifications/preferences returns global preference toggles",
+      "GET  /api/notifications/preferences returns resolved preference toggles for current user",
       initialPreferences?.data?.preferences
         && typeof initialPreferences.data.preferences.TASK_ASSIGNMENT === "boolean"
         && typeof initialPreferences.data.preferences.PROJECT_STATUS_CHANGE === "boolean",
@@ -741,31 +844,77 @@ async function testNotifications() {
 
     const originalTaskAssignmentPreference = initialPreferences?.data?.preferences?.TASK_ASSIGNMENT;
     const disabledPreferences = await check(
-      "PUT  /api/notifications/preferences disables one type globally",
+      "PUT  /api/notifications/preferences disables one type for current user",
       "PUT",
       "/api/notifications/preferences",
       { TASK_ASSIGNMENT: false },
     );
     assertSmoke(
-      "PUT  /api/notifications/preferences accepts partial global toggles",
+      "PUT  /api/notifications/preferences accepts partial per-user toggles",
       disabledPreferences?.data?.preferences?.TASK_ASSIGNMENT === false
         && typeof disabledPreferences?.data?.preferences?.PROJECT_STATUS_CHANGE === "boolean",
       `received ${JSON.stringify(disabledPreferences?.data)}`,
     );
 
     const restoredPreferences = await check(
-      "PUT  /api/notifications/preferences restores one global type",
+      "PUT  /api/notifications/preferences restores one user type",
       "PUT",
       "/api/notifications/preferences",
       { TASK_ASSIGNMENT: originalTaskAssignmentPreference !== undefined ? originalTaskAssignmentPreference : true },
     );
     assertSmoke(
-      "PUT  /api/notifications/preferences preserves full global preference response shape",
+      "PUT  /api/notifications/preferences preserves full preference response shape",
       restoredPreferences?.data?.preferences
         && typeof restoredPreferences.data.preferences.TASK_ASSIGNMENT === "boolean"
         && typeof restoredPreferences.data.preferences.PASSWORD_UPDATED === "boolean",
       `received ${JSON.stringify(restoredPreferences?.data)}`,
     );
+
+    // ── Staff user: per-user preferences accessible ──
+    const staffEmail = `staff-notif-${Date.now()}@test.local`;
+    const staffPassword = "TestPassword123!";
+    const createdStaff = await check(
+      "POST /api/members (create staff user for notification tests)",
+      "POST", "/api/members",
+      { firstName: "Staff", lastName: "Notif", email: staffEmail, phone: "+2348000000340", password: staffPassword, role: "staff" },
+      { expect: [201] },
+    );
+    staffId = createdStaff?.data?.user?.userId || null;
+
+    if (staffId) {
+      const staffLogin = await loginAs(staffEmail, staffPassword);
+      staffCookie = staffLogin.cookie;
+
+      if (staffCookie) {
+        ok("POST /api/auth/login (staff for notification tests)", staffLogin.status);
+
+        const staffPrefs = await checkWith("GET  /api/notifications/preferences (staff)", "GET", "/api/notifications/preferences", staffCookie);
+        assertSmoke(
+          "GET  /api/notifications/preferences returns resolved preferences for staff user",
+          staffPrefs?.data?.preferences
+            && typeof staffPrefs.data.preferences.TASK_ASSIGNMENT === "boolean",
+          `received ${JSON.stringify(staffPrefs?.data)}`,
+        );
+
+        const staffUpdated = await checkWith(
+          "PUT  /api/notifications/preferences (staff updates own)",
+          "PUT",
+          "/api/notifications/preferences",
+          staffCookie,
+          { TASK_ASSIGNMENT: false },
+        );
+        assertSmoke(
+          "PUT  /api/notifications/preferences (staff) accepts partial toggles",
+          staffUpdated?.data?.preferences?.TASK_ASSIGNMENT === false,
+          `received ${JSON.stringify(staffUpdated?.data)}`,
+        );
+
+      } else {
+        bad("POST /api/auth/login (staff for notification tests)", staffLogin.status, "could not obtain staff cookie");
+      }
+    } else {
+      skipSmoke("Staff notification preference tests", "could not create staff user fixture");
+    }
 
     let notificationToMark = notificationItems(initialList).find((notification) => notification?.id && !notification?.isRead)
       || notificationItems(initialList).find((notification) => notification?.id)
@@ -843,6 +992,9 @@ async function testNotifications() {
   } finally {
     if (taskId) {
       await check("DELETE /api/tasks/:id (notification fixture cleanup)", "DELETE", `/api/tasks/${taskId}`, null, { expect: [200, 404] });
+    }
+    if (staffId) {
+      await check("DELETE /api/members/:id (staff notif fixture cleanup)", "DELETE", `/api/members/${staffId}`, null, { expect: [200] });
     }
   }
 }
@@ -923,6 +1075,54 @@ async function testLeads() {
   }
 }
 
+async function testBlogAdmin() {
+  const adminRes = await req("GET", "/api/user/profile");
+  const adminId = adminRes.json?.data?.profile?.userId;
+
+  if (!adminId) {
+    skipSmoke("POST /api/blog (blog admin)", "no admin user ID available");
+    return;
+  }
+  
+  const suffix = Date.now();
+  const createdPost = await check(
+    "POST /api/blog creates a post",
+    "POST",
+    "/api/blog",
+    {
+      title: `Smoke Blog Post ${suffix}`,
+      content: "This is a smoke test post.",
+      category: "Technology",
+      tags: ["smoke", "test"],
+      status: "published",
+      authorId: adminId,
+    },
+    { expect: [201] }
+  );
+  
+  const newPostId = createdPost?.data?.post?.id;
+  const newPostSlug = createdPost?.data?.post?.slug;
+
+  if (newPostId) {
+    await check("PUT  /api/blog/:id updates the post", "PUT", `/api/blog/${newPostId}`, { title: `Updated Smoke Blog ${suffix}` }, { expect: [200] });
+    
+    await testBlogEmbedTracking(newPostSlug);
+
+    await check("DELETE /api/blog/:id deletes the post", "DELETE", `/api/blog/${newPostId}`, null, { expect: [200] });
+  }
+}
+
+async function testBlogEmbedTracking(slug) {
+  if (!slug) {
+    skipSmoke("GET  /embed/:slug and track", "no slug available");
+    return;
+  }
+  await check("POST /api/blog/track/:slug tracks view", "POST", `/api/blog/track/${slug}`, {}, { expect: [200] });
+  
+  const embedRes = await req("GET", `/embed/${slug}`);
+  assertSmoke("GET  /embed/:slug returns embed HTML", embedRes.status === 200 && embedRes.headers.get("content-type")?.includes("text/html"), `received ${embedRes.status}`);
+}
+
 async function testBlog() {
   console.log("\n[BLOG]");
   await check("GET  /api/blog/stats", "GET", "/api/blog/stats");
@@ -934,6 +1134,8 @@ async function testBlog() {
   } else {
     skipSmoke("GET  /api/blog/:id", "no post ID available");
   }
+
+  await testBlogAdmin();
 }
 
 async function testAnalytics() {
@@ -1120,6 +1322,40 @@ async function testPayments() {
     if (projectId) await check("DELETE /api/projects/:id (payment ID fixture cleanup)", "DELETE", `/api/projects/${projectId}`, null, { expect: [204, 404] });
     if (mismatchClientId) await check("DELETE /api/clients/:id (payment mismatch fixture cleanup)", "DELETE", `/api/clients/${mismatchClientId}`, null, { expect: [200, 404] });
     if (clientId) await check("DELETE /api/clients/:id (payment ID fixture cleanup)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200, 404] });
+  }
+}
+
+async function testMediaImages() {
+  console.log("\n[MEDIA IMAGES]");
+  await check("GET  /api/media/images/all", "GET", "/api/media/images/all");
+
+  if (!SHOULD_RUN_CLOUDINARY_UPLOADS) {
+    skipSmoke("POST /api/media/images/new", cloudinarySkipReason());
+    return;
+  }
+
+  const uploaded = await checkMultipart(
+    "POST /api/media/images/new",
+    "POST",
+    "/api/media/images/new",
+    {
+      files: [{ name: "image", filename: "test.png", contentType: "image/png", content: tinyPngBuffer }],
+    },
+    { expect: [201] }
+  );
+
+  const imageId = uploaded?.data?.id;
+  if (imageId) {
+    await check("GET  /api/media/images/:imageId", "GET", `/api/media/images/${imageId}`);
+    await checkMultipart(
+      "PUT  /api/media/images/:imageId/replace",
+      "PUT",
+      `/api/media/images/${imageId}/replace`,
+      {
+        files: [{ name: "image", filename: "test-replace.png", contentType: "image/png", content: tinyPngBuffer }],
+      },
+      { expect: [200] }
+    );
   }
 }
 
@@ -1450,6 +1686,7 @@ async function run() {
   await testAnalytics();
   await testRevenue();
   await testPayments();
+  await testMediaImages();
   await testMediaFiles();
   await testWebhooks();
 

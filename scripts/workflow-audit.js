@@ -97,16 +97,14 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function tinyPngBuffer() {
-  return Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
-    'base64',
-  );
-}
+// Minimal valid PNG (1x1 pixel, red)
+const tinyPngBuffer = () => Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==', 'base64');
 
-function tinyBinaryBuffer() {
-  return Buffer.from([0x41, 0x54, 0x4c, 0x41, 0x53, 0x00, 0xff, 0x10, 0x20, 0x30, 0x7f, 0x80, 0x42, 0x49, 0x4e]);
-}
+// Minimal valid JPEG
+const tinyJpegBuffer = () => Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsM', 'base64');
+
+// Generic binary buffer for non-image file uploads
+const tinyBinaryBuffer = () => Buffer.from('Hello, this is a test file for upload.', 'utf-8');
 
 function isUsableHttpsUrl(value) {
   try {
@@ -364,7 +362,9 @@ function runNotificationWiringAudit() {
   const leadRoutePath = 'functions/routes/leads.js';
   const memberRoutePath = 'functions/routes/members.js';
   const notificationModelPath = 'functions/models/notification.js';
+  const mediaFileModelPath = 'functions/models/media-file.js';
   const notificationRouteSource = fileExists(notificationRoutePath) ? readProjectFile(notificationRoutePath) : '';
+  const mediaFileModelSource = fileExists(mediaFileModelPath) ? readProjectFile(mediaFileModelPath) : '';
   const notificationServiceSource = fileExists(notificationServicePath) ? readProjectFile(notificationServicePath) : '';
   const dbSource = readProjectFile(dbPath);
   const swaggerSource = readProjectFile(swaggerPath);
@@ -436,10 +436,10 @@ function runNotificationWiringAudit() {
     severity: 'High',
     smokeGap: false,
   });
-  assertCheck(area, 'Notification route exposes admin preference endpoints', /router\.get\(['"]\/preferences['"],[\s\S]*middlewares\.adminOnly[\s\S]*notificationsRead/.test(notificationRouteSource) && /router\.put\(['"]\/preferences['"],[\s\S]*middlewares\.adminOnly[\s\S]*notificationsWrite/.test(notificationRouteSource), {
+  assertCheck(area, 'Notification route exposes per-user preference endpoints', /router\.get\(['"]\/preferences['"],\s*notificationsRead/.test(notificationRouteSource) && /router\.put\(['"]\/preferences['"],\s*notificationsWrite/.test(notificationRouteSource), {
     endpoint: notificationRoutePath,
-    expected: 'GET /preferences and PUT /preferences use adminOnly plus notification read/write limiters',
-    actual: 'Notification preference routes missing or not admin-protected',
+    expected: 'GET /preferences and PUT /preferences use notification read/write limiters (no adminOnly)',
+    actual: 'Per-user notification preference routes missing or incorrect middleware',
     severity: 'High',
     smokeGap: false,
   });
@@ -450,21 +450,14 @@ function runNotificationWiringAudit() {
     severity: 'High',
     smokeGap: false,
   });
-  assertCheck(area, 'Notification DB helpers include global preference persistence', /system_settings/.test(dbSource) && /getGlobalNotificationPreferences/.test(dbSource) && /updateGlobalNotificationPreferences/.test(dbSource), {
-    endpoint: dbPath,
-    expected: 'Global notification preference get/update helpers persist to system_settings',
-    actual: 'Global notification preference DB helpers or system_settings collection are missing',
-    severity: 'High',
-    smokeGap: false,
-  });
-  assertCheck(area, 'Notification service filters globally disabled notification types before insert', /getGlobalNotificationPreferences/.test(notificationServiceSource) && /normalizeNotificationPreferences/.test(notificationServiceSource) && /enabledNotificationItems/.test(notificationServiceSource) && /db\.addNotifications\(enabledNotificationItems\)/.test(notificationServiceSource), {
+  assertCheck(area, 'Notification service resolves per-user preferences before insert', /getUserNotificationPreferencesMap/.test(notificationServiceSource) && /enabledNotificationItems/.test(notificationServiceSource) && /db\.addNotifications\(enabledNotificationItems\)/.test(notificationServiceSource), {
     endpoint: notificationServicePath,
-    expected: 'createNotifications() loads global preferences once and inserts only globally enabled items',
-    actual: 'Global preference-aware notification filtering is missing from service bulk path',
+    expected: 'createNotifications() loads per-user preferences and defaults to enabled, inserting only enabled items',
+    actual: 'Per-user preference resolution is missing from service bulk path',
     severity: 'Critical',
     smokeGap: false,
   });
-  assertCheck(area, 'Swagger documents notification preference endpoints', /NotificationPreferences/.test(swaggerSource) && /UpdateNotificationPreferencesRequest/.test(swaggerSource) && /\/api\/notifications\/preferences/.test(swaggerSource), {
+  assertCheck(area, 'Swagger documents per-user notification preference endpoints', /NotificationPreferences/.test(swaggerSource) && /UpdateNotificationPreferencesRequest/.test(swaggerSource) && /\/api\/notifications\/preferences/.test(swaggerSource), {
     endpoint: swaggerPath,
     expected: 'Preference schemas plus /api/notifications/preferences path are documented',
     actual: 'Swagger preference endpoint or schemas missing',
@@ -540,6 +533,36 @@ function runNotificationWiringAudit() {
     endpoint: projectRoutePath,
     expected: 'Project assignment/comment fan-out uses NotificationService.dispatchMany and no per-recipient dispatch calls',
     actual: `NotificationService calls in projects route: ${projectNotificationBlocks.join(', ') || '<none>'}`,
+    severity: 'High',
+    smokeGap: false,
+  });
+
+  // Project file endpoints
+  assertCheck(area, 'Project file upload route is wired in projects route', /router\.post\(['"]\/:projectId\/files['"],\s*projectsWrite,\s*projectFileUploadMiddleware/.test(projectRouteSource), {
+    endpoint: projectRoutePath,
+    expected: 'POST /:projectId/files route handler with projectFileUploadMiddleware',
+    actual: 'Project file upload POST route is missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Project file list route is wired in projects route', /router\.get\(['"]\/:projectId\/files['"],\s*projectsRead/.test(projectRouteSource), {
+    endpoint: projectRoutePath,
+    expected: 'GET /:projectId/files route handler',
+    actual: 'Project file list GET route is missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Project file delete route is wired in projects route', /router\.delete\(['"]\/:projectId\/files\/:fileId['"],\s*projectsWrite/.test(projectRouteSource), {
+    endpoint: projectRoutePath,
+    expected: 'DELETE /:projectId/files/:fileId route handler',
+    actual: 'Project file delete DELETE route is missing',
+    severity: 'High',
+    smokeGap: false,
+  });
+  assertCheck(area, 'Media file model includes projectId field', /projectId:\s*z\.string\(\)\.min\(1\)\.nullable\(\)\.default\(null\)/.test(mediaFileModelSource), {
+    endpoint: 'functions/models/media-file.js',
+    expected: 'mediaFileSchema.projectId as nullable string default null',
+    actual: 'projectId field missing from media-file model',
     severity: 'High',
     smokeGap: false,
   });
@@ -874,6 +897,29 @@ async function runProfilePictureFlow() {
   });
 }
 
+async function runMediaImagesFlow() {
+  console.log('\n[MEDIA IMAGES]');
+  await expectStatus('Media images', 'GET /api/media/images/all lists images', 'GET', '/api/media/images/all', {}, [200]);
+
+  if (!SHOULD_RUN_CLOUDINARY_UPLOADS) {
+    skip('Media images', 'Valid binary image upload skipped', 'Cloudinary uploads require WORKFLOW_AUDIT_ENABLE_CLOUDINARY_UPLOADS=true and configured Cloudinary credentials');
+    return;
+  }
+
+  const pngContent = tinyPngBuffer();
+  const uploaded = await expectStatus('Media images', 'POST /api/media/images/new accepts valid PNG upload', 'POST', '/api/media/images/new', {
+    multipart: { files: [{ name: 'image', filename: `workflow-audit-${SUFFIX}.png`, contentType: 'image/png', content: pngContent }] },
+  }, [201]);
+
+  const uploadedImageId = uploaded.json?.data?.id || '';
+  if (uploadedImageId) {
+    await expectStatus('Media images', 'GET /api/media/images/:imageId returns image redirect', 'GET', `/api/media/images/${uploadedImageId}`, { redirect: 'manual' }, [302]);
+    await expectStatus('Media images', 'PUT /api/media/images/:imageId/replace replaces image', 'PUT', `/api/media/images/${uploadedImageId}/replace`, {
+      multipart: { files: [{ name: 'image', filename: `workflow-audit-replace-${SUFFIX}.png`, contentType: 'image/png', content: pngContent }] },
+    }, [200]);
+  }
+}
+
 async function runMediaFlow() {
   console.log('\n[MEDIA FILES]');
   await expectStatus('Media files', 'GET /api/media/files lists files', 'GET', '/api/media/files?limit=10', {}, [200]);
@@ -1109,6 +1155,37 @@ async function runClientProjectTaskFlow() {
       smokeGap: false,
     });
 
+    if (SHOULD_RUN_CLOUDINARY_UPLOADS) {
+      const fileUploaded = await expectStatus('Clients/projects/tasks', 'POST /api/projects/:projectId/files uploads valid binary', 'POST', `/api/projects/${projectId}/files`, {
+        multipart: { files: [{ name: 'file', filename: `project-audit-${SUFFIX}.bin`, contentType: 'application/octet-stream', content: tinyBinaryBuffer() }] },
+      }, [201]);
+      const projFileId = fileUploaded.json?.data?.file?.id || '';
+      
+      if (projFileId) {
+        const filesList = await expectStatus('Clients/projects/tasks', 'GET /api/projects/:projectId/files lists project files', 'GET', `/api/projects/${projectId}/files`, {}, [200]);
+        assertCheck('Clients/projects/tasks', 'Uploaded file appears in project files list', Array.isArray(filesList.json?.data?.files) && filesList.json.data.files.some(f => f.id === projFileId), {
+          endpoint: `GET /api/projects/${projectId}/files`,
+          expected: `file with id ${projFileId}`,
+          actual: JSON.stringify(filesList.json?.data?.files || []),
+          severity: 'Medium',
+          smokeGap: false,
+        });
+
+        await expectStatus('Clients/projects/tasks', 'DELETE /api/projects/:projectId/files/:fileId cleans up project file', 'DELETE', `/api/projects/${projectId}/files/${projFileId}`, {}, [200]);
+        
+        const filesListAfter = await expectStatus('Clients/projects/tasks', 'GET /api/projects/:projectId/files verifies cleanup', 'GET', `/api/projects/${projectId}/files`, {}, [200]);
+        assertCheck('Clients/projects/tasks', 'Deleted file is no longer in project files list', Array.isArray(filesListAfter.json?.data?.files) && !filesListAfter.json.data.files.some(f => f.id === projFileId), {
+          endpoint: `GET /api/projects/${projectId}/files after delete`,
+          expected: `file id ${projFileId} not present`,
+          actual: 'file was still found',
+          severity: 'High',
+          smokeGap: false,
+        });
+      }
+    } else {
+      skip('Clients/projects/tasks', 'Project file upload cycle skipped', 'Cloudinary uploads disabled');
+    }
+
     await expectStatus('Clients/projects/tasks', 'DELETE /api/projects/:id deletes workflow project', 'DELETE', `/api/projects/${projectId}`, {}, [204]);
     forget('projects', projectId);
     await expectStatus('Clients/projects/tasks', 'GET /api/projects/:id after delete returns 404', 'GET', `/api/projects/${projectId}`, {}, [404]);
@@ -1193,29 +1270,45 @@ async function runNotificationApiFlow() {
     }
   }
 
-  const preferences = await expectStatus('Notifications', 'GET /api/notifications/preferences returns global preference toggles', 'GET', '/api/notifications/preferences', {}, [200]);
-  assertCheck('Notifications', 'Global preference response includes known notification type toggles', preferences.json?.data?.preferences && typeof preferences.json.data.preferences.TASK_ASSIGNMENT === 'boolean' && typeof preferences.json.data.preferences.PROJECT_STATUS_CHANGE === 'boolean', {
+  // ── Per-user preferences (admin) ──
+  const preferences = await expectStatus('Notifications', 'GET /api/notifications/preferences returns resolved user preference toggles', 'GET', '/api/notifications/preferences', {}, [200]);
+  assertCheck('Notifications', 'Per-user preference response includes known notification type toggles', preferences.json?.data?.preferences && typeof preferences.json.data.preferences.TASK_ASSIGNMENT === 'boolean' && typeof preferences.json.data.preferences.PROJECT_STATUS_CHANGE === 'boolean', {
     endpoint: 'GET /api/notifications/preferences',
-    expected: 'data.preferences includes global boolean toggles for known notification types',
+    expected: 'data.preferences includes resolved boolean toggles for known notification types',
     actual: JSON.stringify(preferences.json?.data || {}),
     severity: 'High',
     smokeGap: false,
   });
   const originalTaskAssignmentPreference = preferences.json?.data?.preferences?.TASK_ASSIGNMENT;
-  const disabledPreference = await expectStatus('Notifications', 'PUT /api/notifications/preferences disables TASK_ASSIGNMENT globally', 'PUT', '/api/notifications/preferences', {
+  const disabledPreference = await expectStatus('Notifications', 'PUT /api/notifications/preferences disables TASK_ASSIGNMENT for current user', 'PUT', '/api/notifications/preferences', {
     body: { TASK_ASSIGNMENT: false },
   }, [200]);
-  assertCheck('Notifications', 'Global preference update accepts partial type toggles', disabledPreference.json?.data?.preferences?.TASK_ASSIGNMENT === false && typeof disabledPreference.json?.data?.preferences?.PROJECT_STATUS_CHANGE === 'boolean', {
+  assertCheck('Notifications', 'Per-user preference update accepts partial type toggles', disabledPreference.json?.data?.preferences?.TASK_ASSIGNMENT === false && typeof disabledPreference.json?.data?.preferences?.PROJECT_STATUS_CHANGE === 'boolean', {
     endpoint: 'PUT /api/notifications/preferences',
-    expected: 'TASK_ASSIGNMENT=false globally and unspecified types remain present',
+    expected: 'TASK_ASSIGNMENT=false for user and unspecified types remain present',
     actual: JSON.stringify(disabledPreference.json?.data || {}),
     severity: 'High',
     smokeGap: false,
   });
   if (originalTaskAssignmentPreference !== undefined) {
-    await expectStatus('Notifications', 'PUT /api/notifications/preferences restores global TASK_ASSIGNMENT preference', 'PUT', '/api/notifications/preferences', {
+    await expectStatus('Notifications', 'PUT /api/notifications/preferences restores user TASK_ASSIGNMENT preference', 'PUT', '/api/notifications/preferences', {
       body: { TASK_ASSIGNMENT: originalTaskAssignmentPreference },
     }, [200]);
+  }
+
+  // ── Staff user: per-user accessible ──
+  if (state.staffCookie) {
+    const staffPrefs = await expectStatus('Notifications', 'GET /api/notifications/preferences returns resolved preferences for staff user', 'GET', '/api/notifications/preferences', { cookie: state.staffCookie }, [200]);
+    assertCheck('Notifications', 'Staff user can read own resolved preferences', staffPrefs.json?.data?.preferences && typeof staffPrefs.json.data.preferences.TASK_ASSIGNMENT === 'boolean', {
+      endpoint: 'GET /api/notifications/preferences (staff)',
+      expected: 'data.preferences includes resolved boolean toggles',
+      actual: JSON.stringify(staffPrefs.json?.data || {}),
+      severity: 'High',
+      smokeGap: false,
+    });
+
+  } else {
+    skip('Notifications', 'Staff per-user preference checks skipped', 'Staff cookie was not available');
   }
 
   const readAll = await expectStatus('Notifications', 'PUT /api/notifications/read-all marks all current user notifications read', 'PUT', '/api/notifications/read-all', {}, [200]);
@@ -1732,6 +1825,27 @@ async function runModerateStressFlow() {
   }
 }
 
+async function runRedisFlushFlow() {
+  console.log('\n[REDIS FLUSH]');
+  const flushRes = await expectStatus('Redis flush', 'POST /api/health/redis/flush succeeds', 'POST', '/api/health/redis/flush', {}, [200]);
+  assertCheck('Redis flush', 'Redis flush responds with success', flushRes.json?.success === true, {
+    endpoint: 'POST /api/health/redis/flush',
+    expected: 'success: true',
+    actual: `success: ${flushRes.json?.success}`,
+    severity: 'Medium',
+    smokeGap: false,
+  });
+
+  const dashboardRes = await expectStatus('Redis flush', 'GET /api/dashboard/metrics after flush returns valid data', 'GET', '/api/dashboard/metrics', {}, [200]);
+  assertCheck('Redis flush', 'Dashboard metrics are refreshed and valid', typeof dashboardRes.json?.data?.totalClients?.value === 'number', {
+    endpoint: 'GET /api/dashboard/metrics',
+    expected: 'totalClients.value is a number',
+    actual: typeof dashboardRes.json?.data?.totalClients?.value,
+    severity: 'High',
+    smokeGap: false,
+  });
+}
+
 async function runLogoutFlow() {
   console.log('\n[LOGOUT / STALE COOKIE]');
   if (!state.adminCookie) return;
@@ -1790,6 +1904,7 @@ async function runAll() {
       return;
     }
     await runProfilePictureFlow();
+    await runMediaImagesFlow();
     await runMediaFlow();
     await runClientProjectTaskFlow();
     await runNotificationApiFlow();
@@ -1797,6 +1912,7 @@ async function runAll() {
     await runLeadsAndWebhooksFlow();
     await runPaymentsRevenueAnalyticsDashboardFlow();
     await runModerateStressFlow();
+    await runRedisFlushFlow();
   } finally {
     await cleanupFixtures();
     await runLogoutFlow();
