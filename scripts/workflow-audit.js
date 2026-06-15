@@ -450,9 +450,9 @@ function runNotificationWiringAudit() {
     severity: 'High',
     smokeGap: false,
   });
-  assertCheck(area, 'Notification service resolves per-user preferences before insert', /getUserNotificationPreferencesMap/.test(notificationServiceSource) && /enabledNotificationItems/.test(notificationServiceSource) && /db\.addNotifications\(enabledNotificationItems\)/.test(notificationServiceSource), {
+  assertCheck(area, 'Notification service resolves per-user preferences before insert', /getUserNotificationPreferencesMap/.test(notificationServiceSource) && /normalizedPrefMap/.test(notificationServiceSource) && /db\.addNotifications\(/.test(notificationServiceSource), {
     endpoint: notificationServicePath,
-    expected: 'createNotifications() loads per-user preferences and defaults to enabled, inserting only enabled items',
+    expected: 'createNotifications() loads per-user preferences, normalizes them, and filters by inApp/email channels before insert',
     actual: 'Per-user preference resolution is missing from service bulk path',
     severity: 'Critical',
     smokeGap: false,
@@ -1272,27 +1272,36 @@ async function runNotificationApiFlow() {
 
   // ── Per-user preferences (admin) ──
   const preferences = await expectStatus('Notifications', 'GET /api/notifications/preferences returns resolved user preference toggles', 'GET', '/api/notifications/preferences', {}, [200]);
-  assertCheck('Notifications', 'Per-user preference response includes known notification type toggles', preferences.json?.data?.preferences && typeof preferences.json.data.preferences.TASK_ASSIGNMENT === 'boolean' && typeof preferences.json.data.preferences.PROJECT_STATUS_CHANGE === 'boolean', {
+  function hasNestedPrefs(prefs) {
+    return prefs && typeof prefs === 'object'
+      && typeof prefs.TASK_ASSIGNMENT === 'object'
+      && 'inApp' in prefs.TASK_ASSIGNMENT
+      && 'email' in prefs.TASK_ASSIGNMENT;
+  }
+  assertCheck('Notifications', 'Per-user preference response includes nested inApp/email toggles', preferences.json?.data?.preferences && hasNestedPrefs(preferences.json.data.preferences), {
     endpoint: 'GET /api/notifications/preferences',
-    expected: 'data.preferences includes resolved boolean toggles for known notification types',
+    expected: 'data.preferences includes { inApp: boolean, email: boolean } for known notification types',
     actual: JSON.stringify(preferences.json?.data || {}),
     severity: 'High',
     smokeGap: false,
   });
-  const originalTaskAssignmentPreference = preferences.json?.data?.preferences?.TASK_ASSIGNMENT;
-  const disabledPreference = await expectStatus('Notifications', 'PUT /api/notifications/preferences disables TASK_ASSIGNMENT for current user', 'PUT', '/api/notifications/preferences', {
-    body: { TASK_ASSIGNMENT: false },
+  const originalTaskAssignmentPref = preferences.json?.data?.preferences?.TASK_ASSIGNMENT || { inApp: true, email: true };
+  const disabledPreference = await expectStatus('Notifications', 'PUT /api/notifications/preferences disables TASK_ASSIGNMENT email for current user', 'PUT', '/api/notifications/preferences', {
+    body: { TASK_ASSIGNMENT: { inApp: true, email: false } },
   }, [200]);
-  assertCheck('Notifications', 'Per-user preference update accepts partial type toggles', disabledPreference.json?.data?.preferences?.TASK_ASSIGNMENT === false && typeof disabledPreference.json?.data?.preferences?.PROJECT_STATUS_CHANGE === 'boolean', {
+  assertCheck('Notifications', 'Per-user preference update accepts partial type toggles', disabledPreference.json?.data?.preferences?.TASK_ASSIGNMENT?.email === false && typeof disabledPreference.json?.data?.preferences?.TASK_ASSIGNMENT?.inApp === 'boolean', {
     endpoint: 'PUT /api/notifications/preferences',
-    expected: 'TASK_ASSIGNMENT=false for user and unspecified types remain present',
+    expected: 'TASK_ASSIGNMENT.email=false for user and unspecified types remain present',
     actual: JSON.stringify(disabledPreference.json?.data || {}),
     severity: 'High',
     smokeGap: false,
   });
-  if (originalTaskAssignmentPreference !== undefined) {
+  await expectStatus('Notifications', 'PUT /api/notifications/preferences restores user TASK_ASSIGNMENT preference', 'PUT', '/api/notifications/preferences', {
+    body: { TASK_ASSIGNMENT: originalTaskAssignmentPref },
+  }, [200]);
+  if (originalTaskAssignmentPref !== undefined) {
     await expectStatus('Notifications', 'PUT /api/notifications/preferences restores user TASK_ASSIGNMENT preference', 'PUT', '/api/notifications/preferences', {
-      body: { TASK_ASSIGNMENT: originalTaskAssignmentPreference },
+      body: { TASK_ASSIGNMENT: originalTaskAssignmentPref },
     }, [200]);
   }
 
