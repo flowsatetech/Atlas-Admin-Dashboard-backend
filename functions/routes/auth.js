@@ -13,6 +13,7 @@ const middlewares = require('../middlewares');
 const { logger, generateToken, getAuthCookieOptions, serverError, clientError } = require('../helpers');
 const db = require('../db');
 const { loginSchema } = require('../models/user');
+const { NotificationService } = require('../services');
 
 
 /** SETUP
@@ -54,6 +55,26 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) 
             process.env.JWT_SECRET,
             { expiresIn: Math.floor(duration / 1000) }
         );
+
+        /** LOGIN FINGERPRINTING - Detect new device logins */
+        const userAgent = req.headers['user-agent'] || 'Unknown';
+        const previousFingerprint = user.lastLoginFingerprint;
+        const isNewDevice = previousFingerprint && previousFingerprint !== userAgent;
+
+        if (!previousFingerprint) {
+          await db.updateUser(user.userId, { lastLoginFingerprint: userAgent });
+        } else if (isNewDevice) {
+          await db.updateUser(user.userId, { lastLoginFingerprint: userAgent });
+
+          /** Dispatch NEW_LOGIN_DETECTED notification (in-app + email if enabled) */
+          NotificationService.dispatch({
+            recipientId: user.userId,
+            type: 'NEW_LOGIN_DETECTED',
+            title: 'New Login Detected',
+            message: `Your account was accessed from a new device: ${userAgent.substring(0, 120)}`,
+            link: '/profile',
+          }, 'AUTH_LOGIN');
+        }
 
         /** Update user's last login timestamp and new cookie stamp */
         await db.updateUser(user.userId, {

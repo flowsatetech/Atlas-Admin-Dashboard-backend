@@ -174,7 +174,8 @@ router.put('/:id/password', middlewares.adminOnly, membersWrite, async (req, res
             link: '/profile',
             referenceId: existing.userId,
             referenceType: 'User',
-            createdBy: req.user?.userId
+            createdBy: req.user?.userId,
+            _emailContext: { NEW_PASSWORD: validData.data.password }
         }, 'MEMBERS_PASSWORD_PUT');
 
         res.status(200).json({

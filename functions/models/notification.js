@@ -12,29 +12,57 @@ const notificationTypes = [
   'PROJECT_STATUS_CHANGE',
   'LEAD_STATUS_CHANGE',
   'PROJECT_COMMENT',
-  'PASSWORD_UPDATED'
+  'PASSWORD_UPDATED',
+  'NEW_LOGIN_DETECTED'
 ];
 
 const notificationTypeEnum = z.enum(notificationTypes);
 
+const channelPreferencesSchema = z.object({
+  inApp: z.boolean().default(true),
+  email: z.boolean().default(true),
+});
+
 const notificationPreferencesShape = notificationTypes.reduce((shape, type) => {
-  shape[type] = z.boolean();
+  shape[type] = channelPreferencesSchema;
   return shape;
 }, {});
 
 const notificationPreferencesSchema = z.object(notificationPreferencesShape);
 const updateNotificationPreferencesSchema = notificationPreferencesSchema.partial().strict();
+const getDefaultChannelPreferences = () => ({ inApp: true, email: true });
+
 const defaultNotificationPreferences = Object.freeze(
   notificationTypes.reduce((preferences, type) => {
-    preferences[type] = true;
+    preferences[type] = getDefaultChannelPreferences();
     return preferences;
   }, {})
 );
 
-const normalizeNotificationPreferences = (preferences = {}) => ({
-  ...defaultNotificationPreferences,
-  ...notificationPreferencesSchema.partial().parse(preferences || {})
-});
+const normalizeNotificationPreferences = (preferences = {}) => {
+  const raw = preferences || {};
+
+  return Object.freeze(
+    notificationTypes.reduce((normalized, type) => {
+      const existing = raw[type];
+
+      if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+        normalized[type] = {
+          inApp: typeof existing.inApp === 'boolean' ? existing.inApp : true,
+          email: typeof existing.email === 'boolean' ? existing.email : true,
+        };
+      } else if (existing === true || existing === false) {
+        normalized[type] = {
+          inApp: true,
+          email: existing,
+        };
+      } else {
+        normalized[type] = { inApp: true, email: true };
+      }
+      return normalized;
+    }, {})
+  );
+};
 
 const notificationSchema = z.object({
   ...baseEntityFields,
