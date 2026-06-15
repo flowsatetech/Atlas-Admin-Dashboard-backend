@@ -13,8 +13,9 @@ const mediaFileSchema = z.object({
     publicId: z.string().min(1).nullable().default(null),
     resourceType: mediaResourceTypeEnum.nullable().default(null),
     url: z.string().url(),
-    uploadedBy: z.string().min(1).nullable().default(null)
-});
+    uploadedBy: z.string().min(1).nullable().default(null),
+    projectId: z.string().min(1).nullable().default(null)
+  });
 
 const createMediaFileSchema = mediaFileSchema.omit({
     createdAt: true,

@@ -5,19 +5,65 @@
 // <-- PACKAGE IMPORTS -->
 const express = require('express');
 const { z } = require('zod');
+const multer = require('multer');
 
 // <-- LOCAL EXPORTS IMPORTS -->
 const middlewares = require('../middlewares');
-const { logger, generateToken, serverError, clientError } = require('../helpers');
+const { logger, generateToken, serverError, clientError, uploadGeneralFile, deleteCloudinaryAsset, stripMongoId } = require('../helpers');
 const db = require('../db');
 const models = require('../models');
 const services = require('../services');
+const { mediaFileSchema } = require('../models/media-file');
 
 /** SETUP
  * Global variables referenced in this file are defined here
  */
 const router = express.Router();
 const { projectsRead, projectsWrite } = middlewares.rateLimiters;
+
+const MAX_FILE_SIZE = Number(process.env.MAX_FILE_SIZE_BYTES) || 50 * 1024 * 1024;
+
+const projectFileUpload = multer({
+  limits: { fileSize: MAX_FILE_SIZE },
+  storage: multer.memoryStorage(),
+});
+
+const projectFileUploadMiddleware = (req, res, next) => {
+  const handler = projectFileUpload.single('file');
+  handler(req, res, (err) => {
+    if (!err) return next();
+    return res.status(400).json({
+      success: false,
+      message: 'Project file upload error',
+      data: { error: err.message },
+    });
+  });
+};
+
+function inferMediaType(mimeType = '') {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (
+    mimeType === 'application/pdf' ||
+    mimeType.includes('document') ||
+    mimeType.includes('word') ||
+    mimeType.includes('excel') ||
+    mimeType.includes('powerpoint') ||
+    mimeType.startsWith('text/')
+  ) return 'document';
+  return 'other';
+}
+
+function resolveCloudinaryResourceType(file) {
+  if (file?.resourceType) return file.resourceType;
+  if (file?.type === 'image') return 'image';
+  if (file?.type === 'video') return 'video';
+  return 'raw';
+}
+
+function publicMediaFile(file) {
+  return stripMongoId(file);
+}
 
 /** MAIN PROJECT ROUTES */
 
@@ -382,6 +428,142 @@ router.get('/:projectId/comments', projectsRead, async (req, res) => {
     } catch (e) {
         logger('GET_COMMENTS').error(e);
         return serverError(res, e, 'Failed to fetch comments.');
+    }
+});
+
+router.post('/:projectId/files', projectsWrite, projectFileUploadMiddleware, async (req, res) => {
+    try {
+        const { projectId } = req.params;
+
+        const project = await db.getProjectById(projectId);
+        if (!project) {
+            return clientError(res, 404, 'Project not found');
+        }
+
+        if (!req.file) {
+            return clientError(res, 400, 'No file uploaded');
+        }
+
+        const uploaded = await uploadGeneralFile(req.file);
+        const url = uploaded.secure_url || uploaded.url;
+        const id = generateToken(32);
+
+        const record = {
+            id,
+            fileName: req.file.originalname || uploaded.original_filename || id,
+            type: inferMediaType(req.file.mimetype),
+            mimeType: req.file.mimetype || 'application/octet-stream',
+            sizeBytes: Number(req.file.size) || Number(uploaded.bytes) || 0,
+            storageProvider: 'cloudinary',
+            publicId: uploaded.public_id || null,
+            resourceType: uploaded.resource_type || null,
+            url,
+            uploadedBy: req.user?.userId || null,
+            projectId,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+        };
+
+        const parsed = mediaFileSchema.safeParse(record);
+        if (!parsed.success) {
+            if (uploaded.public_id) await deleteCloudinaryAsset(uploaded.public_id, uploaded.resource_type);
+            return clientError(res, 400, 'Invalid file metadata', parsed.error.issues.map((i) => i.message));
+        }
+
+        const saved = await db.addMediaFile(parsed.data);
+        await db.addFileToProject(projectId, id);
+
+        await services.logActivity({
+            type: 'project.file.uploaded',
+            actorId: req.user?.userId || null,
+            entityId: projectId,
+            entityType: 'project',
+            message: `File "${parsed.data.fileName}" uploaded to project "${project.name || 'Project'}"`,
+            meta: { fileId: id, mediaType: parsed.data.type, publicId: parsed.data.publicId },
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Project file uploaded successfully',
+            data: { file: publicMediaFile(saved) },
+        });
+    } catch (e) {
+        logger('PROJECT_FILE_UPLOAD').error(e);
+        return serverError(res, e, 'Failed to upload project file.');
+    }
+});
+
+router.get('/:projectId/files', projectsRead, async (req, res) => {
+    try {
+        const { projectId } = req.params;
+        const page = Math.max(1, Number(req.query.page) || 1);
+        const limit = Math.min(Math.max(1, Number(req.query.limit) || 100), 100);
+
+        const project = await db.getProjectById(projectId);
+        if (!project) {
+            return clientError(res, 404, 'Project not found');
+        }
+
+        const result = await db.getMediaFilesByProjectId({ projectId, page, limit });
+
+        res.status(200).json({
+            success: true,
+            message: 'Fetch project files success',
+            data: {
+                files: result.files.map(publicMediaFile),
+                pagination: result.pagination,
+            },
+        });
+    } catch (e) {
+        logger('PROJECT_FILE_LIST').error(e);
+        return serverError(res, e, 'Failed to fetch project files.');
+    }
+});
+
+router.delete('/:projectId/files/:fileId', projectsWrite, async (req, res) => {
+    try {
+        const { projectId, fileId } = req.params;
+
+        const project = await db.getProjectById(projectId);
+        if (!project) {
+            return clientError(res, 404, 'Project not found');
+        }
+
+        const file = await db.getMediaFileById(fileId);
+        if (!file) {
+            return clientError(res, 404, 'File not found');
+        }
+
+        if (file.projectId && file.projectId !== projectId) {
+            return clientError(res, 400, 'File does not belong to this project');
+        }
+
+        // Delete from Cloudinary if applicable
+        if (file.publicId) {
+            await deleteCloudinaryAsset(file.publicId, resolveCloudinaryResourceType(file));
+        }
+        
+        await db.removeFileFromProject(projectId, fileId);
+
+        await db.deleteMediaFileById(fileId);
+
+        await services.logActivity({
+            type: 'project.file.deleted',
+            actorId: req.user?.userId || null,
+            entityId: projectId,
+            entityType: 'project',
+            message: `File "${file.fileName}" removed from project "${project.name || 'Project'}"`,
+            meta: { fileId, mediaType: file.type, publicId: file.publicId || null },
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Project file deleted successfully',
+            data: { id: fileId },
+        });
+    } catch (e) {
+        logger('PROJECT_FILE_DELETE').error(e);
+        return serverError(res, e, 'Failed to delete project file.');
     }
 });
 

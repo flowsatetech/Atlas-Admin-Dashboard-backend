@@ -60,6 +60,7 @@ async function initializeDB() {
     await mediaFiles.createIndex({ id: 1 }, { unique: true });
     await mediaFiles.createIndex({ uploadedBy: 1 });
     await mediaFiles.createIndex({ type: 1 });
+    await mediaFiles.createIndex({ projectId: 1 });
     await mediaFiles.createIndex({ createdAt: -1 });
     await clients.createIndex({ id: 1 }, { unique: true });
     await clients.createIndex({ status: 1 });
@@ -1183,6 +1184,53 @@ async function addMediaFile(fileData) {
   }
 }
 
+async function getMediaFilesByProjectId({ projectId, page = 1, limit = 100 } = {}) {
+  try {
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(Math.max(1, Number(limit) || 100), 100);
+    const skip = (safePage - 1) * safeLimit;
+    const query = { projectId };
+
+    const [files, total] = await Promise.all([
+      mediaFiles.find(query).sort({ createdAt: -1 }).skip(skip).limit(safeLimit).toArray(),
+      mediaFiles.countDocuments(query),
+    ]);
+
+    return {
+      files,
+      pagination: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function addFileToProject(projectId, fileId) {
+  try {
+    await projects.updateOne({ id: projectId }, { $push: { files: fileId } });
+    return true;
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function removeFileFromProject(projectId, fileId) {
+  try {
+    await projects.updateOne({ id: projectId }, { $pull: { files: fileId } });
+    return true;
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function deleteMediaFileById(fileId) {
   try {
     const result = await mediaFiles.deleteOne({ id: fileId });
@@ -1777,6 +1825,9 @@ module.exports = {
   getMediaFiles,
   getMediaFileById,
   addMediaFile,
+  getMediaFilesByProjectId,
+  addFileToProject,
+  removeFileFromProject,
   deleteMediaFileById,
   addComment,
   getCommentsByProjectId,
