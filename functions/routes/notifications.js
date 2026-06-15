@@ -8,12 +8,15 @@ const { notificationsRead, notificationsWrite } = middlewares.rateLimiters;
 
 /**
  * @route   GET /api/notifications/preferences
- * @desc    Get global notification preferences
- * @access  Private/Admin
+ * @desc    Get current user's notification preferences
+ * @access  Private
  */
-router.get('/preferences', middlewares.adminOnly, notificationsRead, async (req, res) => {
+router.get('/preferences', notificationsRead, async (req, res) => {
   try {
-    const preferences = await NotificationService.getPreferences();
+    const userId = req.user?.userId || req.db_user?.userId;
+    if (!userId) return clientError(res, 401, 'Authentication required');
+
+    const preferences = await NotificationService.getUserPreferences(userId);
 
     return res.status(200).json({
       success: true,
@@ -28,12 +31,15 @@ router.get('/preferences', middlewares.adminOnly, notificationsRead, async (req,
 
 /**
  * @route   PUT /api/notifications/preferences
- * @desc    Update global notification preferences
- * @access  Private/Admin
+ * @desc    Update current user's notification preferences
+ * @access  Private
  */
-router.put('/preferences', middlewares.adminOnly, notificationsWrite, async (req, res) => {
+router.put('/preferences', notificationsWrite, async (req, res) => {
   try {
-    const preferences = await NotificationService.updatePreferences(req.body || {});
+    const userId = req.user?.userId || req.db_user?.userId;
+    if (!userId) return clientError(res, 401, 'Authentication required');
+
+    const preferences = await NotificationService.updateUserPreferences(userId, req.body || {});
 
     return res.status(200).json({
       success: true,

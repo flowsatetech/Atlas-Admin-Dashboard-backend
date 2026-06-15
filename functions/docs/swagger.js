@@ -1054,7 +1054,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             UpdateNotificationPreferencesRequest: {
                 type: "object",
                 additionalProperties: false,
-                description: "Global system notification preferences controlled by admins. Send only the notification types to change; omitted types keep their current global value.",
+                description: "Per-user notification preferences. Send only the notification types to change; omitted types keep their current value for the authenticated user.",
                 properties: Object.fromEntries(enumValues.notificationTypes.map((type) => [
                     type,
                     { type: "boolean", example: type !== "SYSTEM_ALERT" }
@@ -3042,8 +3042,8 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             get: {
                 tags: ["Notifications"],
                 operationId: "getNotificationPreferences",
-                summary: "Fetch global notification preferences",
-                description: "Admin-only. Returns the global system notification type toggles that control notification persistence for all users.",
+                summary: "Fetch notification preferences for the current user",
+                description: "Returns the authenticated user's notification type toggles.",
                 security: [{ cookieAuth: [] }],
                 responses: {
                     200: successResponse("Notification preferences returned.", {
@@ -3053,7 +3053,6 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                         }
                     }, { preferences: Object.fromEntries(enumValues.notificationTypes.map((type) => [type, true])) }, "Notification preferences fetched successfully"),
                     401: responseRef("Unauthorized"),
-                    403: responseRef("Forbidden"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
                 }
@@ -3061,13 +3060,13 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             put: {
                 tags: ["Notifications"],
                 operationId: "updateNotificationPreferences",
-                summary: "Update global notification preferences",
-                description: "Admin-only. Updates the global system notification type toggles for all users. Omitted types keep their current global value.",
+                summary: "Update notification preferences for the current user",
+                description: "Updates the authenticated user's notification type toggles. Omitted types keep their current value.",
                 security: [{ cookieAuth: [] }],
                 requestBody: jsonRequestBody("UpdateNotificationPreferencesRequest", {
                     TASK_ASSIGNMENT: false,
                     PROJECT_STATUS_CHANGE: true
-                }, "Global notification preference toggles. Send only the types to change."),
+                }, "Per-user notification preference toggles. Send only the types to change."),
                 responses: {
                     200: successResponse("Notification preferences updated.", {
                         type: "object",
@@ -3082,7 +3081,6 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     }, "Notification preferences updated successfully"),
                     400: responseRef("BadRequest"),
                     401: responseRef("Unauthorized"),
-                    403: responseRef("Forbidden"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
                 }

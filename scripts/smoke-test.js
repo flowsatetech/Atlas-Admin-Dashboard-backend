@@ -819,6 +819,8 @@ async function testNotifications() {
   const adminRes = await req("GET", "/api/user/profile");
   const adminId = adminRes.json?.data?.profile?.userId;
   let taskId = null;
+  let staffCookie = null;
+  let staffId = null;
 
   const initialList = await check("GET  /api/notifications", "GET", "/api/notifications?limit=20");
   assertSmoke(
@@ -830,9 +832,10 @@ async function testNotifications() {
   );
 
   try {
+    // ── Per-user preferences (admin) ──
     const initialPreferences = await check("GET  /api/notifications/preferences", "GET", "/api/notifications/preferences");
     assertSmoke(
-      "GET  /api/notifications/preferences returns global preference toggles",
+      "GET  /api/notifications/preferences returns resolved preference toggles for current user",
       initialPreferences?.data?.preferences
         && typeof initialPreferences.data.preferences.TASK_ASSIGNMENT === "boolean"
         && typeof initialPreferences.data.preferences.PROJECT_STATUS_CHANGE === "boolean",
@@ -841,31 +844,77 @@ async function testNotifications() {
 
     const originalTaskAssignmentPreference = initialPreferences?.data?.preferences?.TASK_ASSIGNMENT;
     const disabledPreferences = await check(
-      "PUT  /api/notifications/preferences disables one type globally",
+      "PUT  /api/notifications/preferences disables one type for current user",
       "PUT",
       "/api/notifications/preferences",
       { TASK_ASSIGNMENT: false },
     );
     assertSmoke(
-      "PUT  /api/notifications/preferences accepts partial global toggles",
+      "PUT  /api/notifications/preferences accepts partial per-user toggles",
       disabledPreferences?.data?.preferences?.TASK_ASSIGNMENT === false
         && typeof disabledPreferences?.data?.preferences?.PROJECT_STATUS_CHANGE === "boolean",
       `received ${JSON.stringify(disabledPreferences?.data)}`,
     );
 
     const restoredPreferences = await check(
-      "PUT  /api/notifications/preferences restores one global type",
+      "PUT  /api/notifications/preferences restores one user type",
       "PUT",
       "/api/notifications/preferences",
       { TASK_ASSIGNMENT: originalTaskAssignmentPreference !== undefined ? originalTaskAssignmentPreference : true },
     );
     assertSmoke(
-      "PUT  /api/notifications/preferences preserves full global preference response shape",
+      "PUT  /api/notifications/preferences preserves full preference response shape",
       restoredPreferences?.data?.preferences
         && typeof restoredPreferences.data.preferences.TASK_ASSIGNMENT === "boolean"
         && typeof restoredPreferences.data.preferences.PASSWORD_UPDATED === "boolean",
       `received ${JSON.stringify(restoredPreferences?.data)}`,
     );
+
+    // ── Staff user: per-user preferences accessible ──
+    const staffEmail = `staff-notif-${Date.now()}@test.local`;
+    const staffPassword = "TestPassword123!";
+    const createdStaff = await check(
+      "POST /api/members (create staff user for notification tests)",
+      "POST", "/api/members",
+      { firstName: "Staff", lastName: "Notif", email: staffEmail, phone: "+2348000000340", password: staffPassword, role: "staff" },
+      { expect: [201] },
+    );
+    staffId = createdStaff?.data?.user?.userId || null;
+
+    if (staffId) {
+      const staffLogin = await loginAs(staffEmail, staffPassword);
+      staffCookie = staffLogin.cookie;
+
+      if (staffCookie) {
+        ok("POST /api/auth/login (staff for notification tests)", staffLogin.status);
+
+        const staffPrefs = await checkWith("GET  /api/notifications/preferences (staff)", "GET", "/api/notifications/preferences", staffCookie);
+        assertSmoke(
+          "GET  /api/notifications/preferences returns resolved preferences for staff user",
+          staffPrefs?.data?.preferences
+            && typeof staffPrefs.data.preferences.TASK_ASSIGNMENT === "boolean",
+          `received ${JSON.stringify(staffPrefs?.data)}`,
+        );
+
+        const staffUpdated = await checkWith(
+          "PUT  /api/notifications/preferences (staff updates own)",
+          "PUT",
+          "/api/notifications/preferences",
+          staffCookie,
+          { TASK_ASSIGNMENT: false },
+        );
+        assertSmoke(
+          "PUT  /api/notifications/preferences (staff) accepts partial toggles",
+          staffUpdated?.data?.preferences?.TASK_ASSIGNMENT === false,
+          `received ${JSON.stringify(staffUpdated?.data)}`,
+        );
+
+      } else {
+        bad("POST /api/auth/login (staff for notification tests)", staffLogin.status, "could not obtain staff cookie");
+      }
+    } else {
+      skipSmoke("Staff notification preference tests", "could not create staff user fixture");
+    }
 
     let notificationToMark = notificationItems(initialList).find((notification) => notification?.id && !notification?.isRead)
       || notificationItems(initialList).find((notification) => notification?.id)
@@ -943,6 +992,9 @@ async function testNotifications() {
   } finally {
     if (taskId) {
       await check("DELETE /api/tasks/:id (notification fixture cleanup)", "DELETE", `/api/tasks/${taskId}`, null, { expect: [200, 404] });
+    }
+    if (staffId) {
+      await check("DELETE /api/members/:id (staff notif fixture cleanup)", "DELETE", `/api/members/${staffId}`, null, { expect: [200] });
     }
   }
 }

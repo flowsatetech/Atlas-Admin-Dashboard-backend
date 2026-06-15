@@ -436,10 +436,10 @@ function runNotificationWiringAudit() {
     severity: 'High',
     smokeGap: false,
   });
-  assertCheck(area, 'Notification route exposes admin preference endpoints', /router\.get\(['"]\/preferences['"],[\s\S]*middlewares\.adminOnly[\s\S]*notificationsRead/.test(notificationRouteSource) && /router\.put\(['"]\/preferences['"],[\s\S]*middlewares\.adminOnly[\s\S]*notificationsWrite/.test(notificationRouteSource), {
+  assertCheck(area, 'Notification route exposes per-user preference endpoints', /router\.get\(['"]\/preferences['"],\s*notificationsRead/.test(notificationRouteSource) && /router\.put\(['"]\/preferences['"],\s*notificationsWrite/.test(notificationRouteSource), {
     endpoint: notificationRoutePath,
-    expected: 'GET /preferences and PUT /preferences use adminOnly plus notification read/write limiters',
-    actual: 'Notification preference routes missing or not admin-protected',
+    expected: 'GET /preferences and PUT /preferences use notification read/write limiters (no adminOnly)',
+    actual: 'Per-user notification preference routes missing or incorrect middleware',
     severity: 'High',
     smokeGap: false,
   });
@@ -450,21 +450,14 @@ function runNotificationWiringAudit() {
     severity: 'High',
     smokeGap: false,
   });
-  assertCheck(area, 'Notification DB helpers include global preference persistence', /system_settings/.test(dbSource) && /getGlobalNotificationPreferences/.test(dbSource) && /updateGlobalNotificationPreferences/.test(dbSource), {
-    endpoint: dbPath,
-    expected: 'Global notification preference get/update helpers persist to system_settings',
-    actual: 'Global notification preference DB helpers or system_settings collection are missing',
-    severity: 'High',
-    smokeGap: false,
-  });
-  assertCheck(area, 'Notification service filters globally disabled notification types before insert', /getGlobalNotificationPreferences/.test(notificationServiceSource) && /normalizeNotificationPreferences/.test(notificationServiceSource) && /enabledNotificationItems/.test(notificationServiceSource) && /db\.addNotifications\(enabledNotificationItems\)/.test(notificationServiceSource), {
+  assertCheck(area, 'Notification service resolves per-user preferences before insert', /getUserNotificationPreferencesMap/.test(notificationServiceSource) && /enabledNotificationItems/.test(notificationServiceSource) && /db\.addNotifications\(enabledNotificationItems\)/.test(notificationServiceSource), {
     endpoint: notificationServicePath,
-    expected: 'createNotifications() loads global preferences once and inserts only globally enabled items',
-    actual: 'Global preference-aware notification filtering is missing from service bulk path',
+    expected: 'createNotifications() loads per-user preferences and defaults to enabled, inserting only enabled items',
+    actual: 'Per-user preference resolution is missing from service bulk path',
     severity: 'Critical',
     smokeGap: false,
   });
-  assertCheck(area, 'Swagger documents notification preference endpoints', /NotificationPreferences/.test(swaggerSource) && /UpdateNotificationPreferencesRequest/.test(swaggerSource) && /\/api\/notifications\/preferences/.test(swaggerSource), {
+  assertCheck(area, 'Swagger documents per-user notification preference endpoints', /NotificationPreferences/.test(swaggerSource) && /UpdateNotificationPreferencesRequest/.test(swaggerSource) && /\/api\/notifications\/preferences/.test(swaggerSource), {
     endpoint: swaggerPath,
     expected: 'Preference schemas plus /api/notifications/preferences path are documented',
     actual: 'Swagger preference endpoint or schemas missing',
@@ -1277,29 +1270,45 @@ async function runNotificationApiFlow() {
     }
   }
 
-  const preferences = await expectStatus('Notifications', 'GET /api/notifications/preferences returns global preference toggles', 'GET', '/api/notifications/preferences', {}, [200]);
-  assertCheck('Notifications', 'Global preference response includes known notification type toggles', preferences.json?.data?.preferences && typeof preferences.json.data.preferences.TASK_ASSIGNMENT === 'boolean' && typeof preferences.json.data.preferences.PROJECT_STATUS_CHANGE === 'boolean', {
+  // ── Per-user preferences (admin) ──
+  const preferences = await expectStatus('Notifications', 'GET /api/notifications/preferences returns resolved user preference toggles', 'GET', '/api/notifications/preferences', {}, [200]);
+  assertCheck('Notifications', 'Per-user preference response includes known notification type toggles', preferences.json?.data?.preferences && typeof preferences.json.data.preferences.TASK_ASSIGNMENT === 'boolean' && typeof preferences.json.data.preferences.PROJECT_STATUS_CHANGE === 'boolean', {
     endpoint: 'GET /api/notifications/preferences',
-    expected: 'data.preferences includes global boolean toggles for known notification types',
+    expected: 'data.preferences includes resolved boolean toggles for known notification types',
     actual: JSON.stringify(preferences.json?.data || {}),
     severity: 'High',
     smokeGap: false,
   });
   const originalTaskAssignmentPreference = preferences.json?.data?.preferences?.TASK_ASSIGNMENT;
-  const disabledPreference = await expectStatus('Notifications', 'PUT /api/notifications/preferences disables TASK_ASSIGNMENT globally', 'PUT', '/api/notifications/preferences', {
+  const disabledPreference = await expectStatus('Notifications', 'PUT /api/notifications/preferences disables TASK_ASSIGNMENT for current user', 'PUT', '/api/notifications/preferences', {
     body: { TASK_ASSIGNMENT: false },
   }, [200]);
-  assertCheck('Notifications', 'Global preference update accepts partial type toggles', disabledPreference.json?.data?.preferences?.TASK_ASSIGNMENT === false && typeof disabledPreference.json?.data?.preferences?.PROJECT_STATUS_CHANGE === 'boolean', {
+  assertCheck('Notifications', 'Per-user preference update accepts partial type toggles', disabledPreference.json?.data?.preferences?.TASK_ASSIGNMENT === false && typeof disabledPreference.json?.data?.preferences?.PROJECT_STATUS_CHANGE === 'boolean', {
     endpoint: 'PUT /api/notifications/preferences',
-    expected: 'TASK_ASSIGNMENT=false globally and unspecified types remain present',
+    expected: 'TASK_ASSIGNMENT=false for user and unspecified types remain present',
     actual: JSON.stringify(disabledPreference.json?.data || {}),
     severity: 'High',
     smokeGap: false,
   });
   if (originalTaskAssignmentPreference !== undefined) {
-    await expectStatus('Notifications', 'PUT /api/notifications/preferences restores global TASK_ASSIGNMENT preference', 'PUT', '/api/notifications/preferences', {
+    await expectStatus('Notifications', 'PUT /api/notifications/preferences restores user TASK_ASSIGNMENT preference', 'PUT', '/api/notifications/preferences', {
       body: { TASK_ASSIGNMENT: originalTaskAssignmentPreference },
     }, [200]);
+  }
+
+  // ── Staff user: per-user accessible ──
+  if (state.staffCookie) {
+    const staffPrefs = await expectStatus('Notifications', 'GET /api/notifications/preferences returns resolved preferences for staff user', 'GET', '/api/notifications/preferences', { cookie: state.staffCookie }, [200]);
+    assertCheck('Notifications', 'Staff user can read own resolved preferences', staffPrefs.json?.data?.preferences && typeof staffPrefs.json.data.preferences.TASK_ASSIGNMENT === 'boolean', {
+      endpoint: 'GET /api/notifications/preferences (staff)',
+      expected: 'data.preferences includes resolved boolean toggles',
+      actual: JSON.stringify(staffPrefs.json?.data || {}),
+      severity: 'High',
+      smokeGap: false,
+    });
+
+  } else {
+    skip('Notifications', 'Staff per-user preference checks skipped', 'Staff cookie was not available');
   }
 
   const readAll = await expectStatus('Notifications', 'PUT /api/notifications/read-all marks all current user notifications read', 'PUT', '/api/notifications/read-all', {}, [200]);

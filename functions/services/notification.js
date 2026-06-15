@@ -33,8 +33,18 @@ class NotificationService {
       };
     });
 
-    const preferences = await this.getPreferences();
-    const enabledNotificationItems = notificationItems.filter((item) => preferences[item.type] !== false);
+    const uniqueRecipientIds = [...new Set(notificationItems.map((item) => item.recipientId))];
+    const userPreferenceMap = await db.getUserNotificationPreferencesMap(uniqueRecipientIds);
+
+    const enabledNotificationItems = notificationItems.filter((item) => {
+      const userPreferences = userPreferenceMap[item.recipientId] || {};
+
+      if (userPreferences.hasOwnProperty(item.type)) {
+        return userPreferences[item.type] !== false;
+      }
+
+      return true;
+    });
 
     if (enabledNotificationItems.length === 0) return [];
 
@@ -61,12 +71,16 @@ class NotificationService {
     return db.getNotificationsByRecipient(userId, options);
   }
 
-  static async getPreferences() {
-    const preferences = await db.getGlobalNotificationPreferences();
-    return normalizeNotificationPreferences(preferences);
+  static async getUserPreferences(userId) {
+    const user = await db.getUserById(userId);
+    const userPreferences = user?.notificationPreferences || {};
+
+    return normalizeNotificationPreferences({
+      ...userPreferences,
+    });
   }
 
-  static async updatePreferences(preferencesUpdate) {
+  static async updateUserPreferences(userId, preferencesUpdate) {
     const parsed = updateNotificationPreferencesSchema.safeParse(preferencesUpdate);
     if (!parsed.success) {
       const error = new Error('Invalid notification preferences');
@@ -75,14 +89,16 @@ class NotificationService {
       throw error;
     }
 
-    const currentPreferences = await this.getPreferences();
+    const user = await db.getUserById(userId);
+    const currentUserPreferences = user?.notificationPreferences || {};
+
     const notificationPreferences = normalizeNotificationPreferences({
-      ...currentPreferences,
+      ...currentUserPreferences,
       ...parsed.data,
     });
-    const updated = await db.updateGlobalNotificationPreferences(notificationPreferences);
 
-    return normalizeNotificationPreferences(updated?.notificationPreferences);
+    await db.updateUserNotificationPreferences(userId, notificationPreferences);
+    return this.getUserPreferences(userId);
   }
 
   static async markAsRead(notificationId, userId) {
