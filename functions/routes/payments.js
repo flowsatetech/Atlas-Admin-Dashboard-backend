@@ -8,7 +8,6 @@ const models = require("../models");
 const services = require("../services");
 
 const router = express.Router();
-const { paymentsRead, paymentsWrite } = middlewares.rateLimiters;
 
 const emptyToUndefined = (value) => (value === "" ? undefined : value);
 
@@ -69,7 +68,7 @@ async function validatePaymentReferences(clientId, projectId) {
   return { client, project };
 }
 
-router.get("/", paymentsRead, async (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const parsed = paymentListQuerySchema.safeParse(req.query);
     if (!parsed.success) {
@@ -121,7 +120,7 @@ function rejectLegacyPaymentFields(body) {
   return `Field '${field}' is not recognized. Use '${suggested}' instead.`;
 }
 
-router.post("/", middlewares.adminOnly, paymentsWrite, async (req, res) => {
+router.post("/", middlewares.adminOnly, async (req, res) => {
   try {
     const legacyError = rejectLegacyPaymentFields(req.body);
     if (legacyError) {
@@ -172,7 +171,7 @@ router.post("/", middlewares.adminOnly, paymentsWrite, async (req, res) => {
   }
 });
 
-router.get("/:paymentId", paymentsRead, async (req, res) => {
+router.get("/:paymentId", async (req, res) => {
   try {
     const payment = await db.getPaymentById(req.params.paymentId);
     if (!payment) {
@@ -190,7 +189,7 @@ router.get("/:paymentId", paymentsRead, async (req, res) => {
   }
 });
 
-router.patch("/:paymentId", middlewares.adminOnly, paymentsWrite, async (req, res) => {
+router.patch("/:paymentId", middlewares.adminOnly, async (req, res) => {
   try {
     const legacyError = rejectLegacyPaymentFields(req.body);
     if (legacyError) {
@@ -239,7 +238,7 @@ router.patch("/:paymentId", middlewares.adminOnly, paymentsWrite, async (req, re
   }
 });
 
-router.delete("/:paymentId", middlewares.adminOnly, paymentsWrite, async (req, res) => {
+router.delete("/:paymentId", middlewares.adminOnly, async (req, res) => {
   try {
     const existing = await db.getPaymentById(req.params.paymentId);
     if (!existing) {

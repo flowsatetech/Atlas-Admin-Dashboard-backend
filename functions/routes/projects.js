@@ -19,7 +19,6 @@ const { mediaFileSchema } = require('../models/media-file');
  * Global variables referenced in this file are defined here
  */
 const router = express.Router();
-const { projectsRead, projectsWrite } = middlewares.rateLimiters;
 
 const MAX_FILE_SIZE = Number(process.env.MAX_FILE_SIZE_BYTES) || 50 * 1024 * 1024;
 
@@ -67,7 +66,7 @@ function publicMediaFile(file) {
 
 /** MAIN PROJECT ROUTES */
 
-router.get('/stats', projectsRead, async (req, res) => {
+router.get('/stats', async (req, res) => {
     try {
         const stats = await db.getProjectStats();
         res.status(200).json({
@@ -81,7 +80,7 @@ router.get('/stats', projectsRead, async (req, res) => {
     }
 });
 
-router.get('/', projectsRead, async (req, res) => {
+router.get('/', async (req, res) => {
     try {
         const querySchema = models.common.paginationQuerySchema.extend({
             status: z.string().optional().default("")
@@ -110,7 +109,7 @@ router.get('/', projectsRead, async (req, res) => {
     }
 });
 
-router.get('/:projectId', projectsRead, async (req, res) => {
+router.get('/:projectId', async (req, res) => {
     try {
         const project = await db.getProjectDetailById(req.params.projectId);
 
@@ -149,7 +148,7 @@ router.get('/:projectId', projectsRead, async (req, res) => {
     }
 });
 
-router.post('/', middlewares.adminOnly, projectsWrite, async (req, res) => {
+router.post('/', middlewares.adminOnly, async (req, res) => {
     try {
         if (Object.prototype.hasOwnProperty.call(req.body || {}, 'progress')) {
             return clientError(res, 400, 'Project progress is derived from task completion and cannot be set manually.');
@@ -211,7 +210,7 @@ router.post('/', middlewares.adminOnly, projectsWrite, async (req, res) => {
     }
 });
 
-router.patch('/:projectId', middlewares.adminOnly, projectsWrite, async (req, res) => {
+router.patch('/:projectId', middlewares.adminOnly, async (req, res) => {
     try {
         const { projectId } = req.params;
 
@@ -297,7 +296,7 @@ router.patch('/:projectId', middlewares.adminOnly, projectsWrite, async (req, re
             actorId: req.user?.userId || null,
             entityId: projectId,
             entityType: 'project',
-            message: `${existing.name || 'Project'} was updated`,
+            message: `Project ${existing.name || 'Project'}'s payment has been updated`,
             meta: {
                 fields: Object.keys(updateData).filter((field) => field !== 'updatedAt')
             }
@@ -318,7 +317,7 @@ router.patch('/:projectId', middlewares.adminOnly, projectsWrite, async (req, re
     }
 });
 
-router.delete('/:projectId', middlewares.adminOnly, projectsWrite, async (req, res) => {
+router.delete('/:projectId', middlewares.adminOnly, async (req, res) => {
     try {
         const existing = await db.getProjectById(req.params.projectId);
 
@@ -334,7 +333,7 @@ router.delete('/:projectId', middlewares.adminOnly, projectsWrite, async (req, r
     }
 });
 
-router.post('/:projectId/comments', projectsWrite, async (req, res) => {
+router.post('/:projectId/comments', async (req, res) => {
     try {
         const existing = await db.getProjectById(req.params.projectId);
 
@@ -412,7 +411,7 @@ router.post('/:projectId/comments', projectsWrite, async (req, res) => {
     }
 });
 
-router.get('/:projectId/comments', projectsRead, async (req, res) => {
+router.get('/:projectId/comments', async (req, res) => {
     try {
         const existing = await db.getProjectById(req.params.projectId);
         if (!existing) {
@@ -431,7 +430,7 @@ router.get('/:projectId/comments', projectsRead, async (req, res) => {
     }
 });
 
-router.post('/:projectId/files', projectsWrite, projectFileUploadMiddleware, async (req, res) => {
+router.post('/:projectId/files', projectFileUploadMiddleware, async (req, res) => {
     try {
         const { projectId } = req.params;
 
@@ -493,7 +492,7 @@ router.post('/:projectId/files', projectsWrite, projectFileUploadMiddleware, asy
     }
 });
 
-router.get('/:projectId/files', projectsRead, async (req, res) => {
+router.get('/:projectId/files', async (req, res) => {
     try {
         const { projectId } = req.params;
         const page = Math.max(1, Number(req.query.page) || 1);
@@ -520,7 +519,7 @@ router.get('/:projectId/files', projectsRead, async (req, res) => {
     }
 });
 
-router.delete('/:projectId/files/:fileId', projectsWrite, async (req, res) => {
+router.delete('/:projectId/files/:fileId', async (req, res) => {
     try {
         const { projectId, fileId } = req.params;
 

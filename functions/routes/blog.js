@@ -17,7 +17,6 @@ const models = require('../models');
  * Global variables referenced in this file are defined here
  */
 const router = express.Router();
-const { blog: blogLimiter } = middlewares.rateLimiters;
 
 const blogStatusFilterSchema = z.union([models.blogPost.blogPostStatusEnum, z.literal('')]).optional().default('');
 const blogCategoryFilterSchema = z.union([models.blogPost.blogPostCategoryEnum, z.literal('')]).optional().default('');
@@ -45,7 +44,7 @@ function normalizeSlug(value = '') {
     return slugify(String(value || ''));
 }
 
-router.get('/', blogLimiter, middlewares.authMiddleware, async (req, res) => {
+router.get('/', middlewares.authMiddleware, async (req, res) => {
     try {
         const querySchema = models.common.paginationQuerySchema.extend({
             status: blogStatusFilterSchema,
@@ -75,7 +74,7 @@ router.get('/', blogLimiter, middlewares.authMiddleware, async (req, res) => {
     }
 });
 
-router.get('/stats', blogLimiter, middlewares.authMiddleware, async (req, res) => {
+router.get('/stats', middlewares.authMiddleware, async (req, res) => {
     try {
         const stats = await db.getBlogStats();
         return res.status(200).json({
@@ -89,7 +88,7 @@ router.get('/stats', blogLimiter, middlewares.authMiddleware, async (req, res) =
     }
 });
 
-router.get('/:postId', blogLimiter, middlewares.authMiddleware, async (req, res) => {
+router.get('/:postId', middlewares.authMiddleware, async (req, res) => {
     try {
         const post = await db.getBlogPostById(req.params.postId);
         if (!post) {
@@ -106,7 +105,7 @@ router.get('/:postId', blogLimiter, middlewares.authMiddleware, async (req, res)
     }
 });
 
-router.post('/', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly, async (req, res) => {
+router.post('/', middlewares.authMiddleware, middlewares.adminOnly, async (req, res) => {
     try {
         const now = Date.now();
         const generatedSlug = normalizeSlug(req.body?.title || '');
@@ -156,7 +155,7 @@ router.post('/', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly,
     }
 });
 
-router.put('/:postId', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly, async (req, res) => {
+router.put('/:postId', middlewares.authMiddleware, middlewares.adminOnly, async (req, res) => {
     try {
         const post = await db.getBlogPostById(req.params.postId);
         if (!post) {
@@ -225,7 +224,7 @@ router.put('/:postId', blogLimiter, middlewares.authMiddleware, middlewares.admi
     }
 });
 
-router.delete('/:postId', blogLimiter, middlewares.authMiddleware, middlewares.adminOnly, async (req, res) => {
+router.delete('/:postId', middlewares.authMiddleware, middlewares.adminOnly, async (req, res) => {
     try {
         const post = await db.getBlogPostById(req.params.postId);
         if (!post) {
@@ -242,8 +241,6 @@ router.delete('/:postId', blogLimiter, middlewares.authMiddleware, middlewares.a
 
 router.post(
     '/track/:slug',
-    middlewares.rateLimiters.blogEmbedTrack,
-    middlewares.rateLimiters.blogEmbedTrackHourly,
     async (req, res) => {
     const { slug } = req.params;
     if (!slug || typeof slug !== 'string' || !/^[a-z0-9-]+$/.test(slug)) {

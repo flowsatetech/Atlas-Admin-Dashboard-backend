@@ -19,12 +19,11 @@ const { loginSchema } = require('../models/user');
  * Global variables referenced in this file are defined here
  */
 const router = express.Router();
-const { authLoginIp, authLogin, logout } = middlewares.rateLimiters;
 const { userAlreadyAuth, authMiddleware } = middlewares;
 
 /** MAIN AUTH ROUTES */
 
-router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) => {
+router.post('/login', userAlreadyAuth, async (req, res) => {
     try {
         const validData = loginSchema.safeParse(req.body);
 
@@ -82,7 +81,7 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) 
     }
 });
 
-router.post('/logout', authMiddleware, logout, async (req, res) => {
+router.post('/logout', authMiddleware, async (req, res) => {
     try {
         res.clearCookie("auth_token", getAuthCookieOptions());
 

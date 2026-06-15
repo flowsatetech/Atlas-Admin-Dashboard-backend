@@ -4,14 +4,13 @@ const middlewares = require('../middlewares');
 const { NotificationService } = require('../services');
 const { logger, serverError, clientError } = require('../helpers');
 
-const { notificationsRead, notificationsWrite } = middlewares.rateLimiters;
 
 /**
  * @route   GET /api/notifications/preferences
  * @desc    Get current user's notification preferences
  * @access  Private
  */
-router.get('/preferences', notificationsRead, async (req, res) => {
+router.get('/preferences', (req, res, next) => next(), async (req, res) => {
   try {
     const userId = req.user?.userId || req.db_user?.userId;
     if (!userId) return clientError(res, 401, 'Authentication required');
@@ -34,7 +33,7 @@ router.get('/preferences', notificationsRead, async (req, res) => {
  * @desc    Update current user's notification preferences
  * @access  Private
  */
-router.put('/preferences', notificationsWrite, async (req, res) => {
+router.put('/preferences', (req, res, next) => next(), async (req, res) => {
   try {
     const userId = req.user?.userId || req.db_user?.userId;
     if (!userId) return clientError(res, 401, 'Authentication required');
@@ -58,7 +57,7 @@ router.put('/preferences', notificationsWrite, async (req, res) => {
  * @desc    Get user notifications
  * @access  Private
  */
-router.get('/', notificationsRead, async (req, res) => {
+router.get('/', (req, res, next) => next(), async (req, res) => {
   try {
     const userId = req.user?.userId || req.db_user?.userId;
     if (!userId) return clientError(res, 401, 'Authentication required');
@@ -87,7 +86,7 @@ router.get('/', notificationsRead, async (req, res) => {
  * @desc    Mark all user notifications as read
  * @access  Private
  */
-router.put('/read-all', notificationsWrite, async (req, res) => {
+router.put('/read-all', (req, res, next) => next(), async (req, res) => {
   try {
     const userId = req.user?.userId || req.db_user?.userId;
     if (!userId) return clientError(res, 401, 'Authentication required');
@@ -110,7 +109,7 @@ router.put('/read-all', notificationsWrite, async (req, res) => {
  * @desc    Mark a specific notification as read
  * @access  Private
  */
-router.put('/:id/read', notificationsWrite, async (req, res) => {
+router.put('/:id/read', (req, res, next) => next(), async (req, res) => {
   try {
     const notificationId = req.params.id;
     const userId = req.user?.userId || req.db_user?.userId;

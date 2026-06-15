@@ -4,7 +4,6 @@ const { logger, serverError, clientError } = require("../helpers");
 const redisClient = require("../middlewares/utils/redis_client");
 const router = express.Router();
 
-const { health: healthLimiter } = middlewares.rateLimiters;
 
 /**
  * @swagger
@@ -41,7 +40,7 @@ const { health: healthLimiter } = middlewares.rateLimiters;
  * type: string
  * example: "120s"
  */
-router.get("/", healthLimiter, (req, res) => {
+router.get("/", (req, res) => {
   res.status(200).json({
     success: true,
     message: "Atlas Admin Server is healthy",

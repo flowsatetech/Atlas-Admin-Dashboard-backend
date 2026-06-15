@@ -16,7 +16,6 @@ const db = require('../db');
  * Global variables referenced in this file are defined here
  */
 const router = express.Router();
-const { profile } = middlewares.rateLimiters;
 
 const profilePictureUpload = multer({
     limits: { fileSize: 5 * 1024 * 1024 },
@@ -62,7 +61,7 @@ function publicProfile(user) {
 }
 
 /** MAIN USER ROUTES */
-router.get('/profile', profile, async (req, res) => {
+router.get('/profile', async (req, res) => {
     try {
         const user = req.db_user;
 
@@ -84,7 +83,7 @@ router.get('/profile', profile, async (req, res) => {
     }
 });
 
-router.put('/profile/picture', profile, profilePictureUploadMiddleware, async (req, res) => {
+router.put('/profile/picture', profilePictureUploadMiddleware, async (req, res) => {
     try {
         const user = req.db_user;
 
@@ -132,7 +131,7 @@ router.put('/profile/picture', profile, profilePictureUploadMiddleware, async (r
     }
 });
 
-router.delete('/profile/picture', profile, async (req, res) => {
+router.delete('/profile/picture', async (req, res) => {
     try {
         const user = req.db_user;
 
