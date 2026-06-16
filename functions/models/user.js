@@ -30,7 +30,20 @@ const userSchema = z.object({
         LEAD_STATUS_CHANGE: z.boolean().default(true),
         PROJECT_COMMENT: z.boolean().default(true),
         PASSWORD_UPDATED: z.boolean().default(true),
-    }).optional().default({})
+    }).optional().default({
+        TASK_ASSIGNMENT: true,
+        PROJECT_ASSIGNMENT: true,
+        CLIENT_ASSIGNMENT: true,
+        LEAD_ASSIGNMENT: true,
+        COMMENT_MENTION: true,
+        ROLE_CHANGE: true,
+        SYSTEM_ALERT: true,
+        CLIENT_CREATED: true,
+        PROJECT_STATUS_CHANGE: true,
+        LEAD_STATUS_CHANGE: true,
+        PROJECT_COMMENT: true,
+        PASSWORD_UPDATED: true,
+    })
 });
 
 const createUserSchema = userSchema.omit({
