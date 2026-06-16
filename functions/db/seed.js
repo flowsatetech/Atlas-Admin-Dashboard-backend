@@ -16,7 +16,27 @@ async function seedDB() {
       const passwordHash = await bcrypt.hash(u.password, 10);
       const stamp = `${crypto.randomBytes(16).toString("hex")}_stamp_${Date.now()}`;
       const { password: _plain, ...rest } = u;
-      await db.addUser({ ...rest, password: passwordHash, stamp, lastLogin: null });
+      const defaultNotificationPreferences = {
+        TASK_ASSIGNMENT: true,
+        PROJECT_ASSIGNMENT: true,
+        CLIENT_ASSIGNMENT: true,
+        LEAD_ASSIGNMENT: true,
+        COMMENT_MENTION: true,
+        ROLE_CHANGE: true,
+        SYSTEM_ALERT: true,
+        CLIENT_CREATED: true,
+        PROJECT_STATUS_CHANGE: true,
+        LEAD_STATUS_CHANGE: true,
+        PROJECT_COMMENT: true,
+        PASSWORD_UPDATED: true,
+      };
+      await db.addUser({
+        ...rest,
+        password: passwordHash,
+        stamp,
+        lastLogin: null,
+        notificationPreferences: rest.notificationPreferences || defaultNotificationPreferences
+      });
       logger("SEED").info(`User seeded: ${u.email} (${u.role})`);
     }
 

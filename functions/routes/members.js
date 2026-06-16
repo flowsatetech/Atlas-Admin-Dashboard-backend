@@ -108,6 +108,9 @@ router.post('/', middlewares.adminOnly, async (req, res) => {
         const stamp = `${generateToken()}_stamp_${Date.now()}`;
 
         const now = Date.now();
+        const { userSchema } = require('../models/user');
+        const defaultNotificationPreferences = userSchema.shape.notificationPreferences.parse(undefined);
+
         const newMember = {
             userId,
             firstName,
@@ -123,7 +126,8 @@ router.post('/', middlewares.adminOnly, async (req, res) => {
             createdAt: now,
             updatedAt: now,
             lastLogin: null,
-            stamp
+            stamp,
+            notificationPreferences: defaultNotificationPreferences
         };
 
         await db.addMember(newMember);

@@ -6,6 +6,7 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const UAParser = require('ua-parser-js');
 
 
 // <-- LOCAL EXPORTS IMPORTS -->
@@ -21,6 +22,63 @@ const { NotificationService } = require('../services');
  */
 const router = express.Router();
 const { userAlreadyAuth, authMiddleware } = middlewares;
+
+function parseUserAgent(userAgentString) {
+    try {
+        if (!userAgentString || userAgentString === 'Unknown') {
+            return {
+                formatted: 'Unknown Device',
+                browser: 'Unknown',
+                os: 'Unknown',
+                device: 'Unknown',
+                raw: userAgentString
+            };
+        }
+
+        const parser = new UAParser(userAgentString);
+        const result = parser.getResult();
+        const browserName = result.browser.name || 'Unknown Browser';
+        const browserVersion = result.browser.version ? ` ${result.browser.version.split('.')[0]}` : '';
+
+        const osName = result.os.name || 'Unknown OS';
+        const osVersion = result.os.version ? ` ${result.os.version}` : '';
+
+        const deviceType = result.device.type || 'desktop';
+        const deviceVendor = result.device.vendor || '';
+        const deviceModel = result.device.model || '';
+        
+        let formatted = '';
+        
+        if (deviceType === 'mobile' || deviceType === 'tablet') {
+            if (deviceVendor && deviceModel) {
+                formatted = `${browserName}${browserVersion} on ${deviceVendor} ${deviceModel}`;
+            } else if (osName) {
+                formatted = `${browserName}${browserVersion} on ${deviceType} (${osName}${osVersion})`;
+            } else {
+                formatted = `${browserName}${browserVersion} on ${deviceType}`;
+            }
+        } else {
+            formatted = `${browserName}${browserVersion} on ${osName}${osVersion}`;
+        }
+
+        return {
+            formatted,
+            browser: `${browserName}${browserVersion}`,
+            os: `${osName}${osVersion}`,
+            device: deviceType,
+            raw: userAgentString
+        };
+    } catch (error) {
+        logger('AUTH').error('Failed to parse user agent:', error);
+        return {
+            formatted: userAgentString.substring(0, 120),
+            browser: 'Unknown',
+            os: 'Unknown',
+            device: 'Unknown',
+            raw: userAgentString
+        };
+    }
+}
 
 /** MAIN AUTH ROUTES */
 
@@ -65,13 +123,31 @@ router.post('/login', userAlreadyAuth, async (req, res) => {
         } else if (isNewDevice) {
           await db.updateUser(user.userId, { lastLoginFingerprint: userAgent });
 
+          const deviceInfo = parseUserAgent(userAgent);
+          const loginTime = new Date().toLocaleString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZoneName: 'short'
+          });
+
           /** Dispatch NEW_LOGIN_DETECTED notification (in-app + email if enabled) */
           NotificationService.dispatch({
             recipientId: user.userId,
             type: 'NEW_LOGIN_DETECTED',
             title: 'New Login Detected',
-            message: `Your account was accessed from a new device: ${userAgent.substring(0, 120)}`,
+            message: `Your account was accessed from a new device: ${deviceInfo.formatted}`,
             link: '/profile',
+            _emailContext: {
+              DEVICE_INFO: deviceInfo.formatted,
+              LOGIN_TIME: loginTime,
+              BROWSER: deviceInfo.browser,
+              OS: deviceInfo.os,
+              DEVICE_TYPE: deviceInfo.device
+            }
           }, 'AUTH_LOGIN');
         }
 
