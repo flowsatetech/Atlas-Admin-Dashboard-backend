@@ -58,7 +58,16 @@ router.get("/", clientsRead, async (req, res) => {
     }
 
     const { status, page, limit } = parsedQuery.data;
-    const { rows, total } = await db.getClientsPaginated({ status, page, limit });
+
+    let assignedStaffId = "";
+    const isAdmin = req.user?.role === 'admin';
+    const includeUnassigned = req.query.includeUnassigned !== 'false';
+
+    if (!isAdmin || (!includeUnassigned && isAdmin)) {
+        assignedStaffId = req.user?.userId;
+    }
+
+    const { rows, total } = await db.getClientsPaginated({ status, page, limit, assignedStaffId });
 
     const managerIds = [...new Set(rows.map((client) => client.assignedStaffId).filter(Boolean))];
     const managersMap = {};

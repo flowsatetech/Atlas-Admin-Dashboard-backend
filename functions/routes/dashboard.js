@@ -98,6 +98,15 @@ function dashboardError(res, message, status = 400, code = 'DASHBOARD_ERROR', de
 router.get('/metrics', dashboardRead, async (req, res) => {
     try {
         const range = getCalendarMonthRanges();
+
+        let userId = null;
+        const isAdmin = req.user?.role === 'admin';
+        const includeUnassigned = req.query.includeUnassigned !== 'false';
+        
+        if (!isAdmin || (!includeUnassigned && isAdmin)) {
+            userId = req.user?.userId;
+        }
+
         const {
             totalClients,
             currentClients,
@@ -120,7 +129,8 @@ router.get('/metrics', dashboardRead, async (req, res) => {
             previousStart: range.previousStart,
             previousEnd: range.previousEnd,
             activeProjectStatuses: ACTIVE_PROJECT_STATUSES,
-            pendingTaskStatuses: PENDING_TASK_STATUSES
+            pendingTaskStatuses: PENDING_TASK_STATUSES,
+            userId
         });
 
         const data = {
