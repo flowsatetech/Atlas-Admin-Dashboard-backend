@@ -205,7 +205,8 @@ router.post('/', middlewares.adminOnly, async (req, res) => {
                 link: `/projects/${projectData.id}`,
                 referenceId: projectData.id,
                 referenceType: 'Project',
-                createdBy: req.user?.userId
+                createdBy: req.user?.userId,
+                _emailContext: { PROJECT_NAME: projectData.name }
             })), 'NEW_PROJECT');
         }
 
@@ -281,7 +282,8 @@ router.patch('/:projectId', middlewares.adminOnly, async (req, res) => {
                 link: `/projects/${projectId}`,
                 referenceId: projectId,
                 referenceType: 'Project',
-                createdBy: req.user?.userId
+                createdBy: req.user?.userId,
+                _emailContext: { PROJECT_NAME: existing.name || 'Project' }
             })), 'UPDATE_PROJECT');
         }
 
@@ -297,7 +299,8 @@ router.patch('/:projectId', middlewares.adminOnly, async (req, res) => {
                 link: `/projects/${projectId}`,
                 referenceId: projectId,
                 referenceType: 'Project',
-                createdBy: req.user?.userId
+                createdBy: req.user?.userId,
+                _emailContext: { PROJECT_NAME: existing.name || 'Project' }
             })), 'UPDATE_PROJECT');
         }
 
@@ -393,7 +396,8 @@ router.post('/:projectId/comments', async (req, res) => {
             link: `/projects/${req.params.projectId}`,
             referenceId: req.params.projectId,
             referenceType: 'Project',
-            createdBy: req.user?.userId
+            createdBy: req.user?.userId,
+            _emailContext: { PROJECT_NAME: existing.name || 'Project' }
         }));
 
         const commentNotifications = [...new Set(existing.teamIds || [])]
@@ -406,7 +410,8 @@ router.post('/:projectId/comments', async (req, res) => {
                 link: `/projects/${req.params.projectId}`,
                 referenceId: req.params.projectId,
                 referenceType: 'Project',
-                createdBy: req.user?.userId
+                createdBy: req.user?.userId,
+                _emailContext: { PROJECT_NAME: existing.name || 'Project' }
             }));
 
         services.NotificationService.dispatchMany([
