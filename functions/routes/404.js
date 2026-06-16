@@ -1,6 +1,5 @@
 /** IMPORT */
 const express = require('express');
-const rateLimiters = require('../middlewares/rate_limiters');
 
 /** SETUP */
 const router = express.Router();

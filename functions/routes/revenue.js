@@ -6,7 +6,6 @@ const { logger, analytics } = require('../helpers');
 const db = require('../db');
 
 const router = express.Router();
-const { analyticsRead } = middlewares.rateLimiters;
 
 const revenueQuerySchema = z.object({
   period: z.enum(['3months', '6months', '12months']).default('6months')
@@ -105,7 +104,7 @@ function error(res, message, status = 400) {
   });
 }
 
-router.get('/dashboard', analyticsRead, async (req, res) => {
+router.get('/dashboard', async (req, res) => {
   try {
     const parsed = revenueQuerySchema.safeParse(req.query);
     if (!parsed.success) {
@@ -248,7 +247,7 @@ router.get('/dashboard', analyticsRead, async (req, res) => {
   }
 });
 
-router.get('/', analyticsRead, async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const parsed = revenueQuerySchema.safeParse(req.query);
     if (!parsed.success) {

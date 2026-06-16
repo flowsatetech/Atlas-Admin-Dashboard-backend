@@ -17,7 +17,6 @@ const { dashboard: dashboardContracts } = require('../contracts');
  * Global variables referenced in this file are defined here
  */
 const router = express.Router();
-const { dashboardRead } = middlewares.rateLimiters;
 
 const ACTIVE_PROJECT_STATUSES = ['InProgress', 'OnHold', 'Planned'];
 const PENDING_TASK_STATUSES = ['Todo', 'InProgress', 'Review', 'Blocked'];
@@ -95,7 +94,7 @@ function dashboardError(res, message, status = 400, code = 'DASHBOARD_ERROR', de
 }
 
 /** MAIN DASHBOARD ROUTES */
-router.get('/metrics', dashboardRead, async (req, res) => {
+router.get('/metrics', async (req, res) => {
     try {
         const range = getCalendarMonthRanges();
         const {
@@ -145,7 +144,7 @@ router.get('/metrics', dashboardRead, async (req, res) => {
     }
 });
 
-router.get('/performance', dashboardRead, async (req, res) => {
+router.get('/performance', async (req, res) => {
     try {
         const parsed = performanceQuerySchema.safeParse(req.query);
         if (!parsed.success) {
@@ -205,7 +204,7 @@ router.get('/performance', dashboardRead, async (req, res) => {
     }
 });
 
-router.get('/projects/in-progress', dashboardRead, async (req, res) => {
+router.get('/projects/in-progress', async (req, res) => {
     try {
         const parsed = inProgressQuerySchema.safeParse(req.query);
         if (!parsed.success) {
@@ -262,7 +261,7 @@ router.get('/projects/in-progress', dashboardRead, async (req, res) => {
     }
 });
 
-router.get('/activities', dashboardRead, async (req, res) => {
+router.get('/activities', async (req, res) => {
     try {
         const parsed = activitiesQuerySchema.safeParse(req.query);
         if (!parsed.success) {

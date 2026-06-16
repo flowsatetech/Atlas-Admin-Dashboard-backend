@@ -5,7 +5,6 @@ const db = require('../db');
 const middlewares = require('../middlewares');
 
 const router = express.Router();
-const { webhook: webhookRateLimiter } = middlewares.rateLimiters;
 
 function webhookAuth(req, res, next) {
     const authHeader = req.headers.authorization || '';
@@ -44,7 +43,7 @@ const generalLeadSchema = z.object({
     budget: z.string().trim().optional().default(''),
 });
 
-router.post('/leads/qualified', webhookRateLimiter, webhookAuth, async (req, res) => {
+router.post('/leads/qualified', webhookAuth, async (req, res) => {
     try {
         const parsed = qualifiedLeadSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -87,7 +86,7 @@ router.post('/leads/qualified', webhookRateLimiter, webhookAuth, async (req, res
     }
 });
 
-router.post('/leads/general', webhookRateLimiter, webhookAuth, async (req, res) => {
+router.post('/leads/general', webhookAuth, async (req, res) => {
     try {
         const parsed = generalLeadSchema.safeParse(req.body);
         if (!parsed.success) {

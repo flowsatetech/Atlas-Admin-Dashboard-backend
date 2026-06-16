@@ -7,7 +7,6 @@ const db = require("../db");
 const { analytics: analyticsContracts } = require("../contracts");
 
 const router = express.Router();
-const { analyticsRead } = middlewares.rateLimiters;
 
 const trafficQuerySchema = z.object({
     range: z.enum(["7d", "30d", "3months", "6months", "12months"]).default("7d")
@@ -65,7 +64,7 @@ function aggregateTrafficSources(snapshotRows = []) {
         .sort((a, b) => b.percentage - a.percentage);
 }
 
-router.get("/overview", analyticsRead, async (req, res) => {
+router.get("/overview", async (req, res) => {
     try {
         const range = analytics.parsePeriod("30d");
 
@@ -137,7 +136,7 @@ router.get("/overview", analyticsRead, async (req, res) => {
     }
 });
 
-router.get("/traffic", analyticsRead, async (req, res) => {
+router.get("/traffic", async (req, res) => {
     try {
         const parsed = trafficQuerySchema.safeParse(req.query);
         if (!parsed.success) {
@@ -204,7 +203,7 @@ router.get("/traffic", analyticsRead, async (req, res) => {
     }
 });
 
-router.get("/sources", analyticsRead, async (req, res) => {
+router.get("/sources", async (req, res) => {
     try {
         const parsed = sourcesQuerySchema.safeParse(req.query);
         if (!parsed.success) {
@@ -229,7 +228,7 @@ router.get("/sources", analyticsRead, async (req, res) => {
     }
 });
 
-router.get("/campaigns", analyticsRead, async (req, res) => {
+router.get("/campaigns", async (req, res) => {
     try {
         const parsed = campaignsQuerySchema.safeParse(req.query);
         if (!parsed.success) {
@@ -279,7 +278,7 @@ router.get("/campaigns", analyticsRead, async (req, res) => {
     }
 });
 
-router.get("/distribution", analyticsRead, async (req, res) => {
+router.get("/distribution", async (req, res) => {
     try {
         const range = analytics.parsePeriod("30d");
         const [snapshots, leads, activeClients] = await Promise.all([

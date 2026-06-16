@@ -7,7 +7,6 @@ const services = require("../services");
 const { createTaskSchema, updateTaskSchema, listTasksQuerySchema } = require("../models/task");
 
 const router = express.Router();
-const { tasksRead, tasksWrite } = middlewares.rateLimiters;
 
 /**
  * @swagger
@@ -52,7 +51,7 @@ const { tasksRead, tasksWrite } = middlewares.rateLimiters;
  * 400:
  * description: Invalid query parameters
  */
-router.get("/", tasksRead, async (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const parsed = listTasksQuerySchema.safeParse(req.query);
     if (!parsed.success)
@@ -170,7 +169,7 @@ router.get("/", tasksRead, async (req, res) => {
  * 400:
  * description: Validation error
  */
-router.post("/", middlewares.adminOnly, tasksWrite, async (req, res) => {
+router.post("/", middlewares.adminOnly, async (req, res) => {
   try {
     const parsed = createTaskSchema.safeParse(req.body);
     if (!parsed.success)
@@ -259,7 +258,7 @@ router.post("/", middlewares.adminOnly, tasksWrite, async (req, res) => {
  * 404:
  * description: Task not found
  */
-router.get("/:taskId", tasksRead, async (req, res) => {
+router.get("/:taskId", async (req, res) => {
   try {
     const task = await db.getTaskDetailById(req.params.taskId);
     if (!task)
@@ -312,7 +311,6 @@ router.get("/:taskId", tasksRead, async (req, res) => {
 router.patch(
   "/:taskId",
   middlewares.adminOnly,
-  tasksWrite,
   async (req, res) => {
     try {
       const { taskId } = req.params;
@@ -380,7 +378,7 @@ router.patch(
   },
 );
 
-router.delete("/:taskId", middlewares.adminOnly, tasksWrite, async (req, res) => {
+router.delete("/:taskId", middlewares.adminOnly, async (req, res) => {
   try {
     const { taskId } = req.params;
     const existing = await db.getTaskById(taskId);
