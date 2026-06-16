@@ -14,7 +14,6 @@ const services = require('../services');
 
 /** SETUP */
 const router = express.Router();
-const { membersRead, membersWrite, createMember: createMemberRateLimiter } = middlewares.rateLimiters;
 
 const profilePictureUpload = multer({
     limits: { fileSize: 5 * 1024 * 1024 },
@@ -67,7 +66,7 @@ const formatMember = (member) => ({
 /** MAIN USER ROUTES */
 
 // 1. GET /api/members - Paginated list of staff
-router.get('/', membersRead, async (req, res) => {
+router.get('/', async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = Math.min(parseInt(req.query.limit) || 10, 100);
@@ -90,7 +89,7 @@ router.get('/', membersRead, async (req, res) => {
 });
 
 // 2. POST /api/members - Add new staff member (admin only)
-router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res) => {
+router.post('/', middlewares.adminOnly, async (req, res) => {
     try {
         const validData = createMemberSchema.safeParse(req.body);
         if (!validData.success) {
@@ -109,6 +108,9 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
         const stamp = `${generateToken()}_stamp_${Date.now()}`;
 
         const now = Date.now();
+        const { userSchema } = require('../models/user');
+        const defaultNotificationPreferences = userSchema.shape.notificationPreferences.parse(undefined);
+
         const newMember = {
             userId,
             firstName,
@@ -124,7 +126,8 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
             createdAt: now,
             updatedAt: now,
             lastLogin: null,
-            stamp
+            stamp,
+            notificationPreferences: defaultNotificationPreferences
         };
 
         await db.addMember(newMember);
@@ -146,7 +149,7 @@ router.post('/', middlewares.adminOnly, createMemberRateLimiter, async (req, res
 });
 
 // 3. PUT /api/members/:id/password - Change a member's password (admin only)
-router.put('/:id/password', middlewares.adminOnly, membersWrite, async (req, res) => {
+router.put('/:id/password', middlewares.adminOnly, async (req, res) => {
     try {
         const validData = adminChangeMemberPasswordSchema.safeParse(req.body);
         if (!validData.success) {
@@ -174,7 +177,8 @@ router.put('/:id/password', middlewares.adminOnly, membersWrite, async (req, res
             link: '/profile',
             referenceId: existing.userId,
             referenceType: 'User',
-            createdBy: req.user?.userId
+            createdBy: req.user?.userId,
+            _emailContext: { NEW_PASSWORD: validData.data.password }
         }, 'MEMBERS_PASSWORD_PUT');
 
         res.status(200).json({
@@ -188,7 +192,7 @@ router.put('/:id/password', middlewares.adminOnly, membersWrite, async (req, res
 });
 
 // 4. PATCH /api/members/:id - Update staff member
-router.patch('/:id', middlewares.adminOnly, membersWrite, async (req, res) => {
+router.patch('/:id', middlewares.adminOnly, async (req, res) => {
     try {
         const validData = updateMemberSchema.safeParse(req.body);
         if (!validData.success) {
@@ -229,7 +233,7 @@ router.patch('/:id', middlewares.adminOnly, membersWrite, async (req, res) => {
 });
 
 // 5. PUT /api/members/:id/picture - Upload or replace a staff member's profile picture (admin only)
-router.put('/:id/picture', middlewares.adminOnly, membersWrite, profilePictureUploadMiddleware, async (req, res) => {
+router.put('/:id/picture', middlewares.adminOnly, profilePictureUploadMiddleware, async (req, res) => {
     try {
         const memberId = req.params.id;
         const member = await db.getUserById(memberId);
@@ -279,7 +283,7 @@ router.put('/:id/picture', middlewares.adminOnly, membersWrite, profilePictureUp
 });
 
 // 6. DELETE /api/members/:memberId - Delete staff member (admin only)
-router.delete('/:memberId', middlewares.adminOnly, membersWrite, async (req, res) => {
+router.delete('/:memberId', middlewares.adminOnly, async (req, res) => {
     try {
         const member = await db.getUserById(req.params.memberId);
         if (!member) {

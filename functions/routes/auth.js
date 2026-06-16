@@ -6,6 +6,7 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const UAParser = require('ua-parser-js');
 
 
 // <-- LOCAL EXPORTS IMPORTS -->
@@ -13,76 +14,75 @@ const middlewares = require('../middlewares');
 const { logger, generateToken, getAuthCookieOptions, serverError, clientError } = require('../helpers');
 const db = require('../db');
 const { loginSchema } = require('../models/user');
+const { NotificationService } = require('../services');
 
 
 /** SETUP
  * Global variables referenced in this file are defined here
  */
 const router = express.Router();
-const { authLoginIp, authLogin, logout } = middlewares.rateLimiters;
 const { userAlreadyAuth, authMiddleware } = middlewares;
+
+function parseUserAgent(userAgentString) {
+    try {
+        if (!userAgentString || userAgentString === 'Unknown') {
+            return {
+                formatted: 'Unknown Device',
+                browser: 'Unknown',
+                os: 'Unknown',
+                device: 'Unknown',
+                raw: userAgentString
+            };
+        }
+
+        const parser = new UAParser(userAgentString);
+        const result = parser.getResult();
+        const browserName = result.browser.name || 'Unknown Browser';
+        const browserVersion = result.browser.version ? ` ${result.browser.version.split('.')[0]}` : '';
+
+        const osName = result.os.name || 'Unknown OS';
+        const osVersion = result.os.version ? ` ${result.os.version}` : '';
+
+        const deviceType = result.device.type || 'desktop';
+        const deviceVendor = result.device.vendor || '';
+        const deviceModel = result.device.model || '';
+        
+        let formatted = '';
+        
+        if (deviceType === 'mobile' || deviceType === 'tablet') {
+            if (deviceVendor && deviceModel) {
+                formatted = `${browserName}${browserVersion} on ${deviceVendor} ${deviceModel}`;
+            } else if (osName) {
+                formatted = `${browserName}${browserVersion} on ${deviceType} (${osName}${osVersion})`;
+            } else {
+                formatted = `${browserName}${browserVersion} on ${deviceType}`;
+            }
+        } else {
+            formatted = `${browserName}${browserVersion} on ${osName}${osVersion}`;
+        }
+
+        return {
+            formatted,
+            browser: `${browserName}${browserVersion}`,
+            os: `${osName}${osVersion}`,
+            device: deviceType,
+            raw: userAgentString
+        };
+    } catch (error) {
+        logger('AUTH').error('Failed to parse user agent:', error);
+        return {
+            formatted: userAgentString.substring(0, 120),
+            browser: 'Unknown',
+            os: 'Unknown',
+            device: 'Unknown',
+            raw: userAgentString
+        };
+    }
+}
 
 /** MAIN AUTH ROUTES */
 
-router.post('/test-reset-password', async (req, res) => {
-    try {
-        if (process.env.NODE_ENV === 'production') {
-            return clientError(res, 404, 'Route not found');
-        }
-
-        const schema = z.object({
-            email: z.email(),
-            password: z.string().min(8, 'Password must be at least 8 characters'),
-            resetCode: z.string().min(1, 'Reset code is required'),
-        });
-
-        const validData = schema.safeParse(req.body);
-        if (!validData.success) {
-            return clientError(res, 400, 'Invalid reset password request', validData.error.issues.map(i => i.message));
-        }
-
-        const configuredResetCode = process.env.TEST_PASSWORD_RESET_SECRET;
-        if (!configuredResetCode) {
-            return clientError(res, 503, 'Test password reset is not configured');
-        }
-
-        const { email, password, resetCode } = validData.data;
-        if (resetCode.trim() !== configuredResetCode.trim()) {
-            return clientError(res, 403, 'Invalid reset code');
-        }
-
-        const user = await db.getUserByEmail(email);
-        if (!user) {
-            return clientError(res, 404, 'User not found');
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        await db.updateUser(user.userId, {
-            password: hashedPassword,
-            stamp: null,
-            updatedAt: Date.now(),
-        });
-
-        res.clearCookie("auth_token", getAuthCookieOptions());
-
-        return res.status(200).json({
-            success: true,
-            message: 'Password reset successfully. You can now log in with the new password.',
-            data: {
-                user: {
-                    userId: user.userId,
-                    email: user.email,
-                    role: user.role || 'staff',
-                }
-            }
-        });
-    } catch (e) {
-        logger('TEST_RESET_PASSWORD').error(e);
-        return serverError(res, e, 'Password reset failed. Please try again.');
-    }
-});
-
-router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) => {
+router.post('/login', userAlreadyAuth, async (req, res) => {
     try {
         const validData = loginSchema.safeParse(req.body);
 
@@ -113,6 +113,44 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) 
             { expiresIn: Math.floor(duration / 1000) }
         );
 
+        /** LOGIN FINGERPRINTING - Detect new device logins */
+        const userAgent = req.headers['user-agent'] || 'Unknown';
+        const previousFingerprint = user.lastLoginFingerprint;
+        const isNewDevice = previousFingerprint && previousFingerprint !== userAgent;
+
+        if (!previousFingerprint) {
+          await db.updateUser(user.userId, { lastLoginFingerprint: userAgent });
+        } else if (isNewDevice) {
+          await db.updateUser(user.userId, { lastLoginFingerprint: userAgent });
+
+          const deviceInfo = parseUserAgent(userAgent);
+          const loginTime = new Date().toLocaleString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZoneName: 'short'
+          });
+
+          /** Dispatch NEW_LOGIN_DETECTED notification (in-app + email if enabled) */
+          NotificationService.dispatch({
+            recipientId: user.userId,
+            type: 'NEW_LOGIN_DETECTED',
+            title: 'New Login Detected',
+            message: `Your account was accessed from a new device: ${deviceInfo.formatted}`,
+            link: '/profile',
+            _emailContext: {
+              DEVICE_INFO: deviceInfo.formatted,
+              LOGIN_TIME: loginTime,
+              BROWSER: deviceInfo.browser,
+              OS: deviceInfo.os,
+              DEVICE_TYPE: deviceInfo.device
+            }
+          }, 'AUTH_LOGIN');
+        }
+
         /** Update user's last login timestamp and new cookie stamp */
         await db.updateUser(user.userId, {
             lastLogin: Date.now(),
@@ -140,7 +178,7 @@ router.post('/login', authLoginIp, authLogin, userAlreadyAuth, async (req, res) 
     }
 });
 
-router.post('/logout', authMiddleware, logout, async (req, res) => {
+router.post('/logout', authMiddleware, async (req, res) => {
     try {
         res.clearCookie("auth_token", getAuthCookieOptions());
 

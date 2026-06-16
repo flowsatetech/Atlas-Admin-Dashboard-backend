@@ -1,0 +1,24 @@
+<h2>New Task Assigned</h2>
+<p>Hi {{RECIPIENT_NAME}},</p>
+<p>You have been assigned a new task:</p>
+<table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+  <tr>
+    <td style="padding: 12px; background-color: #f8fafc; border: 1px solid #e2e8f0; font-weight: 600; width: 120px;">Task:</td>
+    <td style="padding: 12px; background-color: #f8fafc; border: 1px solid #e2e8f0;">{{TASK_TITLE}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 12px; border: 1px solid #e2e8f0; font-weight: 600;">Description:</td>
+    <td style="padding: 12px; border: 1px solid #e2e8f0;">{{TASK_DESCRIPTION}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 12px; background-color: #f8fafc; border: 1px solid #e2e8f0; font-weight: 600;">Due Date:</td>
+    <td style="padding: 12px; background-color: #f8fafc; border: 1px solid #e2e8f0;">{{TASK_DUE_DATE}}</td>
+  </tr>
+  <tr>
+    <td style="padding: 12px; border: 1px solid #e2e8f0; font-weight: 600;">Project:</td>
+    <td style="padding: 12px; border: 1px solid #e2e8f0;">{{PROJECT_NAME}}</td>
+  </tr>
+</table>
+<p style="text-align: center;">
+  <a href="{{DASHBOARD_URL}}/tasks/{{TASK_ID}}" class="btn">View Task</a>
+</p>

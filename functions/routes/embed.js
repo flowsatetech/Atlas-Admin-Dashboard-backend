@@ -89,7 +89,7 @@ function getAuthorInitials(authorName = '') {
     return initials || 'AU';
 }
 
-router.get('/:slug', middlewares.rateLimiters.blogEmbedPage, async (req, res) => {
+router.get('/:slug', async (req, res) => {
     const { slug } = req.params;
 
     if (!/^[a-z0-9-]+$/.test(slug)) {

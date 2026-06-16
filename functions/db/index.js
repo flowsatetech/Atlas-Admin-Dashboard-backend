@@ -1493,6 +1493,26 @@ async function deleteLead(leadId) {
   }
 }
 
+async function getLeadStats() {
+  try {
+    const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const [total, qualified, newThisWeek] = await Promise.all([
+      leads.countDocuments({}),
+      leads.countDocuments({ status: "qualified" }),
+      leads.countDocuments({ createdAt: { $gte: oneWeekAgo } })
+    ]);
+
+    return {
+      totalLeads: total,
+      qualifiedLeads: qualified,
+      newThisWeek,
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -1844,6 +1864,7 @@ module.exports = {
   getLeadById,
   updateLead,
   deleteLead,
+  getLeadStats,
   getPayments,
   getPaymentById,
   addPayment,

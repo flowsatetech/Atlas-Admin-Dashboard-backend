@@ -833,26 +833,31 @@ async function testNotifications() {
 
   try {
     // ── Per-user preferences (admin) ──
+    function hasNestedPrefs(prefs) {
+      return prefs && typeof prefs === 'object'
+        && typeof prefs.TASK_ASSIGNMENT === 'object'
+        && 'inApp' in prefs.TASK_ASSIGNMENT
+        && 'email' in prefs.TASK_ASSIGNMENT;
+    }
     const initialPreferences = await check("GET  /api/notifications/preferences", "GET", "/api/notifications/preferences");
     assertSmoke(
       "GET  /api/notifications/preferences returns resolved preference toggles for current user",
       initialPreferences?.data?.preferences
-        && typeof initialPreferences.data.preferences.TASK_ASSIGNMENT === "boolean"
-        && typeof initialPreferences.data.preferences.PROJECT_STATUS_CHANGE === "boolean",
+        && hasNestedPrefs(initialPreferences.data.preferences),
       `received ${JSON.stringify(initialPreferences?.data)}`,
     );
 
-    const originalTaskAssignmentPreference = initialPreferences?.data?.preferences?.TASK_ASSIGNMENT;
+    const originalTaskAssignmentPreference = initialPreferences?.data?.preferences?.TASK_ASSIGNMENT || { inApp: true, email: true };
     const disabledPreferences = await check(
       "PUT  /api/notifications/preferences disables one type for current user",
       "PUT",
       "/api/notifications/preferences",
-      { TASK_ASSIGNMENT: false },
+      { TASK_ASSIGNMENT: { inApp: true, email: false } },
     );
     assertSmoke(
       "PUT  /api/notifications/preferences accepts partial per-user toggles",
-      disabledPreferences?.data?.preferences?.TASK_ASSIGNMENT === false
-        && typeof disabledPreferences?.data?.preferences?.PROJECT_STATUS_CHANGE === "boolean",
+      disabledPreferences?.data?.preferences?.TASK_ASSIGNMENT?.email === false
+        && typeof disabledPreferences?.data?.preferences?.PROJECT_STATUS_CHANGE?.inApp === "boolean",
       `received ${JSON.stringify(disabledPreferences?.data)}`,
     );
 
@@ -860,13 +865,12 @@ async function testNotifications() {
       "PUT  /api/notifications/preferences restores one user type",
       "PUT",
       "/api/notifications/preferences",
-      { TASK_ASSIGNMENT: originalTaskAssignmentPreference !== undefined ? originalTaskAssignmentPreference : true },
+      { TASK_ASSIGNMENT: originalTaskAssignmentPreference },
     );
     assertSmoke(
       "PUT  /api/notifications/preferences preserves full preference response shape",
       restoredPreferences?.data?.preferences
-        && typeof restoredPreferences.data.preferences.TASK_ASSIGNMENT === "boolean"
-        && typeof restoredPreferences.data.preferences.PASSWORD_UPDATED === "boolean",
+        && hasNestedPrefs(restoredPreferences.data.preferences),
       `received ${JSON.stringify(restoredPreferences?.data)}`,
     );
 
@@ -892,7 +896,7 @@ async function testNotifications() {
         assertSmoke(
           "GET  /api/notifications/preferences returns resolved preferences for staff user",
           staffPrefs?.data?.preferences
-            && typeof staffPrefs.data.preferences.TASK_ASSIGNMENT === "boolean",
+            && hasNestedPrefs(staffPrefs.data.preferences),
           `received ${JSON.stringify(staffPrefs?.data)}`,
         );
 
@@ -901,11 +905,11 @@ async function testNotifications() {
           "PUT",
           "/api/notifications/preferences",
           staffCookie,
-          { TASK_ASSIGNMENT: false },
+          { TASK_ASSIGNMENT: { inApp: false, email: false } },
         );
         assertSmoke(
           "PUT  /api/notifications/preferences (staff) accepts partial toggles",
-          staffUpdated?.data?.preferences?.TASK_ASSIGNMENT === false,
+          staffUpdated?.data?.preferences?.TASK_ASSIGNMENT?.inApp === false,
           `received ${JSON.stringify(staffUpdated?.data)}`,
         );
 

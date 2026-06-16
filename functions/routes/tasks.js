@@ -7,7 +7,6 @@ const services = require("../services");
 const { createTaskSchema, updateTaskSchema, listTasksQuerySchema } = require("../models/task");
 
 const router = express.Router();
-const { tasksRead, tasksWrite } = middlewares.rateLimiters;
 
 /**
  * @swagger
@@ -52,7 +51,7 @@ const { tasksRead, tasksWrite } = middlewares.rateLimiters;
  * 400:
  * description: Invalid query parameters
  */
-router.get("/", tasksRead, async (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const parsed = listTasksQuerySchema.safeParse(req.query);
     if (!parsed.success)
@@ -170,7 +169,7 @@ router.get("/", tasksRead, async (req, res) => {
  * 400:
  * description: Validation error
  */
-router.post("/", middlewares.adminOnly, tasksWrite, async (req, res) => {
+router.post("/", middlewares.adminOnly, async (req, res) => {
   try {
     const parsed = createTaskSchema.safeParse(req.body);
     if (!parsed.success)
@@ -183,9 +182,11 @@ router.post("/", middlewares.adminOnly, tasksWrite, async (req, res) => {
     const assigneeExists = await db.getUserById(resolvedAssigneeId);
     if (!assigneeExists) return clientError(res, 404, 'Assignee not found');
 
+    let projectName = 'None';
     if (parsed.data.projectId) {
       const projectExists = await db.getProjectById(parsed.data.projectId);
       if (!projectExists) return clientError(res, 404, 'Project not found');
+      projectName = projectExists.name || 'Project';
     }
 
     const now = Date.now();
@@ -221,7 +222,8 @@ router.post("/", middlewares.adminOnly, tasksWrite, async (req, res) => {
         link: `/tasks/${task.id}`,
         referenceId: task.id,
         referenceType: 'Task',
-        createdBy: req.user?.userId
+        createdBy: req.user?.userId,
+        _emailContext: { PROJECT_NAME: projectName }
       }, 'NEW_TASK');
     }
 
@@ -259,7 +261,7 @@ router.post("/", middlewares.adminOnly, tasksWrite, async (req, res) => {
  * 404:
  * description: Task not found
  */
-router.get("/:taskId", tasksRead, async (req, res) => {
+router.get("/:taskId", async (req, res) => {
   try {
     const task = await db.getTaskDetailById(req.params.taskId);
     if (!task)
@@ -312,7 +314,6 @@ router.get("/:taskId", tasksRead, async (req, res) => {
 router.patch(
   "/:taskId",
   middlewares.adminOnly,
-  tasksWrite,
   async (req, res) => {
     try {
       const { taskId } = req.params;
@@ -331,10 +332,17 @@ router.patch(
           return clientError(res, 404, 'Assignee not found');
       }
 
+      let projectName = 'None';
       if (parsed.data.projectId) {
         const projectExists = await db.getProjectById(parsed.data.projectId);
         if (!projectExists)
           return clientError(res, 404, 'Project not found');
+        projectName = projectExists.name || 'Project';
+      } else if (existing.projectId) {
+        const projectExists = await db.getProjectById(existing.projectId);
+        if (projectExists) {
+            projectName = projectExists.name || 'Project';
+        }
       }
 
       const updateData = { ...parsed.data, updatedAt: Date.now() };
@@ -361,7 +369,8 @@ router.patch(
           link: `/tasks/${taskId}`,
           referenceId: taskId,
           referenceType: 'Task',
-          createdBy: req.user?.userId
+          createdBy: req.user?.userId,
+          _emailContext: { PROJECT_NAME: projectName }
         }, 'UPDATE_TASK');
       }
 
@@ -380,7 +389,7 @@ router.patch(
   },
 );
 
-router.delete("/:taskId", middlewares.adminOnly, tasksWrite, async (req, res) => {
+router.delete("/:taskId", middlewares.adminOnly, async (req, res) => {
   try {
     const { taskId } = req.params;
     const existing = await db.getTaskById(taskId);
