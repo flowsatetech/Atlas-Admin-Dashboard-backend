@@ -104,6 +104,34 @@ class EmailService {
         template: 'task-assignment.html',
         subject: (v) => `New Task Assigned: ${v.TASK_TITLE}`,
       },
+      PROJECT_ASSIGNMENT: {
+        template: 'project-assignment.html',
+        subject: (v) => `Added to Project: ${v.PROJECT_NAME}`,
+      },
+      CLIENT_ASSIGNMENT: {
+        template: 'client-assignment.html',
+        subject: (v) => `Client Assigned: ${v.CLIENT_NAME}`,
+      },
+      LEAD_ASSIGNMENT: {
+        template: 'lead-assignment.html',
+        subject: (v) => `Lead Assigned: ${v.LEAD_NAME}`,
+      },
+      COMMENT_MENTION: {
+        template: 'comment-mention.html',
+        subject: () => `You were mentioned in a comment`,
+      },
+      ROLE_CHANGE: {
+        template: 'role-changed.html',
+        subject: (v) => `Account Permissions Updated: ${v.NEW_ROLE}`,
+      },
+      SYSTEM_ALERT: {
+        template: 'system-alert.html',
+        subject: () => `System Alert`,
+      },
+      CLIENT_CREATED: {
+        template: 'client-created.html',
+        subject: (v) => `New Client Created: ${v.CLIENT_NAME}`,
+      },
       PROJECT_STATUS_CHANGE: {
         template: 'project-update.html',
         subject: (v) => `Project Update: ${v.PROJECT_NAME}`,
@@ -112,6 +140,10 @@ class EmailService {
         template: 'lead-update.html',
         subject: (v) => `Lead Update: ${v.LEAD_NAME}`,
       },
+      PROJECT_COMMENT: {
+        template: 'project-comment.html',
+        subject: (v) => `New Comment on Project: ${v.PROJECT_NAME}`,
+      },
       PASSWORD_UPDATED: {
         template: 'password-changed.html',
         subject: () => 'Your Password Was Updated',
@@ -119,10 +151,6 @@ class EmailService {
       NEW_LOGIN_DETECTED: {
         template: 'new-login-detected.html',
         subject: () => 'New Login Detected on Your Account',
-      },
-      ROLE_CHANGE: {
-        template: 'role-changed.html',
-        subject: (v) => `Account Permissions Updated: ${v.NEW_ROLE}`,
       },
     };
 
