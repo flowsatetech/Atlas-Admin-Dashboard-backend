@@ -68,7 +68,7 @@ async function validatePaymentReferences(clientId, projectId) {
   return { client, project };
 }
 
-router.get("/", async (req, res) => {
+router.get("/", middlewares.adminOnly, async (req, res) => {
   try {
     const parsed = paymentListQuerySchema.safeParse(req.query);
     if (!parsed.success) {

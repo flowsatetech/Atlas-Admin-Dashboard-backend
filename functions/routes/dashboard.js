@@ -175,9 +175,17 @@ router.get('/performance', async (req, res) => {
             unit: range.unit
         });
 
+        let userId = null;
+        const isAdmin = req.user?.role === 'admin';
+        const includeUnassigned = req.query.includeUnassigned !== 'false';
+        
+        if (!isAdmin || (!includeUnassigned && isAdmin)) {
+            userId = req.user?.userId;
+        }
+
         const [clients, paidPayments] = await Promise.all([
-            db.getClientsCreatedBetween(range.currentStart, range.currentEnd),
-            db.getPaidPaymentsBetween(range.currentStart, range.currentEnd)
+            db.getClientsCreatedBetween(range.currentStart, range.currentEnd, userId),
+            db.getPaidPaymentsBetween(range.currentStart, range.currentEnd, userId)
         ]);
 
         const revenueSeries = buckets.map((bucket) => {
@@ -228,15 +236,24 @@ router.get('/projects/in-progress', async (req, res) => {
         }
 
         const { limit } = parsed.data;
+        
+        let userId = null;
+        const isAdmin = req.user?.role === 'admin';
+        const includeUnassigned = req.query.includeUnassigned !== 'false';
+        
+        if (!isAdmin || (!includeUnassigned && isAdmin)) {
+            userId = req.user?.userId;
+        }
+
         const [projects, totalActiveProjects, allClients] = await Promise.all([
-            db.getInProgressProjects(limit),
+            db.getInProgressProjects(limit, userId),
             db.countProjectsByFilter({
                 $or: [
                     { status: { $in: ACTIVE_PROJECT_STATUSES } },
                     { status: { $exists: false } }
                 ]
-            }),
-            db.getClients()
+            }, userId),
+            db.getClients(userId)
         ]);
 
         const clientMap = new Map(
