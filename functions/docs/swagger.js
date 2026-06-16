@@ -31,7 +31,8 @@ const enumValues = Object.freeze({
         "PROJECT_STATUS_CHANGE",
         "LEAD_STATUS_CHANGE",
         "PROJECT_COMMENT",
-        "PASSWORD_UPDATED"
+        "PASSWORD_UPDATED",
+        "NEW_LOGIN_DETECTED"
     ]
 });
 
@@ -1042,27 +1043,50 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     updatedAt: examples.updatedAt
                 }
             },
+            ChannelPreference: {
+                type: "object",
+                required: ["inApp", "email"],
+                properties: {
+                    inApp: { type: "boolean", description: "Enable in-app notifications for this type", example: true },
+                    email: { type: "boolean", description: "Enable email notifications for this type", example: true }
+                },
+                example: { inApp: true, email: true }
+            },
             NotificationPreferences: {
                 type: "object",
                 additionalProperties: false,
+                description: "Complete notification preferences with separate in-app and email channel controls for each notification type.",
                 properties: Object.fromEntries(enumValues.notificationTypes.map((type) => [
                     type,
-                    { type: "boolean", example: true }
+                    ref("ChannelPreference")
                 ])),
-                example: Object.fromEntries(enumValues.notificationTypes.map((type) => [type, true]))
+                example: Object.fromEntries(enumValues.notificationTypes.map((type) => [
+                    type,
+                    { inApp: true, email: true }
+                ]))
             },
             UpdateNotificationPreferencesRequest: {
                 type: "object",
                 additionalProperties: false,
-                description: "Per-user notification preferences. Send only the notification types to change; omitted types keep their current value for the authenticated user.",
+                description: `Per-user notification preferences update. Each notification type can be set to:
+- An object with { inApp: boolean, email: boolean } for granular channel control
+- A boolean value (backward compatible): true = { inApp: true, email: true }, false = { inApp: true, email: false }
+
+Send only the notification types to change; omitted types keep their current value for the authenticated user.`,
                 properties: Object.fromEntries(enumValues.notificationTypes.map((type) => [
                     type,
-                    { type: "boolean", example: type !== "SYSTEM_ALERT" }
+                    {
+                        oneOf: [
+                            { type: "boolean", description: "Shorthand: true = both channels on, false = email off (in-app always on)" },
+                            ref("ChannelPreference")
+                        ]
+                    }
                 ])),
                 example: {
-                    TASK_ASSIGNMENT: true,
-                    PROJECT_STATUS_CHANGE: false,
-                    CLIENT_CREATED: true
+                    TASK_ASSIGNMENT: { inApp: true, email: false },
+                    PROJECT_ASSIGNMENT: { inApp: false, email: true },
+                    SYSTEM_ALERT: true,
+                    CLIENT_CREATED: false
                 }
             },
             CreateLeadRequest: {
@@ -3043,7 +3067,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 tags: ["Notifications"],
                 operationId: "getNotificationPreferences",
                 summary: "Fetch notification preferences for the current user",
-                description: "Returns the authenticated user's notification type toggles.",
+                description: "Returns the authenticated user's notification preferences with separate in-app and email channel controls for each notification type.",
                 security: [{ cookieAuth: [] }],
                 responses: {
                     200: successResponse("Notification preferences returned.", {
@@ -3051,7 +3075,12 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                         properties: {
                             preferences: ref("NotificationPreferences")
                         }
-                    }, { preferences: Object.fromEntries(enumValues.notificationTypes.map((type) => [type, true])) }, "Notification preferences fetched successfully"),
+                    }, {
+                        preferences: Object.fromEntries(enumValues.notificationTypes.map((type) => [
+                            type,
+                            { inApp: true, email: true }
+                        ]))
+                    }, "Notification preferences fetched successfully"),
                     401: responseRef("Unauthorized"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
@@ -3061,12 +3090,18 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 tags: ["Notifications"],
                 operationId: "updateNotificationPreferences",
                 summary: "Update notification preferences for the current user",
-                description: "Updates the authenticated user's notification type toggles. Omitted types keep their current value.",
+                description: `Updates the authenticated user's notification preferences with granular channel control. Each notification type can be updated with:
+- An object specifying { inApp: boolean, email: boolean } for fine-grained control
+- A boolean value for backward compatibility (true = both on, false = email off)
+
+Only send the notification types you want to change; omitted types retain their current settings.`,
                 security: [{ cookieAuth: [] }],
                 requestBody: jsonRequestBody("UpdateNotificationPreferencesRequest", {
-                    TASK_ASSIGNMENT: false,
-                    PROJECT_STATUS_CHANGE: true
-                }, "Per-user notification preference toggles. Send only the types to change."),
+                    TASK_ASSIGNMENT: { inApp: true, email: false },
+                    PROJECT_ASSIGNMENT: { inApp: false, email: true },
+                    SYSTEM_ALERT: true,
+                    CLIENT_CREATED: false
+                }, "Notification preference updates. Supports both granular channel objects and boolean shortcuts."),
                 responses: {
                     200: successResponse("Notification preferences updated.", {
                         type: "object",
@@ -3075,8 +3110,19 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                         }
                     }, {
                         preferences: {
-                            ...Object.fromEntries(enumValues.notificationTypes.map((type) => [type, true])),
-                            TASK_ASSIGNMENT: false
+                            TASK_ASSIGNMENT: { inApp: true, email: false },
+                            PROJECT_ASSIGNMENT: { inApp: false, email: true },
+                            CLIENT_ASSIGNMENT: { inApp: true, email: true },
+                            LEAD_ASSIGNMENT: { inApp: true, email: true },
+                            COMMENT_MENTION: { inApp: true, email: true },
+                            ROLE_CHANGE: { inApp: true, email: true },
+                            SYSTEM_ALERT: { inApp: true, email: true },
+                            CLIENT_CREATED: { inApp: true, email: false },
+                            PROJECT_STATUS_CHANGE: { inApp: true, email: true },
+                            LEAD_STATUS_CHANGE: { inApp: true, email: true },
+                            PROJECT_COMMENT: { inApp: true, email: true },
+                            PASSWORD_UPDATED: { inApp: true, email: true },
+                            NEW_LOGIN_DETECTED: { inApp: true, email: true }
                         }
                     }, "Notification preferences updated successfully"),
                     400: responseRef("BadRequest"),
