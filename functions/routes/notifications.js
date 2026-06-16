@@ -10,7 +10,7 @@ const { logger, serverError, clientError } = require('../helpers');
  * @desc    Get current user's notification preferences
  * @access  Private
  */
-router.get('/preferences', (req, res, next) => next(), async (req, res) => {
+router.get('/preferences', async (req, res) => {
   try {
     const userId = req.user?.userId || req.db_user?.userId;
     if (!userId) return clientError(res, 401, 'Authentication required');
@@ -33,7 +33,7 @@ router.get('/preferences', (req, res, next) => next(), async (req, res) => {
  * @desc    Update current user's notification preferences
  * @access  Private
  */
-router.put('/preferences', (req, res, next) => next(), async (req, res) => {
+router.put('/preferences', async (req, res) => {
   try {
     const userId = req.user?.userId || req.db_user?.userId;
     if (!userId) return clientError(res, 401, 'Authentication required');
@@ -57,7 +57,7 @@ router.put('/preferences', (req, res, next) => next(), async (req, res) => {
  * @desc    Get user notifications
  * @access  Private
  */
-router.get('/', (req, res, next) => next(), async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const userId = req.user?.userId || req.db_user?.userId;
     if (!userId) return clientError(res, 401, 'Authentication required');
@@ -86,7 +86,7 @@ router.get('/', (req, res, next) => next(), async (req, res) => {
  * @desc    Mark all user notifications as read
  * @access  Private
  */
-router.put('/read-all', (req, res, next) => next(), async (req, res) => {
+router.put('/read-all', async (req, res) => {
   try {
     const userId = req.user?.userId || req.db_user?.userId;
     if (!userId) return clientError(res, 401, 'Authentication required');
@@ -109,7 +109,7 @@ router.put('/read-all', (req, res, next) => next(), async (req, res) => {
  * @desc    Mark a specific notification as read
  * @access  Private
  */
-router.put('/:id/read', (req, res, next) => next(), async (req, res) => {
+router.put('/:id/read', async (req, res) => {
   try {
     const notificationId = req.params.id;
     const userId = req.user?.userId || req.db_user?.userId;

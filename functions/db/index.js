@@ -20,14 +20,16 @@ let notifications;
 
 async function initializeDB() {
   try {
-    // FIXED: Now correctly prioritizes the environment variable regardless of NODE_ENV
-    let mongoUri = process.env.NODE_ENV === 'production'
-      ? process.env.MONGO_URI_PROD
-      : process.env.MONGO_URI;
-
-    // Added defensive check to prevent crashing with an undefined URI
-    if (!mongoUri) {
-      throw new Error(`Database connection string (MONGO_URI) is missing. Please check your .env file.`);
+    let mongoUri;
+    if (process.env.NODE_ENV === 'staging') {
+      const { MongoMemoryServer } = require('mongodb-memory-server');
+      const mongod = await MongoMemoryServer.create();
+      mongoUri = mongod.getUri();
+      logger("DB").info("MongoDB Memory Server started");
+    } else {
+      mongoUri = process.env.NODE_ENV === 'production'
+        ? process.env.MONGO_URI_PROD
+        : process.env.MONGO_URI;
     }
 
     client = new MongoClient(mongoUri);

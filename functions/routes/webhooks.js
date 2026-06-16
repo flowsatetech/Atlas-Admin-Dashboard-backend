@@ -43,7 +43,7 @@ const generalLeadSchema = z.object({
     budget: z.string().trim().optional().default(''),
 });
 
-router.post('/leads/qualified', (req, res, next) => next(), webhookAuth, async (req, res) => {
+router.post('/leads/qualified', webhookAuth, async (req, res) => {
     try {
         const parsed = qualifiedLeadSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -86,7 +86,7 @@ router.post('/leads/qualified', (req, res, next) => next(), webhookAuth, async (
     }
 });
 
-router.post('/leads/general', (req, res, next) => next(), webhookAuth, async (req, res) => {
+router.post('/leads/general', webhookAuth, async (req, res) => {
     try {
         const parsed = generalLeadSchema.safeParse(req.body);
         if (!parsed.success) {

@@ -296,7 +296,7 @@ router.patch('/:projectId', middlewares.adminOnly, async (req, res) => {
             actorId: req.user?.userId || null,
             entityId: projectId,
             entityType: 'project',
-            message: `Project ${existing.name || 'Project'}'s payment has been updated`,
+            message: `Project '${existing.name || 'Project'}' was been updated`,
             meta: {
                 fields: Object.keys(updateData).filter((field) => field !== 'updatedAt')
             }
