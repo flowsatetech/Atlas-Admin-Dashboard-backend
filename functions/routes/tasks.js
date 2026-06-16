@@ -191,9 +191,11 @@ router.post("/", middlewares.adminOnly, tasksWrite, async (req, res) => {
     const assigneeExists = await db.getUserById(resolvedAssigneeId);
     if (!assigneeExists) return clientError(res, 404, 'Assignee not found');
 
+    let projectName = 'None';
     if (parsed.data.projectId) {
       const projectExists = await db.getProjectById(parsed.data.projectId);
       if (!projectExists) return clientError(res, 404, 'Project not found');
+      projectName = projectExists.name || 'Project';
     }
 
     const now = Date.now();
@@ -229,7 +231,8 @@ router.post("/", middlewares.adminOnly, tasksWrite, async (req, res) => {
         link: `/tasks/${task.id}`,
         referenceId: task.id,
         referenceType: 'Task',
-        createdBy: req.user?.userId
+        createdBy: req.user?.userId,
+        _emailContext: { PROJECT_NAME: projectName }
       }, 'NEW_TASK');
     }
 
@@ -339,10 +342,17 @@ router.patch(
           return clientError(res, 404, 'Assignee not found');
       }
 
+      let projectName = 'None';
       if (parsed.data.projectId) {
         const projectExists = await db.getProjectById(parsed.data.projectId);
         if (!projectExists)
           return clientError(res, 404, 'Project not found');
+        projectName = projectExists.name || 'Project';
+      } else if (existing.projectId) {
+        const projectExists = await db.getProjectById(existing.projectId);
+        if (projectExists) {
+            projectName = projectExists.name || 'Project';
+        }
       }
 
       const updateData = { ...parsed.data, updatedAt: Date.now() };
@@ -369,7 +379,8 @@ router.patch(
           link: `/tasks/${taskId}`,
           referenceId: taskId,
           referenceType: 'Task',
-          createdBy: req.user?.userId
+          createdBy: req.user?.userId,
+          _emailContext: { PROJECT_NAME: projectName }
         }, 'UPDATE_TASK');
       }
 
