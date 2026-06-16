@@ -50,6 +50,7 @@ const { serverError } = require('./functions/helpers');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const allowedOrigins = JSON.parse(process.env.APP_BASE_URL || "[]");
+const ENABLE_LOCAL_UPLOAD_FALLBACK = /^true$/i.test(process.env.ENABLE_LOCAL_UPLOAD_FALLBACK || "false");
 
 const corsOpts = {
     origin: (origin, callback) => {
@@ -229,6 +230,10 @@ app.use('/app', (req, res, next) => {
     next();
   }
 });
+
+if (ENABLE_LOCAL_UPLOAD_FALLBACK) {
+    app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
+}
 
 app.use(fourZeroFourApi);
 
