@@ -59,18 +59,10 @@ router.get("/", async (req, res) => {
 
     const { status, assigneeId, assignedTo, projectId, page, limit } =
       parsed.data;
-
-    let finalAssigneeId = assigneeId || assignedTo;
-    const isAdmin = req.user?.role === 'admin';
-    const includeUnassigned = req.query.includeUnassigned !== 'false';
-
-    if (!isAdmin || (!includeUnassigned && isAdmin)) {
-        finalAssigneeId = req.user?.userId;
-    }
-
     const { rows, total } = await db.getTasks({
       status,
-      assigneeId: finalAssigneeId,
+      assigneeId,
+      assignedTo,
       projectId,
       page,
       limit,

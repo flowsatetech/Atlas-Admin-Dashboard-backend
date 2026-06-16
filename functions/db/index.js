@@ -373,12 +373,9 @@ async function getClients() {
   }
 }
 
-async function getClientsPaginated({ status, page = 1, limit = 10, assignedStaffId = "" }) {
+async function getClientsPaginated({ status, page = 1, limit = 10 }) {
   try {
-    const query = {};
-    if (status) query.status = status;
-    if (assignedStaffId) query.assignedStaffId = assignedStaffId;
-
+    const query = status ? { status } : {};
     const skip = (page - 1) * limit;
     const [rows, total] = await Promise.all([
       clients.find(query).skip(skip).limit(limit).toArray(),
@@ -407,20 +404,14 @@ async function getDashboardMetricsCounts({
   previousEnd,
   activeProjectStatuses = [],
   pendingTaskStatuses = [],
-  userId = null,
 } = {}) {
   try {
     const currentRange = { createdAt: { $gte: currentStart, $lte: currentEnd } };
     const previousRange = { createdAt: { $gte: previousStart, $lte: previousEnd } };
 
-    const clientMatch = userId ? { assignedStaffId: userId } : {};
-    const projectMatch = userId ? { teamIds: userId } : {};
-    const taskMatch = userId ? { assigneeId: userId } : {};
-
     const [clientMetrics = {}, projectMetrics = {}, taskMetrics = {}] = await Promise.all([
       clients
         .aggregate([
-          { $match: clientMatch },
           {
             $facet: {
               totalClients: [{ $count: "count" }],
@@ -435,7 +426,6 @@ async function getDashboardMetricsCounts({
         .next(),
       projects
         .aggregate([
-          { $match: projectMatch },
           ...projectTaskProgressLookupStages,
           {
             $facet: {
@@ -451,7 +441,6 @@ async function getDashboardMetricsCounts({
         .next(),
       tasks
         .aggregate([
-          { $match: taskMatch },
           {
             $facet: {
               pendingTasksTotal: [{ $match: { status: { $in: pendingTaskStatuses } } }, { $count: "count" }],
@@ -894,12 +883,12 @@ function getFacetCount(aggregationResult, facetName) {
   return aggregationResult?.[facetName]?.[0]?.count || 0;
 }
 
-async function getProjectsPaginated({ page = 1, limit = 10, status = "", teamId = "" } = {}) {
+async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) {
   try {
     const skip = (page - 1) * limit;
-    const query = {};
-    if (status) query.status = status;
-    if (teamId) query.teamIds = teamId;
+    const query = status
+      ? { status }
+      : {};
 
     const [aggregationResult = {}] = await projects
       .aggregate([
@@ -1366,7 +1355,7 @@ async function addLead(leadData) {
   }
 }
 
-async function getAllLeads({ page = 1, limit = 10, search = "", status = "", assignedTo = "" } = {}) {
+async function getAllLeads({ page = 1, limit = 10, search = "", status = "" } = {}) {
   try {
     const safePage = Math.max(1, Number(page));
     const safeLimit = Math.min(Math.max(1, Number(limit)), 100);
@@ -1374,7 +1363,6 @@ async function getAllLeads({ page = 1, limit = 10, search = "", status = "", ass
 
     const query = {};
     if (status) query.status = status;
-    if (assignedTo) query.assignedTo = assignedTo;
     if (search) {
       const safeSearch = escapeRegex(search);
       query.$or = [

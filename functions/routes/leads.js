@@ -46,16 +46,7 @@ router.get('/', async (req, res) => {
         }
 
         const { page, limit, search = "", status = "" } = parsed.data;
-
-        let assignedTo = "";
-        const isAdmin = req.user?.role === 'admin';
-        const includeUnassigned = req.query.includeUnassigned !== 'false';
-
-        if (!isAdmin || (!includeUnassigned && isAdmin)) {
-            assignedTo = req.user?.userId;
-        }
-
-        const result = await db.getAllLeads({ page, limit, search, status, assignedTo });
+        const result = await db.getAllLeads({ page, limit, search, status });
 
         return res.status(200).json({
             success: true,
