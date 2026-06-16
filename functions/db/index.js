@@ -1496,16 +1496,16 @@ async function deleteLead(leadId) {
 async function getLeadStats() {
   try {
     const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const [total, active, newThisWeek] = await Promise.all([
+    const [total, qualified, newThisWeek] = await Promise.all([
       leads.countDocuments({}),
-      leads.countDocuments({ status: { $in: ["new", "contacted", "qualified"] } }),
+      leads.countDocuments({ status: "qualified" }),
       leads.countDocuments({ createdAt: { $gte: oneWeekAgo } })
     ]);
 
     return {
       totalLeads: total,
-      activePipeline: active,
-      newThisWeek: newThisWeek,
+      qualifiedLeads: qualified,
+      newThisWeek,
     };
   } catch (err) {
     logger("DB").error(err);
