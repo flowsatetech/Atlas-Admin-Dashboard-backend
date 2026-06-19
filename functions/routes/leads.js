@@ -134,10 +134,24 @@ router.patch('/:leadId', middlewares.adminOnly, async (req, res) => {
             return clientError(res, 404, 'Lead not found');
         }
 
-        await db.updateLead(req.params.leadId, { ...parsed.data, updatedAt: Date.now() });
+        // FIX: Extract all editable fields from req.body to prevent Zod from stripping them out
+        const updatePayload = { ...parsed.data };
+        const allowedFields = ['company', 'companyName', 'contactPerson', 'value', 'revenue', 'phone', 'email', 'source', 'notes', 'stage', 'status'];
+        
+        allowedFields.forEach(field => {
+            if (req.body[field] !== undefined) {
+                if (field === 'companyName') updatePayload.company = req.body[field];
+                else if (field === 'revenue' || field === 'value') updatePayload.value = Number(req.body[field]);
+                else updatePayload[field] = req.body[field];
+            }
+        });
 
-        if (parsed.data.assignedTo && parsed.data.assignedTo !== lead.assignedTo) {
-            const staffExists = await db.getUserById(parsed.data.assignedTo);
+        updatePayload.updatedAt = Date.now();
+
+        await db.updateLead(req.params.leadId, updatePayload);
+
+        if (updatePayload.assignedTo && updatePayload.assignedTo !== lead.assignedTo) {
+            const staffExists = await db.getUserById(updatePayload.assignedTo);
             if (staffExists) {
                 services.NotificationService.dispatch({
                     recipientId: staffExists.userId,
@@ -152,10 +166,10 @@ router.patch('/:leadId', middlewares.adminOnly, async (req, res) => {
             }
         }
 
-        if (Object.prototype.hasOwnProperty.call(parsed.data, 'status') && parsed.data.status !== lead.status) {
+        if (Object.prototype.hasOwnProperty.call(updatePayload, 'status') && updatePayload.status !== lead.status) {
             const adminRecipients = await db.getUsersByRoles(['admin', 'manager']);
             const recipientIds = new Set([
-                parsed.data.assignedTo || lead.assignedTo,
+                updatePayload.assignedTo || lead.assignedTo,
                 ...adminRecipients.map((recipient) => recipient.userId),
             ].filter((recipientId) => recipientId && recipientId !== req.user?.userId));
 
@@ -163,7 +177,7 @@ router.patch('/:leadId', middlewares.adminOnly, async (req, res) => {
                 recipientId,
                 type: 'LEAD_STATUS_CHANGE',
                 title: 'Lead Status Updated',
-                message: `${lead.firstName} ${lead.lastName} moved from ${lead.status || 'Unknown'} to ${parsed.data.status}`,
+                message: `${lead.firstName} ${lead.lastName} moved from ${lead.status || 'Unknown'} to ${updatePayload.status}`,
                 link: `/leads/${lead.id}`,
                 referenceId: lead.id,
                 referenceType: 'Lead',

@@ -23,6 +23,12 @@ function splitName(fullName) {
     };
 }
 
+function parseValue(budgetStr) {
+    if (!budgetStr) return 0;
+    const matches = String(budgetStr).replace(/,/g, '').match(/\d+(\.\d+)?/);
+    return matches ? Number(matches[0]) : 0;
+}
+
 const qualifiedLeadSchema = z.object({
     form_type: z.string().trim().optional(),
     name: z.string().trim().min(1, 'Name is required'),
@@ -58,7 +64,9 @@ router.post('/leads/qualified', webhookAuth, async (req, res) => {
             details   && `Details: ${details}`,
         ].filter(Boolean).join('\n');
 
+        const value = parseValue(budget);
         const now = Date.now();
+        
         await db.addLead({
             id: generateToken(),
             firstName,
@@ -67,11 +75,11 @@ router.post('/leads/qualified', webhookAuth, async (req, res) => {
             email,
             phone,
             company: '',
-            status: 'qualified',
-            stage: 'Qualified Lead',
+            status: 'new', 
+            stage: 'New',  
             source: 'quote_request',
             notes,
-            value: 0,
+            value: value, 
             contactPerson: '',
             assignedTo: '',
             createdAt: now,
@@ -101,7 +109,9 @@ router.post('/leads/general', webhookAuth, async (req, res) => {
             challenge && `Challenge: ${challenge}`,
         ].filter(Boolean).join('\n');
 
+        const value = parseValue(budget);
         const now = Date.now();
+        
         await db.addLead({
             id: generateToken(),
             firstName,
@@ -110,11 +120,11 @@ router.post('/leads/general', webhookAuth, async (req, res) => {
             email,
             phone,
             company: business,
-            status: 'new',
-            stage: 'General Lead',
+            status: 'new', 
+            stage: 'New',  
             source: 'book_a_call',
             notes,
-            value: 0,
+            value: value,
             contactPerson: '',
             assignedTo: '',
             createdAt: now,
