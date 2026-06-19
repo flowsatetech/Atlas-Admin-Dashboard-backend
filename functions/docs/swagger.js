@@ -44,7 +44,8 @@ const enumValues = Object.freeze({
         "PROJECT_COMMENT",
         "PASSWORD_UPDATED",
         "NEW_LOGIN_DETECTED"
-    ]
+    ],
+    notificationStatuses: ["active", "archived", "all"]
 });
 
 const ref = (name) => ({ $ref: `#/components/schemas/${name}` });
@@ -205,6 +206,10 @@ const examples = {
         referenceType: "task",
         isRead: false,
         createdBy: "6d62ab4046f47a11a8e70b92a57a889c",
+        status: "active",
+        readAt: null,
+        archivedAt: null,
+        expiresAt: null,
         createdAt: 1775600000000,
         updatedAt: 1775686400000
     },
@@ -423,6 +428,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
         { name: "Projects", description: "Projects, derived progress, comments, and project status management." },
         { name: "Tasks", description: "Task assignment, filtering, task details, and task lifecycle operations." },
         { name: "Members", description: "Staff account management. These routes are admin-only." },
+        { name: "Settings", description: "Authenticated user settings, including self-service profile image management." },
         { name: "Media", description: "Image uploads/replacement and general file metadata." },
         { name: "Blog", description: "Authenticated blog administration, public embed rendering, and view tracking." },
         { name: "Leads", description: "Lead pipeline records used by the admin dashboard." },
@@ -454,6 +460,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             ActivityLimit: queryParam("limit", { type: "integer", minimum: 1, maximum: 50, default: 10 }, "Maximum number of activity rows to return.", 10),
             InProgressLimit: queryParam("limit", { type: "integer", minimum: 1, maximum: 20, default: 4 }, "Maximum number of in-progress projects to return.", 4),
             NotificationUnreadOnly: queryParam("unreadOnly", { type: "boolean", default: false }, "Return unread notifications only.", false),
+            NotificationStatus: queryParam("status", { type: "string", enum: enumValues.notificationStatuses, default: "active" }, "Notification lifecycle filter. Active is used by navbar lists; archived contains read notifications until expiry.", "active"),
             Search: queryParam("search", { type: "string" }, "Case-insensitive search text where supported by the endpoint.", "acme"),
             ClientStatus: queryParam("status", { type: "string", enum: enumValues.clientStatuses }, "Filter clients by lifecycle status.", "Active"),
             ProjectStatus: queryParam("status", { type: "string", enum: enumValues.projectStatuses }, "Filter projects by project status.", "InProgress"),
@@ -481,6 +488,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             BlogSlugPath: pathParam("slug", "URL-safe blog slug. The embed route only accepts lowercase letters, numbers, and hyphens.", examples.slug),
             LeadIdPath: pathParam("leadId", "Lead custom ID token.", examples.leadId),
             MemberIdPath: pathParam("id", "Staff userId. Used for update, password change, and delete operations.", examples.userId),
+            SettingsUserIdPath: pathParam("userId", "User ID whose profile image should be returned.", examples.userId),
             ImageIdPath: pathParam("imageId", "Media image ID token.", examples.imageId),
             FileIdPath: pathParam("fileId", "Media file ID token.", examples.fileId),
             MediaFileType: queryParam("type", { type: "string", enum: ["image", "document", "video", "other"] }, "Optional media file type filter.", "document"),
@@ -569,6 +577,30 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     avatarUrl: { type: "string", format: "uri", nullable: true, example: examples.userProfile.avatarUrl }
                 },
                 example: examples.userProfile
+            },
+            ProfileImage: {
+                type: "object",
+                required: ["userId", "avatarUrl", "avatarPublicId", "avatarResourceType"],
+                properties: {
+                    userId: { type: "string", example: examples.userId },
+                    firstName: { type: "string", nullable: true, example: "Ada" },
+                    lastName: { type: "string", nullable: true, example: "Okafor" },
+                    fullName: { type: "string", nullable: true, example: "Ada Okafor" },
+                    role: { type: "string", enum: enumValues.userRoles, nullable: true, example: "admin" },
+                    avatarUrl: { type: "string", format: "uri", nullable: true, example: examples.userProfile.avatarUrl },
+                    avatarPublicId: { type: "string", nullable: true, example: "atlas-africa/profile-pictures/avatar" },
+                    avatarResourceType: { type: "string", enum: ["image", "video", "raw"], nullable: true, example: "image" }
+                },
+                example: {
+                    userId: examples.userId,
+                    firstName: "Ada",
+                    lastName: "Okafor",
+                    fullName: "Ada Okafor",
+                    role: "admin",
+                    avatarUrl: examples.userProfile.avatarUrl,
+                    avatarPublicId: "atlas-africa/profile-pictures/avatar",
+                    avatarResourceType: "image"
+                }
             },
             LoginRequest: {
                 type: "object",
@@ -1049,6 +1081,10 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     referenceId: { type: "string", nullable: true, example: examples.taskId },
                     referenceType: { type: "string", nullable: true, example: "task" },
                     isRead: { type: "boolean", example: false },
+                    status: { type: "string", enum: ["active", "archived"], example: "active" },
+                    readAt: { allOf: [ref("Timestamp")], nullable: true },
+                    archivedAt: { allOf: [ref("Timestamp")], nullable: true },
+                    expiresAt: { allOf: [ref("Timestamp")], nullable: true },
                     createdBy: { type: "string", nullable: true, example: examples.adminUserId },
                     createdAt: ref("Timestamp"),
                     updatedAt: ref("Timestamp")
@@ -1063,6 +1099,10 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     referenceId: examples.taskId,
                     referenceType: "task",
                     isRead: false,
+                    status: "active",
+                    readAt: null,
+                    archivedAt: null,
+                    expiresAt: null,
                     createdBy: examples.adminUserId,
                     createdAt: examples.createdAt,
                     updatedAt: examples.updatedAt
@@ -3095,19 +3135,165 @@ Send only the notification types to change; omitted types keep their current val
                 }
             }
         },
+        "/api/settings/profile-image": {
+            get: {
+                tags: ["Settings"],
+                operationId: "getCurrentUserProfileImage",
+                summary: "Get current user's profile image",
+                description: "Returns profile image metadata for the authenticated user.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Profile image returned.", {
+                        type: "object",
+                        properties: { profileImage: ref("ProfileImage") }
+                    }, {
+                        profileImage: {
+                            userId: examples.userId,
+                            firstName: "Ada",
+                            lastName: "Okafor",
+                            fullName: "Ada Okafor",
+                            role: "admin",
+                            avatarUrl: examples.userProfile.avatarUrl,
+                            avatarPublicId: "atlas-africa/profile-pictures/avatar",
+                            avatarResourceType: "image"
+                        }
+                    }, "Profile image fetched successfully"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("User not found.", 404, "User not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            post: {
+                tags: ["Settings"],
+                operationId: "uploadCurrentUserProfileImage",
+                summary: "Upload current user's profile image",
+                description: "Admin and staff users can upload a JPEG, PNG, or WebP image. If an image already exists, it is replaced and the old provider asset is deleted when possible.",
+                security: [{ cookieAuth: [] }],
+                requestBody: {
+                    required: true,
+                    content: {
+                        "multipart/form-data": {
+                            schema: {
+                                type: "object",
+                                required: ["image"],
+                                properties: {
+                                    image: { type: "string", format: "binary" }
+                                }
+                            }
+                        }
+                    }
+                },
+                responses: {
+                    200: successResponse("Profile image uploaded.", {
+                        type: "object",
+                        properties: { profileImage: ref("ProfileImage") }
+                    }, { profileImage: { ...examples.userProfile, avatarPublicId: "atlas-africa/profile-pictures/avatar", avatarResourceType: "image" } }, "Profile image uploaded successfully"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("User not found.", 404, "User not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            put: {
+                tags: ["Settings"],
+                operationId: "replaceCurrentUserProfileImage",
+                summary: "Replace current user's profile image",
+                description: "Admin and staff users can replace their profile image. The previous provider asset is deleted when possible.",
+                security: [{ cookieAuth: [] }],
+                requestBody: {
+                    required: true,
+                    content: {
+                        "multipart/form-data": {
+                            schema: {
+                                type: "object",
+                                required: ["image"],
+                                properties: {
+                                    image: { type: "string", format: "binary" }
+                                }
+                            }
+                        }
+                    }
+                },
+                responses: {
+                    200: successResponse("Profile image updated.", {
+                        type: "object",
+                        properties: { profileImage: ref("ProfileImage") }
+                    }, { profileImage: { ...examples.userProfile, avatarPublicId: "atlas-africa/profile-pictures/avatar", avatarResourceType: "image" } }, "Profile image updated successfully"),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("User not found.", 404, "User not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            },
+            delete: {
+                tags: ["Settings"],
+                operationId: "deleteCurrentUserProfileImage",
+                summary: "Remove current user's profile image",
+                description: "Admin and staff users can remove their profile image. The stored provider asset is deleted when possible and avatar fields are cleared.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Profile image removed.", {
+                        type: "object",
+                        properties: { profileImage: ref("ProfileImage") }
+                    }, {
+                        profileImage: {
+                            userId: examples.userId,
+                            firstName: "Ada",
+                            lastName: "Okafor",
+                            fullName: "Ada Okafor",
+                            role: "admin",
+                            avatarUrl: null,
+                            avatarPublicId: null,
+                            avatarResourceType: null
+                        }
+                    }, "Profile image removed successfully"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    404: errorResponse("User not found.", 404, "User not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/settings/users/{userId}/profile-image": {
+            get: {
+                tags: ["Settings"],
+                operationId: "getUserProfileImage",
+                summary: "Get a user's profile image",
+                description: "Returns profile image metadata for a user so avatars can be displayed across the platform.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("SettingsUserIdPath")],
+                responses: {
+                    200: successResponse("Profile image returned.", {
+                        type: "object",
+                        properties: { profileImage: ref("ProfileImage") }
+                    }, { profileImage: { ...examples.userProfile, avatarPublicId: "atlas-africa/profile-pictures/avatar", avatarResourceType: "image" } }, "Profile image fetched successfully"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("User not found.", 404, "User not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
         "/api/notifications": {
             get: {
                 tags: ["Notifications"],
                 operationId: "listNotifications",
                 summary: "Fetch notifications",
-                description: "Returns the signed-in user's notifications with pagination and optional unread-only filtering.",
+                description: "Returns the signed-in user's notifications with pagination and optional unread-only/lifecycle filtering. Active notifications are used by navbar lists by default; read notifications move to archived state.",
                 security: [{ cookieAuth: [] }],
-                parameters: [parameterRef("Page"), parameterRef("Limit20"), parameterRef("NotificationUnreadOnly")],
+                parameters: [parameterRef("Page"), parameterRef("Limit20"), parameterRef("NotificationUnreadOnly"), parameterRef("NotificationStatus")],
                 responses: {
                     200: successResponse("Notifications returned.", {
                         type: "object",
                         properties: {
                             notifications: { type: "array", items: ref("Notification") },
+                            pagination: ref("Pagination"),
                             totalCount: { type: "integer", minimum: 0, example: 1 },
                             unreadCount: { type: "integer", minimum: 0, example: 0 },
                             currentPage: { type: "integer", minimum: 1, example: 1 },
@@ -3115,6 +3301,7 @@ Send only the notification types to change; omitted types keep their current val
                         }
                     }, {
                         notifications: [examples.notification],
+                        pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
                         totalCount: 1,
                         unreadCount: 0,
                         currentPage: 1,
@@ -3196,12 +3383,45 @@ Only send the notification types you want to change; omitted types retain their 
                 }
             }
         },
+        "/api/notifications/archive": {
+            get: {
+                tags: ["Notifications"],
+                operationId: "listArchivedNotifications",
+                summary: "Fetch archived notifications",
+                description: "Returns read notifications that have been moved to archived/trash state. Archived notifications are retained for 30 days and then removed by the MongoDB TTL index.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("Page"), parameterRef("Limit20")],
+                responses: {
+                    200: successResponse("Archived notifications returned.", {
+                        type: "object",
+                        properties: {
+                            notifications: { type: "array", items: ref("Notification") },
+                            pagination: ref("Pagination"),
+                            totalCount: { type: "integer", minimum: 0, example: 1 },
+                            unreadCount: { type: "integer", minimum: 0, example: 0 },
+                            currentPage: { type: "integer", minimum: 1, example: 1 },
+                            totalPages: { type: "integer", minimum: 0, example: 1 }
+                        }
+                    }, {
+                        notifications: [{ ...examples.notification, isRead: true, status: "archived", readAt: examples.updatedAt, archivedAt: examples.updatedAt, expiresAt: examples.updatedAt + 2592000000 }],
+                        pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+                        totalCount: 1,
+                        unreadCount: 0,
+                        currentPage: 1,
+                        totalPages: 1
+                    }, "Archived notifications fetched successfully"),
+                    401: responseRef("Unauthorized"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
         "/api/notifications/read-all": {
             put: {
                 tags: ["Notifications"],
                 operationId: "markAllNotificationsAsRead",
                 summary: "Mark all notifications as read",
-                description: "Marks the signed-in user's unread notifications as read.",
+                description: "Marks the signed-in user's unread active notifications as read, moves them to archived/trash state, and sets a 30-day expiry timestamp.",
                 security: [{ cookieAuth: [] }],
                 responses: {
                     200: successResponse("Notifications updated.", {
@@ -3221,7 +3441,7 @@ Only send the notification types you want to change; omitted types retain their 
                 tags: ["Notifications"],
                 operationId: "markNotificationAsRead",
                 summary: "Mark a notification as read",
-                description: "Marks one notification as read for the signed-in user.",
+                description: "Marks one notification as read for the signed-in user, moves it to archived/trash state, and sets a 30-day expiry timestamp.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("NotificationIdPath")],
                 responses: {

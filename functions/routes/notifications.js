@@ -62,12 +62,13 @@ router.get('/', async (req, res) => {
     const userId = req.user?.userId || req.db_user?.userId;
     if (!userId) return clientError(res, 401, 'Authentication required');
 
-    const { page, limit, unreadOnly } = req.query;
+    const { page, limit, unreadOnly, status } = req.query;
 
     const result = await NotificationService.getUserNotifications(userId, {
       page,
       limit,
-      unreadOnly
+      unreadOnly,
+      status
     });
 
     return res.status(200).json({
@@ -78,6 +79,35 @@ router.get('/', async (req, res) => {
   } catch (error) {
     logger('GET_NOTIFICATIONS').error(error);
     return serverError(res, error, 'Failed to fetch notifications.');
+  }
+});
+
+/**
+ * @route   GET /api/notifications/archive
+ * @desc    Get archived/read user notifications
+ * @access  Private
+ */
+router.get('/archive', async (req, res) => {
+  try {
+    const userId = req.user?.userId || req.db_user?.userId;
+    if (!userId) return clientError(res, 401, 'Authentication required');
+
+    const { page, limit } = req.query;
+
+    const result = await NotificationService.getUserNotifications(userId, {
+      page,
+      limit,
+      status: 'archived'
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Archived notifications fetched successfully',
+      data: result,
+    });
+  } catch (error) {
+    logger('GET_ARCHIVED_NOTIFICATIONS').error(error);
+    return serverError(res, error, 'Failed to fetch archived notifications.');
   }
 });
 

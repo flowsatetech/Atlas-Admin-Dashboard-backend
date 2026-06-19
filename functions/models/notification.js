@@ -74,6 +74,10 @@ const notificationSchema = z.object({
   referenceId: z.string().optional(),
   referenceType: z.string().optional(),
   isRead: z.boolean().default(false),
+  status: z.enum(["active", "archived"]).default("active"),
+  readAt: z.number().int().nonnegative().nullable().default(null),
+  archivedAt: z.number().int().nonnegative().nullable().default(null),
+  expiresAt: z.number().int().nonnegative().nullable().default(null),
   createdBy: z.string().optional()
 });
 
