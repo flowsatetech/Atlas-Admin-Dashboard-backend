@@ -95,6 +95,8 @@ async function initializeDB() {
     await notifications.createIndex({ id: 1 }, { unique: true });
     await notifications.createIndex({ recipientId: 1, createdAt: -1 });
     await notifications.createIndex({ recipientId: 1, isRead: 1 });
+    await notifications.createIndex({ recipientId: 1, status: 1, createdAt: -1 });
+    await notifications.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
     logger("DB").info("MongoDB initialized successfully");
 
@@ -191,6 +193,30 @@ async function getUserById(userId) {
   }
 }
 
+async function getUserProfileImage(userId) {
+  try {
+    return await users.findOne(
+      { userId },
+      {
+        projection: {
+          _id: 0,
+          userId: 1,
+          firstName: 1,
+          lastName: 1,
+          fullName: 1,
+          role: 1,
+          avatarUrl: 1,
+          avatarPublicId: 1,
+          avatarResourceType: 1,
+        },
+      },
+    );
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function getUsersByIds(userIds = []) {
   try {
     if (!Array.isArray(userIds) || userIds.length === 0) return [];
@@ -228,6 +254,43 @@ async function updateUser(userId, updateData) {
   try {
     const result = await users.updateOne({ userId }, { $set: updateData });
     return { changes: result.modifiedCount };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function updateUserProfileImage(userId, avatarData) {
+  try {
+    const updateData = {
+      avatarUrl: avatarData.avatarUrl || null,
+      avatarPublicId: avatarData.avatarPublicId || null,
+      avatarResourceType: avatarData.avatarResourceType || null,
+      updatedAt: Date.now(),
+    };
+
+    await users.updateOne({ userId }, { $set: updateData });
+    return await getUserProfileImage(userId);
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function clearUserProfileImage(userId) {
+  try {
+    await users.updateOne(
+      { userId },
+      {
+        $set: {
+          avatarUrl: null,
+          avatarPublicId: null,
+          avatarResourceType: null,
+          updatedAt: Date.now(),
+        },
+      },
+    );
+    return await getUserProfileImage(userId);
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -1657,12 +1720,20 @@ async function addNotifications(notificationItems = []) {
   }
 }
 
-async function getNotificationsByRecipient(recipientId, { page = 1, limit = 20, unreadOnly = false } = {}) {
+async function getNotificationsByRecipient(recipientId, { page = 1, limit = 20, unreadOnly = false, status = "active" } = {}) {
   try {
     const safePage = Math.max(1, Number(page) || 1);
     const safeLimit = Math.min(Math.max(1, Number(limit) || 20), 100);
     const skip = (safePage - 1) * safeLimit;
     const query = { recipientId };
+    const normalizedStatus = String(status || "active").toLowerCase();
+
+    if (normalizedStatus === "archived") {
+      query.$or = [{ status: "archived" }, { isRead: true, status: { $exists: false } }];
+    } else if (normalizedStatus !== "all") {
+      query.$or = [{ status: "active" }, { status: { $exists: false }, isRead: { $ne: true } }];
+    }
+
     if (unreadOnly === true || unreadOnly === "true") query.isRead = false;
 
     const [rows, totalCount, unreadCount] = await Promise.all([
@@ -1673,7 +1744,11 @@ async function getNotificationsByRecipient(recipientId, { page = 1, limit = 20, 
         .limit(safeLimit)
         .toArray(),
       notifications.countDocuments(query),
-      notifications.countDocuments({ recipientId, isRead: false }),
+      notifications.countDocuments({
+        recipientId,
+        isRead: false,
+        $or: [{ status: "active" }, { status: { $exists: false } }],
+      }),
     ]);
 
     return {
@@ -1682,6 +1757,12 @@ async function getNotificationsByRecipient(recipientId, { page = 1, limit = 20, 
       unreadCount,
       currentPage: safePage,
       totalPages: Math.ceil(totalCount / safeLimit),
+      pagination: {
+        total: totalCount,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(totalCount / safeLimit),
+      },
     };
   } catch (err) {
     logger("DB").error(err);
@@ -1692,9 +1773,19 @@ async function getNotificationsByRecipient(recipientId, { page = 1, limit = 20, 
 async function markNotificationAsRead(notificationId, recipientId) {
   try {
     const now = Date.now();
+    const expiresAt = now + 30 * 24 * 60 * 60 * 1000;
     const result = await notifications.findOneAndUpdate(
       { id: notificationId, recipientId },
-      { $set: { isRead: true, updatedAt: now } },
+      {
+        $set: {
+          isRead: true,
+          status: "archived",
+          readAt: now,
+          archivedAt: now,
+          expiresAt,
+          updatedAt: now,
+        },
+      },
       { returnDocument: "after", projection: { _id: 0 } },
     );
     return result || null;
@@ -1706,9 +1797,24 @@ async function markNotificationAsRead(notificationId, recipientId) {
 
 async function markAllNotificationsAsRead(recipientId) {
   try {
+    const now = Date.now();
+    const expiresAt = now + 30 * 24 * 60 * 60 * 1000;
     const result = await notifications.updateMany(
-      { recipientId, isRead: false },
-      { $set: { isRead: true, updatedAt: Date.now() } },
+      {
+        recipientId,
+        isRead: false,
+        $or: [{ status: "active" }, { status: { $exists: false } }],
+      },
+      {
+        $set: {
+          isRead: true,
+          status: "archived",
+          readAt: now,
+          archivedAt: now,
+          expiresAt,
+          updatedAt: now,
+        },
+      },
     );
     return result.modifiedCount;
   } catch (err) {
@@ -1786,9 +1892,12 @@ module.exports = {
   addUser,
   getUserByEmail,
   getUserById,
+  getUserProfileImage,
   getUsersByIds,
   getUsersByRoles,
   updateUser,
+  updateUserProfileImage,
+  clearUserProfileImage,
   deleteUserById,
   getProjectsPaginated,
   getProjectById,

@@ -1,7 +1,9 @@
 /** INJECT ENV VARS
- * Load environment variables from the appropriate .env file.
+ * Load environment variables from the configured env file, falling back to .env.
  */
-require('dotenv').config({ path: '.env.staging' });
+const fs = require('fs');
+const envPath = process.env.ENV_FILE || (fs.existsSync('.env.staging') ? '.env.staging' : '.env');
+require('dotenv').config({ path: envPath });
 
 /** IMPORT
  * All libraries / local exports / packages are imported here
@@ -35,6 +37,7 @@ const healthApi = require('./functions/routes/health');
 const fourZeroFourApi = require('./functions/routes/404');
 const webhookRoutes = require('./functions/routes/webhooks');
 const notificationsRoutes = require('./functions/routes/notifications');
+const settingsRoutes = require('./functions/routes/settings');
 const swaggerSpec = require('./functions/docs/swagger');
 
 const db = require('./functions/db');
@@ -48,6 +51,7 @@ const { serverError } = require('./functions/helpers');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const allowedOrigins = JSON.parse(process.env.APP_BASE_URL || "[]");
+const ENABLE_LOCAL_UPLOAD_FALLBACK = /^true$/i.test(process.env.ENABLE_LOCAL_UPLOAD_FALLBACK || "false");
 
 const corsOpts = {
     origin: (origin, callback) => {
@@ -165,7 +169,7 @@ app.use('/api', (req, res, next) => {
 /** ROUTERS
  * All routers are created here
  */
-const [authApi, userApi, dashboardApi, projectsApi, clientsApi, membersApi, mediaApi, analyticsApi, revenueApi, paymentsApi, tasksApi, blogApi, leadsApi, notificationsApi] = Array.from({ length: 14 }, () => express.Router());
+const [authApi, userApi, dashboardApi, projectsApi, clientsApi, membersApi, mediaApi, analyticsApi, revenueApi, paymentsApi, tasksApi, blogApi, leadsApi, notificationsApi, settingsApi] = Array.from({ length: 15 }, () => express.Router());
 
 /** ROUTERS -> HANDLER MAPPING
  * All routers are mapped to their handlers
@@ -184,6 +188,7 @@ tasksApi.use(tasksRoutes);
 blogApi.use(blogRoutes);
 leadsApi.use(leadsRoutes);
 notificationsApi.use(notificationsRoutes);
+settingsApi.use(settingsRoutes);
 
 /** CONFIGURE & START THE SERVER
  * Mount all routers
@@ -204,6 +209,7 @@ app.use('/api/tasks', middlewares.authMiddleware, tasksApi);
 app.use('/api/blog', blogApi);
 app.use('/api/leads', middlewares.authMiddleware, leadsApi);
 app.use('/api/notifications', middlewares.authMiddleware, notificationsApi);
+app.use('/api/settings', middlewares.authMiddleware, settingsApi);
 app.use('/api/health', healthApi);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/embed', embedRoutes);
@@ -227,6 +233,10 @@ app.use('/app', (req, res, next) => {
     next();
   }
 });
+
+if (ENABLE_LOCAL_UPLOAD_FALLBACK) {
+    app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
+}
 
 app.use(fourZeroFourApi);
 

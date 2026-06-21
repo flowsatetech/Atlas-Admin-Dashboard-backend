@@ -1,5 +1,7 @@
 /** IMPORT */
+const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { v2: cloudinary } = require("cloudinary");
 const streamifier = require("streamifier");
 const logger = require("../helpers/logger");
@@ -10,6 +12,44 @@ cloudinary.config({
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+
+const LOCAL_UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
+const LOCAL_UPLOAD_BASE_URL = (process.env.SERVER_BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
+const ENABLE_LOCAL_UPLOAD_FALLBACK = /^true$/i.test(process.env.ENABLE_LOCAL_UPLOAD_FALLBACK || "false");
+
+function getLocalStorageFolder(folder) {
+  const folderName = String(folder || "").trim().replace(/\/+$/, "").split("/").pop();
+  return folderName || "files";
+}
+
+function generateLocalFilename(file) {
+  const extension = path.extname(file.originalname || "") || "";
+  return `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${extension}`;
+}
+
+function buildLocalUrl(folderName, fileName) {
+  return `${LOCAL_UPLOAD_BASE_URL}/uploads/${folderName}/${encodeURIComponent(fileName)}`;
+}
+
+async function uploadLocally(file, folder) {
+  const localFolder = getLocalStorageFolder(folder);
+  const filename = generateLocalFilename(file);
+  const destinationDir = path.join(LOCAL_UPLOADS_DIR, localFolder);
+  await fs.promises.mkdir(destinationDir, { recursive: true });
+  const filePath = path.join(destinationDir, filename);
+  await fs.promises.writeFile(filePath, file.buffer);
+
+  const url = buildLocalUrl(localFolder, filename);
+  return {
+    secure_url: url,
+    url,
+    public_id: null,
+    resource_type: null,
+    bytes: file.buffer.length,
+    original_filename: file.originalname || filename,
+    storageProvider: "local",
+  };
+}
 
 const PROFILE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const PROFILE_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
@@ -92,6 +132,12 @@ async function uploadWithFallback(file, options, failureMessage) {
       );
     } catch (fallbackError) {
       logger("CLOUDINARY_UPLOAD").error(fallbackError);
+      if (ENABLE_LOCAL_UPLOAD_FALLBACK) {
+        logger("CLOUDINARY_UPLOAD_FALLBACK").warn(
+          `Cloudinary upload failed for ${file.originalname || "unknown file"}; using local fallback.`,
+        );
+        return await uploadLocally(file, options.folder);
+      }
       throw new Error(failureMessage);
     }
   }
