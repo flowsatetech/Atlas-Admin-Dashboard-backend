@@ -870,12 +870,13 @@ function buildProjectTaskProgressLookupStages({ projectIdExpression = "$id" } = 
                   $and: [
                     { $gt: ["$totalTasks", 0] },
                     { $gte: ["$completedTasks", "$totalTasks"] },
+                    { $ne: ["$status", "Cancelled"] }
                   ],
                 },
                 then: "Completed",
               },
               {
-                case: { $in: ["$status", ["OnHold", "Cancelled"]] },
+                case: { $in: ["$status", ["OnHold", "Cancelled", "InProgress", "Planned", "Completed"]] },
                 then: "$status",
               },
               {
@@ -883,7 +884,7 @@ function buildProjectTaskProgressLookupStages({ projectIdExpression = "$id" } = 
                 then: "InProgress",
               },
             ],
-            default: "Planned",
+            default: { $ifNull: ["$status", "Planned"] },
           },
         },
       },
@@ -1559,15 +1560,15 @@ async function deleteLead(leadId) {
 async function getLeadStats() {
   try {
     const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const [total, qualified, newThisWeek] = await Promise.all([
+    const [total, activePipeline, newThisWeek] = await Promise.all([
       leads.countDocuments({}),
-      leads.countDocuments({ status: "qualified" }),
+      leads.countDocuments({ status: { $in: ["new", "discovery", "qualified", "proposal"] } }),
       leads.countDocuments({ createdAt: { $gte: oneWeekAgo } })
     ]);
 
     return {
       totalLeads: total,
-      qualifiedLeads: qualified,
+      activePipeline,
       newThisWeek,
     };
   } catch (err) {
