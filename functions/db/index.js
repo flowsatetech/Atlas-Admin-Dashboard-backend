@@ -385,13 +385,15 @@ async function getProjectsCreatedBetween(from, to) {
   }
 }
 
-async function getInProgressProjects(limit = 4) {
+async function getInProgressProjects(limit = 4, memberUserId = null) {
   try {
+    const memberFilter = memberUserId ? { teamIds: memberUserId } : {};
     return await projects
       .aggregate([
         ...projectTaskProgressLookupStages,
         {
           $match: {
+            ...memberFilter,
             $or: [{ status: { $in: ["InProgress", "OnHold", "Planned"] } }, { status: { $exists: false } }],
           },
         },

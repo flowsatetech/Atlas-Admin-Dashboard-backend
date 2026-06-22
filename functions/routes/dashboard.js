@@ -95,6 +95,8 @@ function dashboardError(res, message, status = 400, code = 'DASHBOARD_ERROR', de
 router.get('/metrics', async (req, res) => {
     try {
         const range = getCalendarMonthRanges();
+        const isAdmin = req.db_user?.role === 'admin';
+        const userId = isAdmin ? null : req.user?.userId;
         const {
             totalClients,
             currentClients,
@@ -116,7 +118,8 @@ router.get('/metrics', async (req, res) => {
             currentEnd: range.currentEnd,
             previousStart: range.previousStart,
             previousEnd: range.previousEnd,
-            activeProjectStatuses: ACTIVE_PROJECT_STATUSES
+            activeProjectStatuses: ACTIVE_PROJECT_STATUSES,
+            userId
         });
 
         const data = {
@@ -215,9 +218,14 @@ router.get('/projects/in-progress', async (req, res) => {
         }
 
         const { limit } = parsed.data;
+        const isAdmin = req.db_user?.role === 'admin';
+        const memberUserId = isAdmin ? null : req.user?.userId;
+
+        const memberFilter = memberUserId ? { teamIds: memberUserId } : {};
         const [projects, totalActiveProjects, allClients] = await Promise.all([
-            db.getInProgressProjects(limit),
+            db.getInProgressProjects(limit, memberUserId),
             db.countProjectsByFilter({
+                ...memberFilter,
                 $or: [
                     { status: { $in: ACTIVE_PROJECT_STATUSES } },
                     { status: { $exists: false } }
@@ -272,10 +280,13 @@ router.get('/activities', async (req, res) => {
         }
 
         const { page, limit } = parsed.data;
+        const isAdmin = req.db_user?.role === 'admin';
+        const actorId = isAdmin ? undefined : req.user?.userId;
 
         const { rows, total } = await db.getActivityLogs({
             page,
             limit,
+            actorId,
             projection: { _id: 0, id: 1, type: 1, actorId: 1, entityId: 1, message: 1, createdAt: 1 }
         });
 
