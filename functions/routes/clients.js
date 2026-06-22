@@ -118,11 +118,12 @@ router.get("/:id", async (req, res) => {
       }
     }
 
-    const [lastActivity, projects] = await Promise.all([
+    const [lastActivity, projects, quickInsights] = await Promise.all([
       db.getLatestClientActivity(client.id),
       db.getProjectsByClientId(client.id),
+      db.getClientProjectInsights(client.id),
     ]);
-    const projectsCount = projects.length;
+    const projectsCount = quickInsights.totalProjects;
 
     res.status(200).json({
       success: true,
@@ -143,6 +144,7 @@ router.get("/:id", async (req, res) => {
           notesHistory: client.notesHistory || [],
           projectsCount,
           projects,
+          quickInsights,
           lastActivity: lastActivity || null,
           createdAt: client.createdAt,
           updatedAt: client.updatedAt,

@@ -433,6 +433,45 @@ async function getProjectCountsByClientIds(clientIds = []) {
   }
 }
 
+async function getClientProjectInsights(clientId) {
+  try {
+    const [stats = {}] = await projects
+      .aggregate([
+        { $match: { clientId } },
+        ...projectTaskProgressLookupStages,
+        {
+          $group: {
+            _id: null,
+            totalProjects: { $sum: 1 },
+            activeProjects: {
+              $sum: {
+                $cond: [
+                  {
+                    $or: [
+                      { $in: ["$status", ["InProgress", "OnHold", "Planned"]] },
+                      { $eq: [{ $type: "$status" }, "missing"] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ])
+      .toArray();
+
+    return {
+      totalProjects: stats.totalProjects || 0,
+      activeProjects: stats.activeProjects || 0,
+    };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
 async function getClientsPaginated({ status, page = 1, limit = 10, assignedStaffId = "" }) {
   try {
     const query = {};
@@ -1902,6 +1941,7 @@ module.exports = {
   getClients,
   getProjectsByClientId,
   getProjectCountsByClientIds,
+  getClientProjectInsights,
   getClientsPaginated,
   countClientsByFilter,
   getDashboardMetricsCounts,
