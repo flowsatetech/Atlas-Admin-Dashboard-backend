@@ -46,6 +46,7 @@ class NotificationService {
         isRead: parsed.data.isRead || false,
         createdAt: now,
         updatedAt: now,
+        expiresAt: now + 30 * 24 * 60 * 60 * 1000,
         _emailContext: item._emailContext || {},
       };
     });
