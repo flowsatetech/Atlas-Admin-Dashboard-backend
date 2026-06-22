@@ -68,6 +68,7 @@ async function initializeDB() {
     await activityLogs.createIndex({ createdAt: -1 });
     await activityLogs.createIndex({ type: 1 });
     await activityLogs.createIndex({ actorId: 1 });
+    await activityLogs.createIndex({ entityType: 1, entityId: 1, createdAt: -1 });
     await analyticsSnapshots.createIndex({ id: 1 }, { unique: true });
     await analyticsSnapshots.createIndex({ periodStart: 1 });
     await analyticsSnapshots.createIndex({ periodEnd: 1 });
@@ -711,6 +712,31 @@ async function getActivityLogs({ page = 1, limit = 20, type, actorId, projection
       activityLogs.countDocuments(query),
     ]);
     return { rows, total };
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getLatestClientActivity(clientId) {
+  try {
+    return await activityLogs.findOne(
+      { entityType: "client", entityId: clientId },
+      {
+        projection: {
+          _id: 0,
+          id: 1,
+          type: 1,
+          actorId: 1,
+          entityId: 1,
+          entityType: 1,
+          message: 1,
+          meta: 1,
+          createdAt: 1,
+        },
+        sort: { createdAt: -1 },
+      },
+    );
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -1839,6 +1865,7 @@ module.exports = {
 
   addActivityLog,
   getActivityLogs,
+  getLatestClientActivity,
 
   upsertAnalyticsSnapshotByPeriod,
   getAnalyticsSnapshotsByDateRange,

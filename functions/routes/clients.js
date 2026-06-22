@@ -117,6 +117,8 @@ router.get("/:id", async (req, res) => {
       }
     }
 
+    const lastActivity = await db.getLatestClientActivity(client.id);
+
     res.status(200).json({
       success: true,
       message: "Fetch client details success",
@@ -134,6 +136,7 @@ router.get("/:id", async (req, res) => {
           leadSource: client.leadSource || null,
           notes: client.notes || "",
           projectsCount: client.projectsCount || 0,
+          lastActivity: lastActivity || null,
           createdAt: client.createdAt,
           updatedAt: client.updatedAt,
         },
