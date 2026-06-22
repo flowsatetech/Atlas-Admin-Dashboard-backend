@@ -92,17 +92,7 @@ router.get('/', async (req, res) => {
         }
 
         const { page, limit, status } = parsed.data;
-
-        // Role-based filtering
-        let teamId = "";
-        const isAdmin = req.user?.role === 'admin';
-        const includeUnassigned = req.query.includeUnassigned !== 'false'; // defaults to true
-
-        if (!isAdmin || (!includeUnassigned && isAdmin)) {
-            teamId = req.user?.userId;
-        }
-
-        const result = await db.getProjectsPaginated({ page, limit, status, teamId });
+        const result = await db.getProjectsPaginated({ page, limit, status });
 
         res.status(200).json({
             success: true,

@@ -19,8 +19,6 @@ const { dashboard: dashboardContracts } = require('../contracts');
 const router = express.Router();
 
 const ACTIVE_PROJECT_STATUSES = ['InProgress', 'OnHold', 'Planned'];
-const PENDING_TASK_STATUSES = ['Todo', 'InProgress', 'Review', 'Blocked'];
-
 const performanceQuerySchema = z.object({
     period: z.enum(['3months', '6months', '12months']).default('6months')
 });
@@ -97,15 +95,6 @@ function dashboardError(res, message, status = 400, code = 'DASHBOARD_ERROR', de
 router.get('/metrics', async (req, res) => {
     try {
         const range = getCalendarMonthRanges();
-
-        let userId = null;
-        const isAdmin = req.user?.role === 'admin';
-        const includeUnassigned = req.query.includeUnassigned !== 'false';
-        
-        if (!isAdmin || (!includeUnassigned && isAdmin)) {
-            userId = req.user?.userId;
-        }
-
         const {
             totalClients,
             currentClients,
@@ -127,8 +116,7 @@ router.get('/metrics', async (req, res) => {
             currentEnd: range.currentEnd,
             previousStart: range.previousStart,
             previousEnd: range.previousEnd,
-            activeProjectStatuses: ACTIVE_PROJECT_STATUSES,
-            userId
+            activeProjectStatuses: ACTIVE_PROJECT_STATUSES
         });
 
         const data = {
