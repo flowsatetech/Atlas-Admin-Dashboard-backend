@@ -31,6 +31,7 @@ const updateClientSchema = z.object({
     assignedStaffId: z.string().min(1).nullable().optional(),
     leadSource: z.string().min(1).nullable().optional(),
     notes: z.string().optional(),
+    appendNote: z.string().min(1).optional(),
 });
 
 const listClientsQuerySchema = paginationQuerySchema.extend({

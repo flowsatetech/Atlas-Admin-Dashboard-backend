@@ -140,6 +140,7 @@ router.get("/:id", async (req, res) => {
           assignedStaffId: client.assignedStaffId,
           leadSource: client.leadSource || null,
           notes: client.notes || "",
+          notesHistory: client.notesHistory || [],
           projectsCount,
           projects,
           lastActivity: lastActivity || null,
@@ -175,6 +176,7 @@ router.post("/", middlewares.adminOnly, async (req, res) => {
       assignedStaffId: payload.assignedStaffId || null,
       leadSource: payload.leadSource || null,
       notes: payload.notes || "",
+      notesHistory: payload.notes ? [{ note: payload.notes, createdAt: now, createdBy: req.user?.userId || null }] : [],
       projectsCount: 0,
       createdAt: now,
       updatedAt: now,
@@ -276,10 +278,32 @@ router.patch("/:id", middlewares.adminOnly, async (req, res) => {
       }
     }
 
+    const { appendNote, ...updatePayload } = parsed.data;
     const updates = {
-      ...parsed.data,
+      ...updatePayload,
       updatedAt: Date.now(),
     };
+
+    if (appendNote) {
+      const existingNotes = client.notes || "";
+      const noteEntry = {
+        note: appendNote,
+        createdAt: updates.updatedAt,
+        createdBy: req.user?.userId || null,
+      };
+      updates.notes = existingNotes ? `${existingNotes}\n${appendNote}` : appendNote;
+      updates.notesHistory = [...(client.notesHistory || []), noteEntry];
+    } else if (Object.prototype.hasOwnProperty.call(updatePayload, 'notes') && updatePayload.notes !== client.notes) {
+      updates.notesHistory = [
+        ...(client.notesHistory || []),
+        {
+          note: updatePayload.notes || "",
+          previousNote: client.notes || "",
+          createdAt: updates.updatedAt,
+          createdBy: req.user?.userId || null,
+        },
+      ];
+    }
 
     await db.updateClient(req.params.id, updates);
 
