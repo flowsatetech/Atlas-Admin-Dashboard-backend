@@ -140,18 +140,10 @@ router.patch('/:leadId', middlewares.adminOnly, async (req, res) => {
         if (!lead) {
             return clientError(res, 404, 'Lead not found');
         }
-
-        // FIX: Extract all editable fields from req.body to prevent Zod from stripping them out
         const updatePayload = { ...parsed.data };
-        const allowedFields = ['company', 'companyName', 'contactPerson', 'value', 'revenue', 'phone', 'email', 'source', 'stage', 'status'];
-        
-        allowedFields.forEach(field => {
-            if (req.body[field] !== undefined) {
-                if (field === 'companyName') updatePayload.company = req.body[field];
-                else if (field === 'revenue' || field === 'value') updatePayload.value = Number(req.body[field]);
-                else updatePayload[field] = req.body[field];
-            }
-        });
+
+        if (req.body.companyName !== undefined) updatePayload.company = req.body.companyName;
+        if (req.body.revenue !== undefined) updatePayload.value = Number(req.body.revenue);
 
         updatePayload.updatedAt = Date.now();
 

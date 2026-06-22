@@ -1790,6 +1790,9 @@ async function updateLead(leadId, updateData) {
     if (updateData.phone !== undefined) clientUpdate.phone = updateData.phone;
     if (updateData.company !== undefined) clientUpdate.companyName = updateData.company;
     if (updateData.status !== undefined) clientUpdate.status = updateData.status;
+    if (updateData.stage !== undefined) clientUpdate.stage = updateData.stage;
+    if (updateData.contactPerson !== undefined) clientUpdate.contactPerson = updateData.contactPerson;
+    if (updateData.value !== undefined) clientUpdate.value = updateData.value;
     if (updateData.source !== undefined) clientUpdate.leadSource = updateData.source;
     if (updateData.notes !== undefined) clientUpdate.notes = updateData.notes;
     if (updateData.assignedTo !== undefined) clientUpdate.assignedStaffId = updateData.assignedTo;

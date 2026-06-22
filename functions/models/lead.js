@@ -1,6 +1,6 @@
 const { z, baseEntityFields } = require('./common');
 
-const leadStatusEnum = z.enum(['new', 'contacted', 'qualified', 'lost']);
+const leadStatusEnum = z.enum(['new', 'discovery', 'qualified', 'proposal', 'won', 'lost']);
 
 const noteEntrySchema = z.object({
     id: z.string().min(1),

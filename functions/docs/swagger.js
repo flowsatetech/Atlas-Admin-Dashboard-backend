@@ -19,7 +19,7 @@ const enumValues = Object.freeze({
     taskPriorities: ["low", "medium", "high"],
     blogStatuses: ["draft", "published", "scheduled"],
     blogCategories: ["Marketing", "SEO", "Branding", "Social Media", "Content Marketing", "Email Marketing", "Other"],
-    leadStatuses: ["new", "contacted", "qualified", "lost"],
+    leadStatuses: ["new", "discovery", "qualified", "proposal", "won", "lost"],
     paymentStatuses: ["Paid", "Pending", "Failed", "Cancelled"],
     dashboardPeriods: ["3months", "6months", "12months"],
     analyticsRanges: ["7d", "30d", "3months", "6months", "12months"],
@@ -1169,7 +1169,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 type: "object",
                 properties: {
                     totalLeads: { type: "integer", minimum: 0, example: 42 },
-                    activePipeline: { type: "integer", minimum: 0, description: "Count of leads considered active by the backend aggregation.", example: 18 },
+                    activePipeline: { type: "integer", minimum: 0, description: "Count of leads with status new, discovery, qualified, or proposal.", example: 18 },
                     newThisWeek: { type: "integer", minimum: 0, example: 6 }
                 }
             },
@@ -1288,7 +1288,7 @@ Send only the notification types to change; omitted types keep their current val
                     email: { type: "string", format: "email", example: "kemi@brightfoods.example" },
                     phone: { type: "string", example: "+2348098765432" },
                     company: { type: "string", example: "Bright Foods Ltd" },
-                    status: { type: "string", enum: enumValues.leadStatuses, example: "contacted" },
+                    status: { type: "string", enum: enumValues.leadStatuses, example: "discovery" },
                     stage: { type: "string", example: "Discovery Call" },
                     contactPerson: { type: "string", example: "Kemi Adebayo" },
                     value: { type: "number", minimum: 0, example: 30000 },
