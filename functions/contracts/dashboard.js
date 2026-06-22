@@ -21,8 +21,8 @@ const dashboardMetricsDataSchema = z.object({
     totalClients: kpiCardSchema,
     totalProjects: kpiCardSchema,
     activeProjects: kpiCardSchema,
-    pendingTasks: kpiCardSchema,
-    newLeads: kpiCardSchema
+    totalTasks: kpiCardSchema,
+    totalLeads: kpiCardSchema
 });
 
 const dashboardMetricsResponseSchema = z.object({
@@ -89,8 +89,8 @@ const dashboardEmptyState = {
         totalClients: { value: 0, changePct: 0, direction: "flat", compareLabel: "Vs last month" },
         totalProjects: { value: 0, changePct: 0, direction: "flat", compareLabel: "Vs last month" },
         activeProjects: { value: 0, changePct: 0, direction: "flat", compareLabel: "Vs last month" },
-        pendingTasks: { value: 0, changePct: 0, direction: "flat", compareLabel: "Vs last month" },
-        newLeads: { value: 0, changePct: 0, direction: "flat", compareLabel: "Vs last month" }
+        totalTasks: { value: 0, changePct: 0, direction: "flat", compareLabel: "Vs last month" },
+        totalLeads: { value: 0, changePct: 0, direction: "flat", compareLabel: "Vs last month" }
     },
     performance: {
         period: "6months",

@@ -1233,8 +1233,8 @@ Send only the notification types to change; omitted types keep their current val
                     totalClients: ref("TrendMetric"),
                     totalProjects: ref("TrendMetric"),
                     activeProjects: ref("TrendMetric"),
-                    pendingTasks: ref("TrendMetric"),
-                    newLeads: ref("TrendMetric")
+                    totalTasks: ref("TrendMetric"),
+                    totalLeads: ref("TrendMetric")
                 }
             },
             DashboardPerformance: {
@@ -1574,15 +1574,15 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Dashboard"],
                 operationId: "getDashboardMetrics",
                 summary: "Get dashboard KPI cards",
-                description: "Returns total clients, total projects, active projects, pending tasks, and new leads with month-over-month trend metadata.",
+                description: "Returns total clients, total projects, active projects, total tasks, and total leads with month-over-month trend metadata.",
                 security: [{ cookieAuth: [] }],
                 responses: {
                     200: successResponse("Dashboard metrics returned.", ref("DashboardMetrics"), {
                         totalClients: { value: 2550, changePct: 12.5, direction: "up", compareLabel: "Vs last month" },
                         totalProjects: { value: 240, changePct: 6.4, direction: "up", compareLabel: "Vs last month" },
                         activeProjects: { value: 140, changePct: 8.2, direction: "up", compareLabel: "Vs last month" },
-                        pendingTasks: { value: 65, changePct: -3.5, direction: "down", compareLabel: "Vs last month" },
-                        newLeads: { value: 200, changePct: 12.5, direction: "up", compareLabel: "Vs last month" }
+                        totalTasks: { value: 65, changePct: -3.5, direction: "down", compareLabel: "Vs last month" },
+                        totalLeads: { value: 200, changePct: 12.5, direction: "up", compareLabel: "Vs last month" }
                     }),
                     401: responseRef("Unauthorized"),
                     429: responseRef("TooManyRequests"),

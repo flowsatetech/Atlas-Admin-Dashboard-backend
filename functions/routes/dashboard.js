@@ -116,9 +116,9 @@ router.get('/metrics', async (req, res) => {
             activeProjectsTotal,
             activeProjectsCurrent,
             activeProjectsPrevious,
-            pendingTasksTotal,
-            pendingTasksCurrent,
-            pendingTasksPrevious,
+            totalTasks,
+            currentTasks,
+            previousTasks,
             totalLeads,
             currentLeads,
             previousLeads
@@ -128,7 +128,6 @@ router.get('/metrics', async (req, res) => {
             previousStart: range.previousStart,
             previousEnd: range.previousEnd,
             activeProjectStatuses: ACTIVE_PROJECT_STATUSES,
-            pendingTaskStatuses: PENDING_TASK_STATUSES,
             userId
         });
 
@@ -136,8 +135,8 @@ router.get('/metrics', async (req, res) => {
             totalClients: toMetricCard(totalClients, currentClients, previousClients),
             totalProjects: toMetricCard(totalProjects, currentProjects, previousProjects),
             activeProjects: toMetricCard(activeProjectsTotal, activeProjectsCurrent, activeProjectsPrevious),
-            pendingTasks: toMetricCard(pendingTasksTotal, pendingTasksCurrent, pendingTasksPrevious),
-            newLeads: toMetricCard(totalLeads, currentLeads, previousLeads)
+            totalTasks: toMetricCard(totalTasks, currentTasks, previousTasks),
+            totalLeads: toMetricCard(totalLeads, currentLeads, previousLeads)
         };
 
         const response = {

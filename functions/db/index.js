@@ -407,7 +407,6 @@ async function getDashboardMetricsCounts({
   previousStart,
   previousEnd,
   activeProjectStatuses = [],
-  pendingTaskStatuses = [],
   userId = null,
 } = {}) {
   try {
@@ -455,9 +454,9 @@ async function getDashboardMetricsCounts({
           { $match: taskMatch },
           {
             $facet: {
-              pendingTasksTotal: [{ $match: { status: { $in: pendingTaskStatuses } } }, { $count: "count" }],
-              pendingTasksCurrent: [{ $match: { ...currentRange, status: { $in: pendingTaskStatuses } } }, { $count: "count" }],
-              pendingTasksPrevious: [{ $match: { ...previousRange, status: { $in: pendingTaskStatuses } } }, { $count: "count" }],
+              totalTasks: [{ $count: "count" }],
+              currentTasks: [{ $match: currentRange }, { $count: "count" }],
+              previousTasks: [{ $match: previousRange }, { $count: "count" }],
             },
           },
         ])
@@ -474,9 +473,9 @@ async function getDashboardMetricsCounts({
       activeProjectsTotal: getFacetCount(projectMetrics, "activeProjectsTotal"),
       activeProjectsCurrent: getFacetCount(projectMetrics, "activeProjectsCurrent"),
       activeProjectsPrevious: getFacetCount(projectMetrics, "activeProjectsPrevious"),
-      pendingTasksTotal: getFacetCount(taskMetrics, "pendingTasksTotal"),
-      pendingTasksCurrent: getFacetCount(taskMetrics, "pendingTasksCurrent"),
-      pendingTasksPrevious: getFacetCount(taskMetrics, "pendingTasksPrevious"),
+      totalTasks: getFacetCount(taskMetrics, "totalTasks"),
+      currentTasks: getFacetCount(taskMetrics, "currentTasks"),
+      previousTasks: getFacetCount(taskMetrics, "previousTasks"),
       totalLeads: getFacetCount(clientMetrics, "totalLeads"),
       currentLeads: getFacetCount(clientMetrics, "currentLeads"),
       previousLeads: getFacetCount(clientMetrics, "previousLeads"),
