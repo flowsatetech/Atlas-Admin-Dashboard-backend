@@ -241,8 +241,53 @@ const examples = {
         manager: "Ada Okafor",
         assignedStaffId: "2854abb8528fe1806d4a75d4f81035ef",
         leadSource: "Referral",
-        notes: "Met at Lagos Tech Summit.",
+        notes: "Met at Lagos Tech Summit.\nRequested a scope update after kickoff.",
+        notesHistory: [
+            {
+                note: "Met at Lagos Tech Summit.",
+                createdAt: 1775600000000,
+                createdBy: "2854abb8528fe1806d4a75d4f81035ef"
+            },
+            {
+                note: "Requested a scope update after kickoff.",
+                createdAt: 1775686400000,
+                createdBy: "6d62ab4046f47a11a8e70b92a57a889c"
+            }
+        ],
         projectsCount: 3,
+        projects: [
+            {
+                id: "project_brand_refresh_001",
+                name: "Website Redesign",
+                clientId: "client_atlas_001",
+                description: "Refresh the public website, messaging, and conversion pages.",
+                deadline: 1775779200000,
+                budget: 45000,
+                priority: "High",
+                status: "InProgress",
+                teamIds: ["2854abb8528fe1806d4a75d4f81035ef"],
+                files: ["https://res.cloudinary.com/demo/project-brief.pdf"],
+                totalTasks: 12,
+                completedTasks: 7,
+                progress: 58,
+                createdAt: 1775600000000,
+                updatedAt: 1775686400000
+            }
+        ],
+        quickInsights: {
+            activeProjects: 2,
+            totalProjects: 3
+        },
+        lastActivity: {
+            id: "activity_client_updated_001",
+            type: "client.updated",
+            actorId: "2854abb8528fe1806d4a75d4f81035ef",
+            entityId: "client_atlas_001",
+            entityType: "client",
+            message: "Jane Doe profile info was updated",
+            meta: { status: "Active" },
+            createdAt: 1775686400000
+        },
         createdAt: 1775600000000,
         updatedAt: 1775686400000
     },
@@ -697,6 +742,39 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 },
                 example: examples.clientSummary
             },
+            ClientNoteHistoryEntry: {
+                type: "object",
+                description: "Historical note entry recorded when notes are replaced or appendNote is used.",
+                properties: {
+                    note: { type: "string", example: "Requested a scope update after kickoff." },
+                    previousNote: { type: "string", nullable: true, description: "Present when notes was replaced directly instead of appended.", example: "Met at Lagos Tech Summit." },
+                    createdAt: ref("Timestamp"),
+                    createdBy: { type: "string", nullable: true, example: examples.userId }
+                }
+            },
+            ClientQuickInsights: {
+                type: "object",
+                description: "Project quick insights computed from current associated projects.",
+                properties: {
+                    activeProjects: { type: "integer", minimum: 0, example: 2 },
+                    totalProjects: { type: "integer", minimum: 0, example: 3 }
+                }
+            },
+            ClientActivitySummary: {
+                type: "object",
+                nullable: true,
+                description: "Most recent activity log for this client, or null when no client activity exists.",
+                properties: {
+                    id: { type: "string", example: "activity_client_updated_001" },
+                    type: { type: "string", example: "client.updated" },
+                    actorId: { type: "string", nullable: true, example: examples.userId },
+                    entityId: { type: "string", example: examples.clientId },
+                    entityType: { type: "string", example: "client" },
+                    message: { type: "string", example: "Jane Doe profile info was updated" },
+                    meta: { type: "object", additionalProperties: true, example: { status: "Active" } },
+                    createdAt: ref("Timestamp")
+                }
+            },
             ClientDetail: {
                 type: "object",
                 required: ["id", "fullName", "companyName", "email", "phone", "status"],
@@ -711,8 +789,12 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     manager: { type: "string", example: "Ada Okafor" },
                     assignedStaffId: { type: "string", nullable: true, example: examples.userId },
                     leadSource: { type: "string", nullable: true, example: "Referral" },
-                    notes: { type: "string", default: "", example: "Met at Lagos Tech Summit." },
-                    projectsCount: { type: "integer", minimum: 0, default: 0, example: 3 },
+                    notes: { type: "string", default: "", description: "Current notes text. appendNote updates append to this field with a newline separator.", example: "Met at Lagos Tech Summit.\nRequested a scope update after kickoff." },
+                    notesHistory: { type: "array", items: ref("ClientNoteHistoryEntry"), default: [], description: "History entries captured for initial notes, direct notes replacement, and appendNote updates." },
+                    projectsCount: { type: "integer", minimum: 0, default: 0, description: "Dynamic count derived from associated projects, not the persisted client counter.", example: 3 },
+                    projects: { type: "array", items: ref("Project"), default: [], description: "Projects associated with this client, sorted by most recently updated/created." },
+                    quickInsights: ref("ClientQuickInsights"),
+                    lastActivity: ref("ClientActivitySummary"),
                     createdAt: ref("Timestamp"),
                     updatedAt: ref("Timestamp")
                 },
@@ -735,7 +817,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             },
             UpdateClientRequest: {
                 type: "object",
-                description: "Partial update. All fields are optional.",
+                description: "Partial update. All fields are optional. Use appendNote to add a note while preserving existing notes and adding a notesHistory entry; sending notes directly replaces the notes text and also records history when changed.",
                 properties: {
                     fullName: { type: "string", minLength: 1, example: "Jane A. Doe" },
                     companyName: { type: "string", minLength: 1, example: "Acme Corporation" },
@@ -745,7 +827,8 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     tags: { type: "array", items: { type: "string", minLength: 1 }, example: ["enterprise", "priority"] },
                     assignedStaffId: { type: "string", nullable: true, description: "Existing staff userId or null to unassign.", example: examples.adminUserId },
                     leadSource: { type: "string", nullable: true, example: "Website" },
-                    notes: { type: "string", example: "Updated after discovery call." }
+                    notes: { type: "string", description: "Replace the current notes text and append a history entry when the value changes.", example: "Updated after discovery call." },
+                    appendNote: { type: "string", minLength: 1, description: "Append this note to existing notes with a newline and add a notesHistory entry without overwriting previous text.", example: "Requested a scope update after kickoff." }
                 }
             },
             ClientStats: {
@@ -1067,6 +1150,14 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     updatedAt: ref("Timestamp")
                 },
                 example: examples.lead
+            },
+            LeadStats: {
+                type: "object",
+                properties: {
+                    totalLeads: { type: "integer", minimum: 0, example: 42 },
+                    activePipeline: { type: "integer", minimum: 0, description: "Count of leads considered active by the backend aggregation.", example: 18 },
+                    newThisWeek: { type: "integer", minimum: 0, example: 6 }
+                }
             },
             Notification: {
                 type: "object",
@@ -2148,7 +2239,7 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Clients"],
                 operationId: "getClientById",
                 summary: "Get detailed client profile",
-                description: "Returns one client profile with contact details, status, tags, assignment, lead source, notes, counts, and timestamps.",
+                description: "Returns one client profile with contact details, status, tags, assignment, lead source, notes and notesHistory, associated projects, dynamic projectsCount, quickInsights, lastActivity, and timestamps.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("ClientIdPath")],
                 responses: {
@@ -2166,13 +2257,13 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Clients"],
                 operationId: "updateClient",
                 summary: "Update an individual client",
-                description: "Admin-only partial update. If assignedStaffId is provided, it must match an existing user.",
+                description: "Admin-only partial update. If assignedStaffId is provided, it must match an existing user. Use appendNote to append to notes and record notesHistory; sending notes directly replaces the notes text and records history when changed.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("ClientIdPath")],
                 requestBody: jsonRequestBody("UpdateClientRequest", {
                     status: "Active",
                     tags: ["enterprise", "priority"],
-                    notes: "Updated after discovery call."
+                    appendNote: "Requested a scope update after kickoff."
                 }, "Client patch payload. All fields are optional."),
                 responses: {
                     200: emptySuccessResponse("Client updated successfully.", "Client updated successfully"),
@@ -3458,12 +3549,32 @@ Only send the notification types you want to change; omitted types retain their 
                 }
             }
         },
+        "/api/leads/stats": {
+            get: {
+                tags: ["Leads"],
+                operationId: "getLeadStats",
+                summary: "Get lead pipeline stats",
+                description: "Admin-only. Returns aggregate lead counts used by lead pipeline dashboard cards.",
+                security: [{ cookieAuth: [] }],
+                responses: {
+                    200: successResponse("Lead stats returned.", ref("LeadStats"), {
+                        totalLeads: 42,
+                        activePipeline: 18,
+                        newThisWeek: 6
+                    }, "Fetch lead stats success"),
+                    401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
         "/api/leads": {
             get: {
                 tags: ["Leads"],
                 operationId: "listLeads",
                 summary: "List leads",
-                description: "Returns paginated leads with optional search and status filtering.",
+                description: "Admin-only. Returns paginated leads with optional search and status filtering.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("Page"), parameterRef("Limit10"), parameterRef("Search"), parameterRef("LeadStatus")],
                 responses: {
@@ -3480,6 +3591,7 @@ Only send the notification types you want to change; omitted types retain their 
                     }, "Leads fetched successfully"),
                     400: responseRef("BadRequest"),
                     401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
                 }
@@ -3521,7 +3633,7 @@ Only send the notification types you want to change; omitted types retain their 
                 tags: ["Leads"],
                 operationId: "getLeadById",
                 summary: "Get detailed lead information",
-                description: "Returns one lead by id.",
+                description: "Admin-only. Returns one lead by id.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("LeadIdPath")],
                 responses: {
@@ -3530,6 +3642,7 @@ Only send the notification types you want to change; omitted types retain their 
                         properties: { lead: ref("Lead") }
                     }, { lead: examples.lead }, "Lead details fetched successfully"),
                     401: responseRef("Unauthorized"),
+                    403: responseRef("Forbidden"),
                     404: errorResponse("Lead not found.", 404, "Lead not found"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
