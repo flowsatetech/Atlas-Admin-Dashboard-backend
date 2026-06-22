@@ -25,7 +25,7 @@ if (fs.existsSync(envPath)) {
 
 const BASE_URL = (process.env.WORKFLOW_AUDIT_BASE_URL || process.env.SMOKE_TEST_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`).replace(/\/+$/, '');
 const REPORT_PATH = process.env.WORKFLOW_AUDIT_REPORT_PATH || 'WORKFLOW_AUDIT_REPORT.md';
-const ADMIN_EMAIL = (process.env.SMOKE_EMAIL || 'admin1@atlas-africa.com.ng').trim();
+const ADMIN_EMAIL = (process.env.SMOKE_EMAIL || 'onasogaemmanuel02@gmail.com').trim();
 const ADMIN_PASSWORD = (process.env.SMOKE_PASSWORD || 'nimda@salta').trim();
 const WEBHOOK_TOKEN = (process.env.WEBHOOK_BEARER_TOKEN || '').trim();
 const ENABLE_CLOUDINARY_UPLOADS = /^true$/i.test(process.env.WORKFLOW_AUDIT_ENABLE_CLOUDINARY_UPLOADS || '');
@@ -304,6 +304,78 @@ function skip(area, label, note = '') {
   addResult('SKIP', area, label, { note });
 }
 
+function assertDashboardTotalLeadTaskMetrics(area, label, metrics, endpoint = 'GET /api/dashboard/metrics') {
+  const issues = [];
+  const hasNewLeads = Object.prototype.hasOwnProperty.call(metrics || {}, 'newLeads');
+  const hasPendingTasks = Object.prototype.hasOwnProperty.call(metrics || {}, 'pendingTasks');
+
+  if (typeof metrics?.totalLeads?.value !== 'number') issues.push('totalLeads.value is not numeric');
+  if (typeof metrics?.totalTasks?.value !== 'number') issues.push('totalTasks.value is not numeric');
+  if (hasNewLeads) issues.push('obsolete newLeads metric is present');
+  if (hasPendingTasks) issues.push('obsolete pendingTasks metric is present');
+
+  assertCheck(area, label, issues.length === 0, {
+    endpoint,
+    expected: 'totalLeads.value and totalTasks.value are numeric, with no obsolete newLeads/pendingTasks keys',
+    actual: issues.length ? issues.join('; ') : JSON.stringify({
+      totalLeads: metrics?.totalLeads?.value,
+      totalTasks: metrics?.totalTasks?.value,
+      hasNewLeads,
+      hasPendingTasks,
+    }),
+    severity: 'High',
+    smokeGap: false,
+  });
+}
+
+function assertClientDetailInsights(area, label, client, expected = {}) {
+  const issues = [];
+
+  if (!client || typeof client !== 'object' || Array.isArray(client)) issues.push('client detail is not an object');
+  if (!Object.prototype.hasOwnProperty.call(client || {}, 'lastActivity')) issues.push('lastActivity key is missing');
+  if (!Array.isArray(client?.projects)) issues.push('projects is not an array');
+  if (!Array.isArray(client?.notesHistory)) issues.push('notesHistory is not an array');
+  if (!client?.quickInsights || typeof client.quickInsights !== 'object' || Array.isArray(client.quickInsights)) issues.push('quickInsights is not an object');
+  if (typeof client?.projectsCount !== 'number') issues.push('projectsCount is not numeric');
+  if (typeof client?.quickInsights?.totalProjects !== 'number') issues.push('quickInsights.totalProjects is not numeric');
+  if (typeof client?.quickInsights?.activeProjects !== 'number') issues.push('quickInsights.activeProjects is not numeric');
+  if (client?.projectsCount !== client?.quickInsights?.totalProjects) issues.push('projectsCount does not match quickInsights.totalProjects');
+
+  if (expected.projectId && !client?.projects?.some((project) => project?.id === expected.projectId)) {
+    issues.push(`associated project ${expected.projectId} is missing from projects array`);
+  }
+  if (expected.totalProjects !== undefined && client?.projectsCount !== expected.totalProjects) {
+    issues.push(`projectsCount expected ${expected.totalProjects}, received ${client?.projectsCount}`);
+  }
+  if (expected.activeProjects !== undefined && client?.quickInsights?.activeProjects !== expected.activeProjects) {
+    issues.push(`quickInsights.activeProjects expected ${expected.activeProjects}, received ${client?.quickInsights?.activeProjects}`);
+  }
+  if (expected.noteSubstring && !String(client?.notes || '').includes(expected.noteSubstring)) {
+    issues.push(`notes does not include ${expected.noteSubstring}`);
+  }
+  if (expected.noteSubstring && !client?.notesHistory?.some((entry) => String(entry?.note || '').includes(expected.noteSubstring))) {
+    issues.push(`notesHistory does not include ${expected.noteSubstring}`);
+  }
+  if (expected.requireLastActivity && !client?.lastActivity?.createdAt) {
+    issues.push('lastActivity is missing or does not include createdAt');
+  }
+
+  assertCheck(area, label, issues.length === 0, {
+    endpoint: expected.endpoint || 'GET /api/clients/:id',
+    expected: 'client detail includes lastActivity, projects, notesHistory, dynamic project counts, and quickInsights totals',
+    actual: issues.length ? issues.join('; ') : JSON.stringify({
+      id: client?.id,
+      projectsCount: client?.projectsCount,
+      quickInsights: client?.quickInsights,
+      projectIds: Array.isArray(client?.projects) ? client.projects.map((project) => project?.id).filter(Boolean) : [],
+      notesHistoryCount: Array.isArray(client?.notesHistory) ? client.notesHistory.length : null,
+      lastActivityType: client?.lastActivity?.type || null,
+    }),
+    severity: 'High',
+    smokeGap: false,
+  });
+}
+
 function remember(kind, id) {
   if (id && state.created[kind]) state.created[kind].add(id);
   return id;
@@ -436,10 +508,10 @@ function runNotificationWiringAudit() {
     severity: 'High',
     smokeGap: false,
   });
-  assertCheck(area, 'Notification route exposes per-user preference endpoints', /router\.get\(['"]\/preferences['"],\s*notificationsRead/.test(notificationRouteSource) && /router\.put\(['"]\/preferences['"],\s*notificationsWrite/.test(notificationRouteSource), {
+  assertCheck(area, 'Notification route exposes per-user preference endpoints', /router\.get\(['"]\/preferences['"],\s*async\s*\(/.test(notificationRouteSource) && /router\.put\(['"]\/preferences['"],\s*async\s*\(/.test(notificationRouteSource), {
     endpoint: notificationRoutePath,
-    expected: 'GET /preferences and PUT /preferences use notification read/write limiters (no adminOnly)',
-    actual: 'Per-user notification preference routes missing or incorrect middleware',
+    expected: 'GET /preferences and PUT /preferences handlers exist behind the authenticated /api/notifications mount',
+    actual: 'Per-user notification preference route handlers are missing',
     severity: 'High',
     smokeGap: false,
   });
@@ -538,23 +610,23 @@ function runNotificationWiringAudit() {
   });
 
   // Project file endpoints
-  assertCheck(area, 'Project file upload route is wired in projects route', /router\.post\(['"]\/:projectId\/files['"],\s*projectsWrite,\s*projectFileUploadMiddleware/.test(projectRouteSource), {
+  assertCheck(area, 'Project file upload route is wired in projects route', /router\.post\(['"]\/:projectId\/files['"],\s*projectFileUploadMiddleware/.test(projectRouteSource), {
     endpoint: projectRoutePath,
-    expected: 'POST /:projectId/files route handler with projectFileUploadMiddleware',
+    expected: 'POST /:projectId/files route handler with projectFileUploadMiddleware behind the authenticated /api/projects mount',
     actual: 'Project file upload POST route is missing',
     severity: 'High',
     smokeGap: false,
   });
-  assertCheck(area, 'Project file list route is wired in projects route', /router\.get\(['"]\/:projectId\/files['"],\s*projectsRead/.test(projectRouteSource), {
+  assertCheck(area, 'Project file list route is wired in projects route', /router\.get\(['"]\/:projectId\/files['"],\s*async\s*\(/.test(projectRouteSource), {
     endpoint: projectRoutePath,
-    expected: 'GET /:projectId/files route handler',
+    expected: 'GET /:projectId/files route handler behind the authenticated /api/projects mount',
     actual: 'Project file list GET route is missing',
     severity: 'High',
     smokeGap: false,
   });
-  assertCheck(area, 'Project file delete route is wired in projects route', /router\.delete\(['"]\/:projectId\/files\/:fileId['"],\s*projectsWrite/.test(projectRouteSource), {
+  assertCheck(area, 'Project file delete route is wired in projects route', /router\.delete\(['"]\/:projectId\/files\/:fileId['"],\s*async\s*\(/.test(projectRouteSource), {
     endpoint: projectRoutePath,
-    expected: 'DELETE /:projectId/files/:fileId route handler',
+    expected: 'DELETE /:projectId/files/:fileId route handler behind the authenticated /api/projects mount',
     actual: 'Project file delete DELETE route is missing',
     severity: 'High',
     smokeGap: false,
@@ -743,6 +815,8 @@ async function runAuthMembersAndRoleFlow() {
     ['POST', '/api/clients', { fullName: 'No Access', companyName: 'No Access LLC', email: `no-client-${SUFFIX}@test.local`, phone: '+2348000009999' }],
     ['POST', '/api/projects', { name: 'No Access', clientId: 'no-client', deadline: Date.now(), budget: 1 }],
     ['POST', '/api/tasks', { title: 'No Access', assigneeId: state.staffId }],
+    ['GET', '/api/leads', null],
+    ['GET', '/api/leads/stats', null],
     ['POST', '/api/leads', { firstName: 'No', lastName: 'Access', email: `no-lead-${SUFFIX}@test.local` }],
     ['POST', '/api/health/redis/flush', null],
   ];
@@ -758,6 +832,10 @@ async function runAuthMembersAndRoleFlow() {
   }, [201]);
   const roleLeadId = remember('leads', leadForRole.json?.data?.lead?.id || '');
   if (roleLeadId && state.staffCookie) {
+    await expectStatus('Auth/session lifecycle', 'GET /api/leads/:id rejects staff role', 'GET', `/api/leads/${roleLeadId}`, {
+      cookie: state.staffCookie,
+    }, [403]);
+
     const staffPatch = await http('PATCH', `/api/leads/${roleLeadId}`, {
       cookie: state.staffCookie,
       body: { status: 'contacted' },
@@ -1065,9 +1143,15 @@ async function runClientProjectTaskFlow() {
     severity: 'High',
   });
   if (clientId) {
-    await expectStatus('Clients/projects/tasks', 'GET /api/clients/:id returns workflow client', 'GET', `/api/clients/${clientId}`, {}, [200]);
+    const initialClientDetail = await expectStatus('Clients/projects/tasks', 'GET /api/clients/:id returns workflow client detail insights', 'GET', `/api/clients/${clientId}`, {}, [200]);
+    assertClientDetailInsights('Clients/projects/tasks', 'Client detail exposes initial activity, notes history, project counts, and quick insights', initialClientDetail.json?.data?.client, {
+      endpoint: `GET /api/clients/${clientId}`,
+      totalProjects: 0,
+      activeProjects: 0,
+      noteSubstring: 'Created by workflow audit',
+      requireLastActivity: true,
+    });
     await expectStatus('Clients/projects/tasks', 'PATCH /api/clients/:id rejects invalid status', 'PATCH', `/api/clients/${clientId}`, { body: { status: 'Unknown' } }, [400]);
-    await expectStatus('Clients/projects/tasks', 'PATCH /api/clients/:id updates notes', 'PATCH', `/api/clients/${clientId}`, { body: { notes: `updated-${SUFFIX}` } }, [200]);
   }
 
   await expectStatus('Clients/projects/tasks', 'GET /api/clients rejects invalid pagination limit', 'GET', '/api/clients?limit=101', {}, [400]);
@@ -1106,6 +1190,29 @@ async function runClientProjectTaskFlow() {
     actual: JSON.stringify(project.json?.data || {}),
     severity: 'High',
   });
+
+  if (clientId && projectId) {
+    const clientWithProject = await expectStatus('Clients/projects/tasks', 'GET /api/clients/:id includes associated project and dynamic counts', 'GET', `/api/clients/${clientId}`, {}, [200]);
+    assertClientDetailInsights('Clients/projects/tasks', 'Client detail exposes associated projects and active/total quick insights', clientWithProject.json?.data?.client, {
+      endpoint: `GET /api/clients/${clientId}`,
+      projectId,
+      totalProjects: 1,
+      activeProjects: 1,
+      requireLastActivity: true,
+    });
+  }
+
+  if (clientId) {
+    const appendedNote = `Appended workflow audit note ${SUFFIX}`;
+    await expectStatus('Clients/projects/tasks', 'PATCH /api/clients/:id appends note history entry', 'PATCH', `/api/clients/${clientId}`, { body: { appendNote: appendedNote } }, [200]);
+    const appendedClientDetail = await expectStatus('Clients/projects/tasks', 'GET /api/clients/:id returns appended notes history', 'GET', `/api/clients/${clientId}`, {}, [200]);
+    assertClientDetailInsights('Clients/projects/tasks', 'Client detail exposes appended notes history and latest activity', appendedClientDetail.json?.data?.client, {
+      endpoint: `GET /api/clients/${clientId}`,
+      ...(projectId ? { projectId, totalProjects: 1, activeProjects: 1 } : {}),
+      noteSubstring: appendedNote,
+      requireLastActivity: true,
+    });
+  }
 
   if (projectId) {
     await expectStatus('Clients/projects/tasks', 'POST /api/projects/:id/comments rejects empty comment', 'POST', `/api/projects/${projectId}/comments`, { body: {} }, [400]);
@@ -1579,6 +1686,11 @@ async function runPaymentsRevenueAnalyticsDashboardFlow() {
     severity: 'Medium',
     smokeGap: true,
   });
+  assertDashboardTotalLeadTaskMetrics(
+    'Payments/revenue/analytics/dashboard',
+    'Dashboard metrics expose Total Leads/Total Tasks and omit obsolete names',
+    beforeDashboardMetrics.json?.data,
+  );
 
   await expectStatus('Payments/revenue/analytics/dashboard', 'POST /api/payments rejects empty body', 'POST', '/api/payments', { body: {} }, [400]);
   await expectStatus('Payments/revenue/analytics/dashboard', 'POST /api/payments rejects legacy name/alias fields', 'POST', '/api/payments', {
@@ -1853,6 +1965,11 @@ async function runRedisFlushFlow() {
     severity: 'High',
     smokeGap: false,
   });
+  assertDashboardTotalLeadTaskMetrics(
+    'Redis flush',
+    'Dashboard metrics after flush retain Total Leads/Total Tasks contract',
+    dashboardRes.json?.data,
+  );
 }
 
 async function runLogoutFlow() {
@@ -1999,8 +2116,9 @@ function writeReport() {
   lines.push('## Existing Smoke Coverage Gaps This Audit Targets');
   lines.push('');
   lines.push('- Full blog create/update/delete lifecycle, protected-field mutation attempts, embed availability, and tracking-token replay behavior.');
-  lines.push('- Lead/webhook invalid bearer-token cases plus lead mutation role access.');
-  lines.push('- Payment create/update/delete plus revenue/dashboard consistency after creating paid payments and recognized revenue projects.');
+  lines.push('- Lead/webhook invalid bearer-token cases plus lead read/mutation role access.');
+  lines.push('- Client detail enrichment for last activity, associated projects, dynamic counts, notes history, and Quick Insights totals.');
+  lines.push('- Payment create/update/delete plus revenue/dashboard consistency after creating paid payments, recognized revenue projects, and Total Leads/Total Tasks dashboard metrics.');
   lines.push('- Delete cleanup/orphan detection for project-linked tasks.');
   lines.push('- Pagination extremes and special-character search on lead/payment/media/list endpoints.');
   lines.push('- Moderate concurrency bursts across health, project, task, dashboard, payment, blog, and notification endpoints.');

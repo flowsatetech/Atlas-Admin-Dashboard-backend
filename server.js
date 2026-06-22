@@ -43,7 +43,7 @@ const swaggerSpec = require('./functions/docs/swagger');
 const db = require('./functions/db');
 const { seedDB } = require('./functions/db/seed');
 const { logger } = require('./functions/helpers');
-const { serverError } = require('./functions/helpers');
+const { serverError, clientError } = require('./functions/helpers');
 
 /** SETUP
  * Global variables neccessary to build the server are defined here
@@ -241,6 +241,10 @@ if (ENABLE_LOCAL_UPLOAD_FALLBACK) {
 app.use(fourZeroFourApi);
 
 app.use((err, req, res, next) => {
+    if (err?.message === 'Not allowed by CORS') {
+        return clientError(res, 403, 'Not allowed by CORS');
+    }
+
     logger('GLOBAL_ERROR').error(err);
     serverError(res, err, 'An unexpected error occurred. Please try again later.');
 });

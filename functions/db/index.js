@@ -1009,12 +1009,19 @@ function buildProjectTaskProgressLookupStages({ projectIdExpression = "$id" } = 
                 then: "Completed",
               },
               {
-                case: { $in: ["$status", ["OnHold", "Cancelled", "InProgress", "Planned", "Completed"]] },
-                then: "$status",
+                case: {
+                  $and: [
+                    { $gt: ["$totalTasks", 0] },
+                    { $gt: ["$completedTasks", 0] },
+                    { $lt: ["$completedTasks", "$totalTasks"] },
+                    { $not: [{ $in: ["$status", ["OnHold", "Cancelled"]] }] }
+                  ],
+                },
+                then: "InProgress",
               },
               {
-                case: { $gt: ["$completedTasks", 0] },
-                then: "InProgress",
+                case: { $in: ["$status", ["OnHold", "Cancelled", "InProgress", "Planned", "Completed"]] },
+                then: "$status",
               },
             ],
             default: { $ifNull: ["$status", "Planned"] },

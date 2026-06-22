@@ -9,7 +9,7 @@ const ENV_FILE = process.env.SMOKE_TEST_ENV_FILE || '.env.staging';
 require('dotenv').config({ path: ENV_FILE });
 
 const BASE_URL = process.env.SMOKE_TEST_BASE_URL || "http://127.0.0.1:3000";
-const EMAIL = (process.env.SMOKE_EMAIL || "admin1@atlas-africa.com.ng").trim();
+const EMAIL = (process.env.SMOKE_EMAIL || "onasogaemmanuel02@gmail.com").trim();
 const PASSWORD = (process.env.SMOKE_PASSWORD || "nimda@salta").trim();
 const WEBHOOK_TOKEN = process.env.WEBHOOK_BEARER_TOKEN || "test-webhook-token";
 const HAS_CLOUDINARY_CONFIG = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"]
@@ -312,9 +312,24 @@ async function testUser() {
   await testProfilePictureEndpoints();
 }
 
+function assertDashboardUsesTotalLeadAndTaskMetrics(label, metrics) {
+  const issues = [];
+
+  if (typeof metrics?.totalLeads?.value !== "number") issues.push("totalLeads.value is not numeric");
+  if (typeof metrics?.totalTasks?.value !== "number") issues.push("totalTasks.value is not numeric");
+  if (Object.prototype.hasOwnProperty.call(metrics || {}, "newLeads")) issues.push("obsolete newLeads metric is present");
+  if (Object.prototype.hasOwnProperty.call(metrics || {}, "pendingTasks")) issues.push("obsolete pendingTasks metric is present");
+
+  assertSmoke(label, issues.length === 0, issues.join("; "));
+}
+
 async function testDashboard() {
   console.log("\n[DASHBOARD]");
-  await check("GET  /api/dashboard/metrics", "GET", "/api/dashboard/metrics");
+  const metrics = await check("GET  /api/dashboard/metrics", "GET", "/api/dashboard/metrics");
+  assertDashboardUsesTotalLeadAndTaskMetrics(
+    "GET  /api/dashboard/metrics exposes Total Leads/Total Tasks only",
+    metrics?.data,
+  );
   await check("GET  /api/dashboard/performance", "GET", "/api/dashboard/performance");
   await check("GET  /api/dashboard/projects/in-progress", "GET", "/api/dashboard/projects/in-progress");
   await check("GET  /api/dashboard/activities", "GET", "/api/dashboard/activities");
@@ -724,6 +739,114 @@ async function testProjects() {
   }
 }
 
+function assertClientDetailInsights(label, detail, expected = {}) {
+  const client = detail?.data?.client;
+  const issues = [];
+
+  if (!isPlainObject(client)) issues.push("client detail is not an object");
+  if (!Object.prototype.hasOwnProperty.call(client || {}, "lastActivity")) issues.push("lastActivity key is missing");
+  if (!Array.isArray(client?.projects)) issues.push("projects is not an array");
+  if (!Array.isArray(client?.notesHistory)) issues.push("notesHistory is not an array");
+  if (!isPlainObject(client?.quickInsights)) issues.push("quickInsights is not an object");
+  if (typeof client?.projectsCount !== "number") issues.push("projectsCount is not numeric");
+  if (typeof client?.quickInsights?.totalProjects !== "number") issues.push("quickInsights.totalProjects is not numeric");
+  if (typeof client?.quickInsights?.activeProjects !== "number") issues.push("quickInsights.activeProjects is not numeric");
+  if (client?.projectsCount !== client?.quickInsights?.totalProjects) issues.push("projectsCount does not match quickInsights.totalProjects");
+
+  if (expected.projectId && !client?.projects?.some((project) => project?.id === expected.projectId)) {
+    issues.push(`associated project ${expected.projectId} is missing from projects array`);
+  }
+  if (expected.totalProjects !== undefined && client?.projectsCount !== expected.totalProjects) {
+    issues.push(`projectsCount expected ${expected.totalProjects}, received ${client?.projectsCount}`);
+  }
+  if (expected.activeProjects !== undefined && client?.quickInsights?.activeProjects !== expected.activeProjects) {
+    issues.push(`quickInsights.activeProjects expected ${expected.activeProjects}, received ${client?.quickInsights?.activeProjects}`);
+  }
+  if (expected.noteSubstring && !String(client?.notes || "").includes(expected.noteSubstring)) {
+    issues.push(`notes does not include ${expected.noteSubstring}`);
+  }
+  if (expected.noteSubstring && !client?.notesHistory?.some((entry) => entry?.note === expected.noteSubstring)) {
+    issues.push(`notesHistory does not include appended note ${expected.noteSubstring}`);
+  }
+  if (expected.requireLastActivity && !client?.lastActivity?.createdAt) {
+    issues.push("lastActivity is missing or does not include createdAt");
+  }
+
+  assertSmoke(label, issues.length === 0, issues.join("; "));
+}
+
+async function testClientDetailInsights() {
+  const suffix = Date.now();
+  let clientId = null;
+  let projectId = null;
+  const initialNote = `Initial smoke note ${suffix}`;
+  const appendedNote = `Appended smoke note ${suffix}`;
+
+  try {
+    const createdClient = await check(
+      "POST /api/clients (client detail insights fixture)",
+      "POST",
+      "/api/clients",
+      {
+        fullName: "Smoke Detail Client",
+        companyName: `Smoke Detail Co ${suffix}`,
+        email: `smoke-client-detail-${suffix}@test.local`,
+        phone: "+2348000000400",
+        status: "Active",
+        tags: ["smoke", "client-detail"],
+        notes: initialNote,
+      },
+      { expect: [201] },
+    );
+    clientId = createdClient?.data?.client?.id;
+
+    if (!clientId) {
+      skipSmoke("CLIENT DETAIL INSIGHTS fixture", "could not create client fixture");
+      return;
+    }
+
+    const createdProject = await check(
+      "POST /api/projects (client detail associated project fixture)",
+      "POST",
+      "/api/projects",
+      {
+        name: `Smoke Client Detail Project ${suffix}`,
+        clientId,
+        description: "Temporary project for client detail insight smoke coverage",
+        deadline: Date.now() + 86400000,
+        budget: 1500,
+        priority: "Medium",
+        status: "Planned",
+        teamIds: [],
+      },
+      { expect: [201] },
+    );
+    projectId = createdProject?.data?.project?.id;
+
+    if (!projectId) {
+      skipSmoke("CLIENT DETAIL INSIGHTS project fixture", "could not create project fixture");
+    }
+
+    await check("PATCH /api/clients/:id appendNote", "PATCH", `/api/clients/${clientId}`, { appendNote: appendedNote });
+
+    const detail = await check("GET  /api/clients/:id exposes detail insights", "GET", `/api/clients/${clientId}`);
+    assertClientDetailInsights(
+      "GET  /api/clients/:id exposes activity, projects, notes history, and quick insights",
+      detail,
+      {
+        projectId,
+        totalProjects: projectId ? 1 : 0,
+        activeProjects: projectId ? 1 : 0,
+        noteSubstring: appendedNote,
+        requireLastActivity: true,
+      },
+    );
+  } finally {
+    if (projectId) await check("DELETE /api/projects/:id (client detail fixture cleanup)", "DELETE", `/api/projects/${projectId}`, null, { expect: [204, 404] });
+    if (clientId) await check("DELETE /api/clients/:id (client detail fixture cleanup)", "DELETE", `/api/clients/${clientId}`, null, { expect: [200, 404] });
+  }
+}
+
 async function testClients() {
   console.log("\n[CLIENTS]");
   await check("GET  /api/clients/stats", "GET", "/api/clients/stats");
@@ -731,11 +854,14 @@ async function testClients() {
   const clientId = res?.data?.clients?.[0]?.id;
 
   if (clientId) {
-    await check("GET  /api/clients/:id", "GET", `/api/clients/${clientId}`);
+    const detail = await check("GET  /api/clients/:id", "GET", `/api/clients/${clientId}`);
+    assertClientDetailInsights("GET  /api/clients/:id existing row exposes detail shape", detail);
     await check("PATCH /api/clients/:id", "PATCH", `/api/clients/${clientId}`, { notes: "smoke-test" });
   } else {
     skipSmoke("GET  /api/clients/:id", "no client ID available");
   }
+
+  await testClientDetailInsights();
 }
 
 async function testMemberMutationEndpoints() {
@@ -1108,9 +1234,10 @@ async function testBlogAdmin() {
   const newPostSlug = createdPost?.data?.post?.slug;
 
   if (newPostId) {
-    await check("PUT  /api/blog/:id updates the post", "PUT", `/api/blog/${newPostId}`, { title: `Updated Smoke Blog ${suffix}` }, { expect: [200] });
+    const updatedPost = await check("PUT  /api/blog/:id updates the post", "PUT", `/api/blog/${newPostId}`, { title: `Updated Smoke Blog ${suffix}` }, { expect: [200] });
+    const currentPostSlug = updatedPost?.data?.post?.slug || newPostSlug;
     
-    await testBlogEmbedTracking(newPostSlug);
+    await testBlogEmbedTracking(currentPostSlug);
 
     await check("DELETE /api/blog/:id deletes the post", "DELETE", `/api/blog/${newPostId}`, null, { expect: [200] });
   }
@@ -1637,9 +1764,12 @@ async function testAdminOnly() {
     { expect: [201] },
   );
   const leadId = leadFixture?.data?.lead?.id;
+  await checkWith("GET  /api/leads (staff) → 403", "GET", "/api/leads", staffCookie, null, { expect: [403] });
+  await checkWith("GET  /api/leads/stats (staff) → 403", "GET", "/api/leads/stats", staffCookie, null, { expect: [403] });
   await checkWith("POST /api/leads (staff) → 403", "POST", "/api/leads", staffCookie,
     { firstName: "Staff", lastName: "Nope", email: `staff-lead-${Date.now()}@test.local` }, { expect: [403] });
   if (leadId) {
+    await checkWith("GET  /api/leads/:id (staff) → 403", "GET", `/api/leads/${leadId}`, staffCookie, null, { expect: [403] });
     await checkWith("PATCH /api/leads/:id (staff) → 403", "PATCH", `/api/leads/${leadId}`, staffCookie, { status: "contacted" }, { expect: [403] });
     await checkWith("DELETE /api/leads/:id (staff) → 403", "DELETE", `/api/leads/${leadId}`, staffCookie, null, { expect: [403] });
     await check("DELETE /api/leads/:id (lead admin-only fixture cleanup)", "DELETE", `/api/leads/${leadId}`, null, { expect: [200, 404] });
