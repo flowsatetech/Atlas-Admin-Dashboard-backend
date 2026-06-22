@@ -38,7 +38,7 @@ router.get('/stats', middlewares.adminOnly, async (req, res) => {
 });
 
 // 1. GET /api/leads - Paginated list of leads with search
-router.get('/', middlewares.adminOnly, async (req, res) => {
+router.get('/', async (req, res) => {
     try {
         const parsed = listLeadsQuerySchema.safeParse(req.query);
         if (!parsed.success) {
@@ -46,7 +46,9 @@ router.get('/', middlewares.adminOnly, async (req, res) => {
         }
 
         const { page, limit, search = "", status = "" } = parsed.data;
-        const result = await db.getAllLeads({ page, limit, search, status });
+        const isAdmin = req.db_user?.role === 'admin';
+        const assignedTo = isAdmin ? undefined : req.user?.userId;
+        const result = await db.getAllLeads({ page, limit, search, status, assignedTo });
 
         return res.status(200).json({
             success: true,
@@ -103,11 +105,16 @@ router.post('/', middlewares.adminOnly, async (req, res) => {
 });
 
 // 3. GET /api/leads/:leadId - Get details of a single lead
-router.get('/:leadId', middlewares.adminOnly, async (req, res) => {
+router.get('/:leadId', async (req, res) => {
     try {
         const lead = await db.getLeadById(req.params.leadId);
         if (!lead) {
             return clientError(res, 404, 'Lead not found');
+        }
+
+        const isAdmin = req.db_user?.role === 'admin';
+        if (!isAdmin && lead.assignedTo !== req.user?.userId) {
+            return clientError(res, 403, 'Access denied. This lead is not assigned to you.');
         }
 
         return res.status(200).json({

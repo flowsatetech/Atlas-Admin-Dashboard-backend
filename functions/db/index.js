@@ -578,8 +578,9 @@ async function getDashboardMetricsCounts({
     const clientMatch = userId ? { assignedStaffId: userId } : {};
     const projectMatch = userId ? { teamIds: userId } : {};
     const taskMatch = userId ? { assigneeId: userId } : {};
+    const leadDocMatch = userId ? { assignedTo: userId } : {};
 
-    const [clientMetrics = {}, projectMetrics = {}, taskMetrics = {}] = await Promise.all([
+    const [clientMetrics = {}, leadDocMetrics = {}, projectMetrics = {}, taskMetrics = {}] = await Promise.all([
       clients
         .aggregate([
           { $match: clientMatch },
@@ -591,6 +592,18 @@ async function getDashboardMetricsCounts({
               totalLeads: [{ $match: { status: "Lead" } }, { $count: "count" }],
               currentLeads: [{ $match: { ...currentRange, status: "Lead" } }, { $count: "count" }],
               previousLeads: [{ $match: { ...previousRange, status: "Lead" } }, { $count: "count" }],
+            },
+          },
+        ])
+        .next(),
+      leads
+        .aggregate([
+          { $match: leadDocMatch },
+          {
+            $facet: {
+              totalLeads: [{ $count: "count" }],
+              currentLeads: [{ $match: currentRange }, { $count: "count" }],
+              previousLeads: [{ $match: previousRange }, { $count: "count" }],
             },
           },
         ])
@@ -638,9 +651,9 @@ async function getDashboardMetricsCounts({
       totalTasks: getFacetCount(taskMetrics, "totalTasks"),
       currentTasks: getFacetCount(taskMetrics, "currentTasks"),
       previousTasks: getFacetCount(taskMetrics, "previousTasks"),
-      totalLeads: getFacetCount(clientMetrics, "totalLeads"),
-      currentLeads: getFacetCount(clientMetrics, "currentLeads"),
-      previousLeads: getFacetCount(clientMetrics, "previousLeads"),
+      totalLeads: getFacetCount(clientMetrics, "totalLeads") + getFacetCount(leadDocMetrics, "totalLeads"),
+      currentLeads: getFacetCount(clientMetrics, "currentLeads") + getFacetCount(leadDocMetrics, "currentLeads"),
+      previousLeads: getFacetCount(clientMetrics, "previousLeads") + getFacetCount(leadDocMetrics, "previousLeads"),
     };
   } catch (err) {
     logger("DB").error(err);
@@ -1565,17 +1578,18 @@ async function addLead(leadData) {
   }
 }
 
-async function getAllLeads({ page = 1, limit = 10, search = "", status = "" } = {}) {
+async function getAllLeads({ page = 1, limit = 10, search = "", status = "", assignedTo } = {}) {
   try {
     const safePage = Math.max(1, Number(page));
     const safeLimit = Math.min(Math.max(1, Number(limit)), 100);
     const skip = (safePage - 1) * safeLimit;
 
-    const query = {};
-    if (status) query.status = status;
+    const leadQuery = {};
+    if (status) leadQuery.status = status;
+    if (assignedTo) leadQuery.assignedTo = assignedTo;
     if (search) {
       const safeSearch = escapeRegex(search);
-      query.$or = [
+      leadQuery.$or = [
         { firstName: { $regex: safeSearch, $options: "i" } },
         { lastName: { $regex: safeSearch, $options: "i" } },
         { email: { $regex: safeSearch, $options: "i" } },
@@ -1583,13 +1597,54 @@ async function getAllLeads({ page = 1, limit = 10, search = "", status = "" } = 
       ];
     }
 
-    const [docs, total] = await Promise.all([
-      leads.find(query).sort({ createdAt: -1 }).skip(skip).limit(safeLimit).toArray(),
-      leads.countDocuments(query),
+    // Also fetch clients with status "Lead"
+    const clientLeadQuery = { status: "Lead" };
+    if (assignedTo) clientLeadQuery.assignedStaffId = assignedTo;
+    if (search) {
+      const safeSearch = escapeRegex(search);
+      clientLeadQuery.$or = [
+        { fullName: { $regex: safeSearch, $options: "i" } },
+        { email: { $regex: safeSearch, $options: "i" } },
+        { companyName: { $regex: safeSearch, $options: "i" } },
+      ];
+    }
+
+    const [leadDocs, clientLeadDocs] = await Promise.all([
+      leads.find(leadQuery).sort({ createdAt: -1 }).toArray(),
+      clients.find(clientLeadQuery).sort({ createdAt: -1 }).toArray(),
     ]);
 
+    // Normalize client-leads into lead format
+    const normalizedClientLeads = clientLeadDocs.map((c) => ({
+      id: c.id,
+      _leadSource: 'client',
+      firstName: (c.fullName || '').split(' ')[0] || '',
+      lastName: (c.fullName || '').split(' ').slice(1).join(' ') || '',
+      fullName: c.fullName || '',
+      email: c.email || '',
+      phone: c.phone || '',
+      company: c.companyName || '',
+      status: c.status || 'new',
+      stage: c.leadSource || '',
+      contactPerson: c.fullName || '',
+      value: 0,
+      source: c.leadSource || '',
+      notes: c.notes || '',
+      assignedTo: c.assignedStaffId || '',
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    }));
+
+    // Merge and sort both collections
+    const allLeads = [...leadDocs, ...normalizedClientLeads].sort(
+      (a, b) => (b.createdAt || 0) - (a.createdAt || 0),
+    );
+
+    const total = allLeads.length;
+    const paginatedLeads = allLeads.slice(skip, skip + safeLimit);
+
     return {
-      leads: docs,
+      leads: paginatedLeads,
       pagination: {
         total,
         page: safePage,
@@ -1678,7 +1733,34 @@ async function deleteClient(clientId) {
 
 async function getLeadById(leadId) {
   try {
-    return await leads.findOne({ id: leadId });
+    // First try the leads collection
+    const lead = await leads.findOne({ id: leadId });
+    if (lead) return lead;
+
+    // Fallback: check clients with status "Lead"
+    const clientLead = await clients.findOne({ id: leadId, status: "Lead" });
+    if (!clientLead) return null;
+
+    // Normalize client-lead into lead format
+    return {
+      id: clientLead.id,
+      _leadSource: 'client',
+      firstName: (clientLead.fullName || '').split(' ')[0] || '',
+      lastName: (clientLead.fullName || '').split(' ').slice(1).join(' ') || '',
+      fullName: clientLead.fullName || '',
+      email: clientLead.email || '',
+      phone: clientLead.phone || '',
+      company: clientLead.companyName || '',
+      status: clientLead.status || 'new',
+      stage: clientLead.leadSource || '',
+      contactPerson: clientLead.fullName || '',
+      value: 0,
+      source: clientLead.leadSource || '',
+      notes: clientLead.notes || '',
+      assignedTo: clientLead.assignedStaffId || '',
+      createdAt: clientLead.createdAt,
+      updatedAt: clientLead.updatedAt,
+    };
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -1687,7 +1769,30 @@ async function getLeadById(leadId) {
 
 async function updateLead(leadId, updateData) {
   try {
-    return await leads.updateOne({ id: leadId }, { $set: updateData });
+    // Check if it's a lead document first
+    const leadDoc = await leads.findOne({ id: leadId });
+    if (leadDoc) {
+      return await leads.updateOne({ id: leadId }, { $set: updateData });
+    }
+
+    // Fallback: update as a client-lead — map lead fields to client fields
+    const clientUpdate = {};
+    if (updateData.firstName !== undefined || updateData.lastName !== undefined) {
+      const existing = await clients.findOne({ id: leadId });
+      const firstName = updateData.firstName ?? (existing?.fullName || '').split(' ')[0] || '';
+      const lastName = updateData.lastName ?? (existing?.fullName || '').split(' ').slice(1).join(' ') || '';
+      clientUpdate.fullName = `${firstName} ${lastName}`.trim();
+    }
+    if (updateData.email !== undefined) clientUpdate.email = updateData.email;
+    if (updateData.phone !== undefined) clientUpdate.phone = updateData.phone;
+    if (updateData.company !== undefined) clientUpdate.companyName = updateData.company;
+    if (updateData.status !== undefined) clientUpdate.status = updateData.status;
+    if (updateData.source !== undefined) clientUpdate.leadSource = updateData.source;
+    if (updateData.notes !== undefined) clientUpdate.notes = updateData.notes;
+    if (updateData.assignedTo !== undefined) clientUpdate.assignedStaffId = updateData.assignedTo;
+    if (updateData.updatedAt !== undefined) clientUpdate.updatedAt = updateData.updatedAt;
+
+    return await clients.updateOne({ id: leadId, status: "Lead" }, { $set: clientUpdate });
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -1696,7 +1801,12 @@ async function updateLead(leadId, updateData) {
 
 async function deleteLead(leadId) {
   try {
-    return await leads.deleteOne({ id: leadId });
+    const leadDoc = await leads.findOne({ id: leadId });
+    if (leadDoc) {
+      return await leads.deleteOne({ id: leadId });
+    }
+    // Fallback: delete from clients if it's a client-lead
+    return await clients.deleteOne({ id: leadId, status: "Lead" });
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -1706,16 +1816,24 @@ async function deleteLead(leadId) {
 async function getLeadStats() {
   try {
     const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const [total, activePipeline, newThisWeek] = await Promise.all([
+    const [
+      leadTotal,
+      leadActivePipeline,
+      leadNewThisWeek,
+      clientLeadTotal,
+      clientLeadNewThisWeek,
+    ] = await Promise.all([
       leads.countDocuments({}),
       leads.countDocuments({ status: { $in: ["new", "discovery", "qualified", "proposal"] } }),
-      leads.countDocuments({ createdAt: { $gte: oneWeekAgo } })
+      leads.countDocuments({ createdAt: { $gte: oneWeekAgo } }),
+      clients.countDocuments({ status: "Lead" }),
+      clients.countDocuments({ status: "Lead", createdAt: { $gte: oneWeekAgo } }),
     ]);
 
     return {
-      totalLeads: total,
-      activePipeline,
-      newThisWeek,
+      totalLeads: leadTotal + clientLeadTotal,
+      activePipeline: leadActivePipeline,
+      newThisWeek: leadNewThisWeek + clientLeadNewThisWeek,
     };
   } catch (err) {
     logger("DB").error(err);
