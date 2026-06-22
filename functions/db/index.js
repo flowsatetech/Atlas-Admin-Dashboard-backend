@@ -1087,12 +1087,12 @@ function getFacetCount(aggregationResult, facetName) {
   return aggregationResult?.[facetName]?.[0]?.count || 0;
 }
 
-async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) {
+async function getProjectsPaginated({ page = 1, limit = 10, status = "", memberUserId } = {}) {
   try {
     const skip = (page - 1) * limit;
-    const query = status
-      ? { status }
-      : {};
+    const query = {};
+    if (status) query.status = status;
+    const memberFilter = memberUserId ? { teamIds: memberUserId } : {};
 
     const [aggregationResult = {}] = await projects
       .aggregate([
@@ -1100,7 +1100,7 @@ async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) 
           $facet: {
             docs: [
               ...projectTaskProgressLookupStages,
-              { $match: query },
+              { $match: { ...query, ...memberFilter } },
               { $sort: { createdAt: -1 } },
               { $skip: skip },
               { $limit: limit },
@@ -1108,23 +1108,27 @@ async function getProjectsPaginated({ page = 1, limit = 10, status = "" } = {}) 
             ],
             filteredTotal: [
               ...projectTaskProgressLookupStages,
-              { $match: query },
+              { $match: { ...query, ...memberFilter } },
               { $count: "count" },
             ],
-            total: [{ $count: "count" }],
+            total: [
+              ...projectTaskProgressLookupStages,
+              { $match: memberFilter },
+              { $count: "count" },
+            ],
             inProgress: [
               ...projectTaskProgressLookupStages,
-              { $match: { status: "InProgress" } },
+              { $match: { ...memberFilter, status: "InProgress" } },
               { $count: "count" },
             ],
             onHold: [
               ...projectTaskProgressLookupStages,
-              { $match: { status: "OnHold" } },
+              { $match: { ...memberFilter, status: "OnHold" } },
               { $count: "count" },
             ],
             completed: [
               ...projectTaskProgressLookupStages,
-              { $match: { status: "Completed" } },
+              { $match: { ...memberFilter, status: "Completed" } },
               { $count: "count" },
             ],
           },

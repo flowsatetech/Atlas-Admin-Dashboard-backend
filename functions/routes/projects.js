@@ -92,7 +92,9 @@ router.get('/', async (req, res) => {
         }
 
         const { page, limit, status } = parsed.data;
-        const result = await db.getProjectsPaginated({ page, limit, status });
+        const isAdmin = req.db_user?.role === 'admin';
+        const memberUserId = isAdmin ? undefined : req.user?.userId;
+        const result = await db.getProjectsPaginated({ page, limit, status, memberUserId });
 
         res.status(200).json({
             success: true,
@@ -115,6 +117,12 @@ router.get('/:projectId', async (req, res) => {
 
         if (!project) {
             return clientError(res, 404, 'Project not found');
+        }
+
+        const isAdmin = req.db_user?.role === 'admin';
+        const teamIds = project.teamIds || [];
+        if (!isAdmin && !teamIds.includes(req.user?.userId)) {
+            return clientError(res, 403, 'Access denied. You are not a member of this project.');
         }
 
         res.status(200).json({
@@ -344,6 +352,12 @@ router.post('/:projectId/comments', async (req, res) => {
             return clientError(res, 404, 'Project not found');
         }
 
+        const isAdmin = req.db_user?.role === 'admin';
+        const teamIds = existing.teamIds || [];
+        if (!isAdmin && !teamIds.includes(req.user?.userId)) {
+            return clientError(res, 403, 'Access denied. You are not a member of this project.');
+        }
+
         const commentSchema = z.object({
             comment: z.string().min(1),
         });
@@ -423,6 +437,12 @@ router.get('/:projectId/comments', async (req, res) => {
             return clientError(res, 404, 'Project not found');
         }
 
+        const isAdmin = req.db_user?.role === 'admin';
+        const teamIds = existing.teamIds || [];
+        if (!isAdmin && !teamIds.includes(req.user?.userId)) {
+            return clientError(res, 403, 'Access denied. You are not a member of this project.');
+        }
+
         const comments = await db.getCommentsByProjectId(req.params.projectId);
         res.status(200).json({
             success: true,
@@ -442,6 +462,12 @@ router.post('/:projectId/files', projectFileUploadMiddleware, async (req, res) =
         const project = await db.getProjectById(projectId);
         if (!project) {
             return clientError(res, 404, 'Project not found');
+        }
+
+        const isAdmin = req.db_user?.role === 'admin';
+        const teamIds = project.teamIds || [];
+        if (!isAdmin && !teamIds.includes(req.user?.userId)) {
+            return clientError(res, 403, 'Access denied. You are not a member of this project.');
         }
 
         if (!req.file) {
@@ -508,6 +534,12 @@ router.get('/:projectId/files', async (req, res) => {
             return clientError(res, 404, 'Project not found');
         }
 
+        const isAdmin = req.db_user?.role === 'admin';
+        const teamIds = project.teamIds || [];
+        if (!isAdmin && !teamIds.includes(req.user?.userId)) {
+            return clientError(res, 403, 'Access denied. You are not a member of this project.');
+        }
+
         const result = await db.getMediaFilesByProjectId({ projectId, page, limit });
 
         res.status(200).json({
@@ -531,6 +563,12 @@ router.delete('/:projectId/files/:fileId', async (req, res) => {
         const project = await db.getProjectById(projectId);
         if (!project) {
             return clientError(res, 404, 'Project not found');
+        }
+
+        const isAdmin = req.db_user?.role === 'admin';
+        const teamIds = project.teamIds || [];
+        if (!isAdmin && !teamIds.includes(req.user?.userId)) {
+            return clientError(res, 403, 'Access denied. You are not a member of this project.');
         }
 
         const file = await db.getMediaFileById(fileId);

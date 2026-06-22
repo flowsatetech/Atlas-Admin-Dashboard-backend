@@ -59,10 +59,17 @@ router.get("/", async (req, res) => {
 
     const { status, assigneeId, assignedTo, projectId, page, limit } =
       parsed.data;
+
+    const isAdmin = req.db_user?.role === 'admin';
+    // Non-admin members can only see their own tasks
+    const resolvedAssigneeId = isAdmin
+      ? (assigneeId || assignedTo)
+      : req.user?.userId;
+
     const { rows, total } = await db.getTasks({
       status,
-      assigneeId,
-      assignedTo,
+      assigneeId: resolvedAssigneeId,
+      assignedTo: isAdmin ? assignedTo : undefined,
       projectId,
       page,
       limit,
@@ -266,6 +273,11 @@ router.get("/:taskId", async (req, res) => {
     const task = await db.getTaskDetailById(req.params.taskId);
     if (!task)
       return clientError(res, 404, 'Task not found');
+
+    const isAdmin = req.db_user?.role === 'admin';
+    if (!isAdmin && task.assigneeId !== req.user?.userId) {
+      return clientError(res, 403, 'Access denied. This task is not assigned to you.');
+    }
 
     const now = Date.now();
     return res.status(200).json({
