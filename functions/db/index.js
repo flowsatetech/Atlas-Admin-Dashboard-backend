@@ -60,6 +60,7 @@ async function initializeDB() {
     await mediaFiles.createIndex({ createdAt: -1 });
     await clients.createIndex({ id: 1 }, { unique: true });
     await clients.createIndex({ status: 1 });
+    await projects.createIndex({ clientId: 1 });
     await tasks.createIndex({ id: 1 }, { unique: true });
     await tasks.createIndex({ status: 1 });
     await tasks.createIndex({ dueDate: 1 });
@@ -368,6 +369,64 @@ async function getClientById(clientId) {
 async function getClients() {
   try {
     return await clients.find({}).toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getProjectsByClientId(clientId) {
+  try {
+    return await projects
+      .aggregate([
+        { $match: { clientId } },
+        ...projectTaskProgressLookupStages,
+        { $sort: { updatedAt: -1, createdAt: -1 } },
+        {
+          $project: {
+            _id: 0,
+            id: 1,
+            name: 1,
+            clientId: 1,
+            description: 1,
+            deadline: 1,
+            dueTime: 1,
+            budget: 1,
+            priority: 1,
+            status: 1,
+            teamIds: 1,
+            files: 1,
+            totalTasks: 1,
+            completedTasks: 1,
+            progress: 1,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        },
+      ])
+      .toArray();
+  } catch (err) {
+    logger("DB").error(err);
+    throw err;
+  }
+}
+
+async function getProjectCountsByClientIds(clientIds = []) {
+  try {
+    const uniqueClientIds = [...new Set(clientIds.filter(Boolean))];
+    if (uniqueClientIds.length === 0) return {};
+
+    const rows = await projects
+      .aggregate([
+        { $match: { clientId: { $in: uniqueClientIds } } },
+        { $group: { _id: "$clientId", count: { $sum: 1 } } },
+      ])
+      .toArray();
+
+    return rows.reduce((acc, row) => {
+      acc[row._id] = row.count;
+      return acc;
+    }, {});
   } catch (err) {
     logger("DB").error(err);
     throw err;
@@ -1841,6 +1900,8 @@ module.exports = {
   getInProgressProjects,
   getClientById,
   getClients,
+  getProjectsByClientId,
+  getProjectCountsByClientIds,
   getClientsPaginated,
   countClientsByFilter,
   getDashboardMetricsCounts,

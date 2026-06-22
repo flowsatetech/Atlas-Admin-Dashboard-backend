@@ -79,8 +79,9 @@ router.get("/", async (req, res) => {
       }),
     );
 
+    const projectCounts = await db.getProjectCountsByClientIds(rows.map((clientDoc) => clientDoc.id));
     const formattedClients = rows.map((clientDoc) => formatClientForList(
-      clientDoc,
+      { ...clientDoc, projectsCount: projectCounts[clientDoc.id] || 0 },
       managersMap[clientDoc.assignedStaffId] || "Unassigned",
     ));
 
@@ -117,7 +118,11 @@ router.get("/:id", async (req, res) => {
       }
     }
 
-    const lastActivity = await db.getLatestClientActivity(client.id);
+    const [lastActivity, projects] = await Promise.all([
+      db.getLatestClientActivity(client.id),
+      db.getProjectsByClientId(client.id),
+    ]);
+    const projectsCount = projects.length;
 
     res.status(200).json({
       success: true,
@@ -135,7 +140,8 @@ router.get("/:id", async (req, res) => {
           assignedStaffId: client.assignedStaffId,
           leadSource: client.leadSource || null,
           notes: client.notes || "",
-          projectsCount: client.projectsCount || 0,
+          projectsCount,
+          projects,
           lastActivity: lastActivity || null,
           createdAt: client.createdAt,
           updatedAt: client.updatedAt,
