@@ -23,7 +23,7 @@ const listLeadsQuerySchema = z.object({
 /** MAIN LEADS ROUTES */
 
 // New Route: GET /api/leads/stats - Fetch pipeline aggregation telemetry
-router.get('/stats', async (req, res) => {
+router.get('/stats', middlewares.adminOnly, async (req, res) => {
     try {
         const stats = await db.getLeadStats();
         return res.status(200).json({
@@ -38,7 +38,7 @@ router.get('/stats', async (req, res) => {
 });
 
 // 1. GET /api/leads - Paginated list of leads with search
-router.get('/', async (req, res) => {
+router.get('/', middlewares.adminOnly, async (req, res) => {
     try {
         const parsed = listLeadsQuerySchema.safeParse(req.query);
         if (!parsed.success) {
@@ -112,7 +112,7 @@ router.post('/', middlewares.adminOnly, async (req, res) => {
 });
 
 // 3. GET /api/leads/:leadId - Get details of a single lead
-router.get('/:leadId', async (req, res) => {
+router.get('/:leadId', middlewares.adminOnly, async (req, res) => {
     try {
         const lead = await db.getLeadById(req.params.leadId);
         if (!lead) {
