@@ -1779,8 +1779,9 @@ async function updateLead(leadId, updateData) {
     const clientUpdate = {};
     if (updateData.firstName !== undefined || updateData.lastName !== undefined) {
       const existing = await clients.findOne({ id: leadId });
-      const firstName = updateData.firstName ?? (existing?.fullName || '').split(' ')[0] || '';
-      const lastName = updateData.lastName ?? (existing?.fullName || '').split(' ').slice(1).join(' ') || '';
+      const existingParts = (existing && existing.fullName) ? existing.fullName.split(' ') : [];
+      const firstName = updateData.firstName !== undefined ? updateData.firstName : (existingParts[0] || '');
+      const lastName = updateData.lastName !== undefined ? updateData.lastName : (existingParts.slice(1).join(' ') || '');
       clientUpdate.fullName = `${firstName} ${lastName}`.trim();
     }
     if (updateData.email !== undefined) clientUpdate.email = updateData.email;
