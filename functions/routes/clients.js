@@ -169,7 +169,7 @@ router.post("/", middlewares.adminOnly, async (req, res) => {
       assignedStaffId: payload.assignedStaffId || null,
       leadSource: payload.leadSource || null,
       notes: payload.notes || "",
-      notesHistory: payload.notes ? [{ note: payload.notes, createdAt: now, createdBy: req.user?.userId || null }] : [],
+      notesHistory: payload.notes ? [{ id: generateToken(), note: payload.notes, createdAt: now, createdBy: req.user?.userId || null }] : [],
       projectsCount: 0,
       createdAt: now,
       updatedAt: now,
@@ -280,6 +280,7 @@ router.patch("/:id", middlewares.adminOnly, async (req, res) => {
     if (appendNote) {
       const existingNotes = client.notes || "";
       const noteEntry = {
+        id: generateToken(),
         note: appendNote,
         createdAt: updates.updatedAt,
         createdBy: req.user?.userId || null,
@@ -316,6 +317,45 @@ router.patch("/:id", middlewares.adminOnly, async (req, res) => {
   } catch (e) {
     logger("UPDATE_CLIENT").error(e);
     return serverError(res, e, 'Failed to update client.');
+  }
+});
+
+/**
+ * DELETE /api/clients/:id/notes/:noteId
+ * Deletes a specific note from a client's notesHistory
+ */
+router.delete("/:id/notes/:noteId", async (req, res) => {
+  try {
+    const client = await db.getClientById(req.params.id);
+    if (!client) {
+      return clientError(res, 404, 'Client not found');
+    }
+
+    const history = client.notesHistory || [];
+    const noteIndex = history.findIndex((n) => n.id === req.params.noteId);
+    if (noteIndex === -1) {
+      return clientError(res, 404, 'Note not found');
+    }
+
+    history.splice(noteIndex, 1);
+
+    // Rebuild flat notes string from remaining history
+    const flatNotes = history.map((n) => n.note).join('\n');
+    const now = Date.now();
+
+    await db.updateClient(req.params.id, {
+      notes: flatNotes,
+      notesHistory: history,
+      updatedAt: now,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Note deleted successfully',
+    });
+  } catch (e) {
+    logger("CLIENT_NOTE_DELETE").error(e);
+    return serverError(res, e, 'Failed to delete note.');
   }
 });
 

@@ -532,6 +532,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
             PostIdPath: pathParam("postId", "Blog post custom ID token.", examples.postId),
             BlogSlugPath: pathParam("slug", "URL-safe blog slug. The embed route only accepts lowercase letters, numbers, and hyphens.", examples.slug),
             LeadIdPath: pathParam("leadId", "Lead custom ID token.", examples.leadId),
+            NoteIdPath: pathParam("noteId", "Note custom ID token.", "note_001"),
             MemberIdPath: pathParam("id", "Staff userId. Used for update, password change, and delete operations.", examples.userId),
             SettingsUserIdPath: pathParam("userId", "User ID whose profile image should be returned.", examples.userId),
             ImageIdPath: pathParam("imageId", "Media image ID token.", examples.imageId),
@@ -742,10 +743,21 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 },
                 example: examples.clientSummary
             },
+            NoteEntry: {
+                type: "object",
+                description: "A single structured note with a unique id, used in both leads and clients.",
+                properties: {
+                    id: { type: "string", example: "note_001" },
+                    note: { type: "string", example: "Requested a scope update after kickoff." },
+                    createdAt: ref("Timestamp"),
+                    createdBy: { type: "string", nullable: true, example: examples.userId }
+                }
+            },
             ClientNoteHistoryEntry: {
                 type: "object",
                 description: "Historical note entry recorded when notes are replaced or appendNote is used.",
                 properties: {
+                    id: { type: "string", example: "note_001" },
                     note: { type: "string", example: "Requested a scope update after kickoff." },
                     previousNote: { type: "string", nullable: true, description: "Present when notes was replaced directly instead of appended.", example: "Met at Lagos Tech Summit." },
                     createdAt: ref("Timestamp"),
@@ -1133,6 +1145,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                 required: ["id", "firstName", "lastName", "email"],
                 properties: {
                     id: { type: "string", example: examples.leadId },
+                    _leadSource: { type: "string", enum: ["lead", "client"], default: "lead", description: "Indicates whether the record comes from the leads collection or a client with status Lead.", example: "lead" },
                     firstName: { type: "string", example: "Kemi" },
                     lastName: { type: "string", example: "Adebayo" },
                     fullName: { type: "string", default: "", example: "Kemi Adebayo" },
@@ -1145,6 +1158,7 @@ Enum fields are documented with OpenAPI \`enum\` values so Swagger UI renders dr
                     value: { type: "number", minimum: 0, default: 0, example: 25000 },
                     source: { type: "string", default: "", example: "Website" },
                     notes: { type: "string", default: "", example: "Interested in a full funnel marketing package." },
+                    notesHistory: { type: "array", items: ref("NoteEntry"), default: [], description: "Array of structured note entries. Each entry has an id, note text, createdAt, and createdBy." },
                     assignedTo: { type: "string", default: "", example: examples.userId },
                     createdAt: ref("Timestamp"),
                     updatedAt: ref("Timestamp")
@@ -1266,7 +1280,7 @@ Send only the notification types to change; omitted types keep their current val
             },
             UpdateLeadRequest: {
                 type: "object",
-                description: "Partial lead update. All fields are optional.",
+                description: "Partial lead update. All fields are optional. Notes are managed via the dedicated POST and DELETE notes endpoints.",
                 properties: {
                     firstName: { type: "string", example: "Kemi" },
                     lastName: { type: "string", example: "Adebayo" },
@@ -1279,8 +1293,15 @@ Send only the notification types to change; omitted types keep their current val
                     contactPerson: { type: "string", example: "Kemi Adebayo" },
                     value: { type: "number", minimum: 0, example: 30000 },
                     source: { type: "string", example: "Referral" },
-                    notes: { type: "string", example: "Call scheduled for next week." },
                     assignedTo: { type: "string", example: examples.adminUserId }
+                }
+            },
+            AppendNoteRequest: {
+                type: "object",
+                required: ["note"],
+                description: "Note content to append to a lead or client. A new NoteEntry with id, createdAt, and createdBy is generated server-side.",
+                properties: {
+                    note: { type: "string", minLength: 1, description: "The note text to append.", example: "Client requested a follow-up call." }
                 }
             },
             Payment: {
@@ -1769,7 +1790,7 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Dashboard"],
                 operationId: "getDashboardMetrics",
                 summary: "Get dashboard KPI cards",
-                description: "Returns total clients, total projects, active projects, total tasks, and total leads with month-over-month trend metadata.",
+                description: "Returns KPIs scoped to the user: admins see all data, staff see only their assigned projects, tasks, and leads. Total leads includes both lead docs and client-leads.",
                 security: [{ cookieAuth: [] }],
                 responses: {
                     200: successResponse("Dashboard metrics returned.", ref("DashboardMetrics"), {
@@ -1812,7 +1833,7 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Dashboard"],
                 operationId: "getDashboardInProgressProjects",
                 summary: "Get in-progress projects widget data",
-                description: "Returns active projects with display status labels derived from project status, progress, and deadline. Limit is capped at 20.",
+                description: "Returns active projects scoped to the user. Staff only see projects they are team members of. Limit is capped at 20.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("InProgressLimit")],
                 responses: {
@@ -1841,7 +1862,7 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Dashboard"],
                 operationId: "getDashboardActivities",
                 summary: "Get recent activity feed",
-                description: "Returns paginated activity feed items. Activity titles are normalized from stored activity type values such as client.created or payment.updated.",
+                description: "Returns paginated activity feed items scoped to the user. Staff see only their own activities; admins see all.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("Page"), parameterRef("ActivityLimit")],
                 responses: {
@@ -2292,6 +2313,23 @@ Send only the notification types to change; omitted types keep their current val
                 }
             }
         },
+        "/api/clients/{id}/notes/{noteId}": {
+            delete: {
+                tags: ["Clients"],
+                operationId: "deleteClientNote",
+                summary: "Delete a specific note from a client",
+                description: "Deletes a note by its id from notesHistory and rebuilds the flat notes string. No admin restriction — any authenticated user can delete notes on any client.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("ClientIdPath"), parameterRef("NoteIdPath")],
+                responses: {
+                    200: emptySuccessResponse("Note deleted.", "Note deleted successfully"),
+                    401: responseRef("Unauthorized"),
+                    404: errorResponse("Client or note not found.", 404, "Note not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
         "/api/projects/stats": {
             get: {
                 tags: ["Projects"],
@@ -2315,7 +2353,7 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Projects"],
                 operationId: "listProjects",
                 summary: "List projects",
-                description: "Returns paginated projects with optional status filter and an infoData object containing global project counts. Project progress is derived from linked tasks.",
+                description: "Returns paginated projects scoped to the user. Staff see only projects they are team members of; admins see all. Project progress is derived from linked tasks.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("Page"), parameterRef("Limit10"), parameterRef("ProjectStatus")],
                 responses: {
@@ -2373,7 +2411,7 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Projects"],
                 operationId: "getProjectById",
                 summary: "Get project details",
-                description: "Returns full project details including comments, resolved client where available, team IDs, files, and task-derived progress/status fields.",
+                description: "Returns full project details. Staff can only view projects they are team members of.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("ProjectIdPath")],
                 responses: {
@@ -2456,7 +2494,7 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Projects"],
                 operationId: "listProjectComments",
                 summary: "Get comments for a project",
-                description: "Verifies the project exists, then returns all comments associated with that project.",
+                description: "Staff can only view comments on projects they are team members of.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("ProjectIdPath")],
                 responses: {
@@ -2474,7 +2512,7 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Projects"],
                 operationId: "addProjectComment",
                 summary: "Add a comment to a project",
-                description: "Adds a comment authored by the authenticated user's userId. The route returns 204 No Content when the comment is created.",
+                description: "Staff can only comment on projects they are team members of. Returns 204 No Content when created.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("ProjectIdPath")],
                 requestBody: jsonRequestBody("CreateProjectCommentRequest", { comment: "Client approved the revised brand direction." }, "Comment payload."),
@@ -2493,7 +2531,7 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Projects"],
                 operationId: "listProjectFiles",
                 summary: "Get files for a project",
-                description: "Verifies the project exists, then returns paginated files associated with that project.",
+                description: "Staff can only view files for projects they are team members of.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("ProjectIdPath"), parameterRef("Page"), parameterRef("MediaFileLimit")],
                 responses: {
@@ -2517,7 +2555,7 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Projects"],
                 operationId: "uploadProjectFile",
                 summary: "Upload a file to a project",
-                description: "Uploads a file via multipart/form-data, stores it in the configured storage provider, and links it to the specified project.",
+                description: "Staff can only upload files to projects they are team members of.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("ProjectIdPath")],
                 requestBody: {
@@ -2553,7 +2591,7 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Projects"],
                 operationId: "deleteProjectFile",
                 summary: "Delete a file from a project",
-                description: "Deletes a specific file from a project and removes it from the storage provider.",
+                description: "Staff can only delete files from projects they are team members of.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("ProjectIdPath"), parameterRef("FileIdPath")],
                 responses: {
@@ -2574,7 +2612,7 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Tasks"],
                 operationId: "listTasks",
                 summary: "List tasks with filtering and pagination",
-                description: "Returns task cards with derived isOverdue. Supports status, assigneeId/assignedTo, projectId, page, and limit filters.",
+                description: "Returns task cards scoped to the user. Staff see only their own tasks; admins can filter by any assignee.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("TaskStatus"), parameterRef("AssigneeId"), parameterRef("AssignedTo"), parameterRef("ProjectIdQuery"), parameterRef("Page"), parameterRef("Limit20")],
                 responses: {
@@ -2628,7 +2666,7 @@ Send only the notification types to change; omitted types keep their current val
                 tags: ["Tasks"],
                 operationId: "getTaskById",
                 summary: "Get full task details by ID",
-                description: "Returns task details by ID with isOverdue derived at request time. The database helper may include related assignee/project detail objects.",
+                description: "Staff can only view tasks assigned to them. Admins can view any task.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("TaskIdPath")],
                 responses: {
@@ -3574,7 +3612,7 @@ Only send the notification types you want to change; omitted types retain their 
                 tags: ["Leads"],
                 operationId: "listLeads",
                 summary: "List leads",
-                description: "Admin-only. Returns paginated leads with optional search and status filtering.",
+                description: "Returns paginated leads merged from both the leads collection and clients with status Lead. Admins see all leads; staff see only leads assigned to them.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("Page"), parameterRef("Limit10"), parameterRef("Search"), parameterRef("LeadStatus")],
                 responses: {
@@ -3600,7 +3638,7 @@ Only send the notification types you want to change; omitted types retain their 
                 tags: ["Leads"],
                 operationId: "createLead",
                 summary: "Add a new lead",
-                description: "Admin-only. Creates a new lead from dashboard input. Public lead ingestion should use the bearer-token protected webhook routes.",
+                description: "Admin-only. Creates a new lead from dashboard input. If notes are provided, a notesHistory entry is auto-created. Public lead ingestion should use the bearer-token protected webhook routes.",
                 security: [{ cookieAuth: [] }],
                 requestBody: jsonRequestBody("CreateLeadRequest", {
                     firstName: "Kemi",
@@ -3633,7 +3671,7 @@ Only send the notification types you want to change; omitted types retain their 
                 tags: ["Leads"],
                 operationId: "getLeadById",
                 summary: "Get detailed lead information",
-                description: "Admin-only. Returns one lead by id.",
+                description: "Searches both the leads collection and clients with status Lead. Staff can only view leads assigned to them.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("LeadIdPath")],
                 responses: {
@@ -3652,14 +3690,13 @@ Only send the notification types you want to change; omitted types retain their 
                 tags: ["Leads"],
                 operationId: "updateLead",
                 summary: "Update an individual lead",
-                description: "Admin-only partial lead update. Validates provided fields and sets updatedAt.",
+                description: "Admin-only partial lead update. Notes are managed via the dedicated POST and DELETE notes endpoints — they are not accepted here.",
                 security: [{ cookieAuth: [] }],
                 parameters: [parameterRef("LeadIdPath")],
                 requestBody: jsonRequestBody("UpdateLeadRequest", {
                     status: "contacted",
                     stage: "Discovery Call",
-                    value: 30000,
-                    notes: "Call scheduled for next week."
+                    value: 30000
                 }, "Lead patch payload. All fields are optional."),
                 responses: {
                     200: emptySuccessResponse("Lead updated successfully.", "Lead updated successfully"),
@@ -3683,6 +3720,47 @@ Only send the notification types you want to change; omitted types retain their 
                     401: responseRef("Unauthorized"),
                     403: responseRef("Forbidden"),
                     404: errorResponse("Lead not found.", 404, "Lead not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/leads/{leadId}/notes": {
+            post: {
+                tags: ["Leads"],
+                operationId: "appendLeadNote",
+                summary: "Append a note to a lead",
+                description: "Appends a note as a new entry with id, timestamp, and author. Updates both the flat notes string and notesHistory array. Staff can only add notes to leads assigned to them.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("LeadIdPath")],
+                requestBody: jsonRequestBody("AppendNoteRequest", { note: "Client requested a follow-up call." }, "Note content to append."),
+                responses: {
+                    201: successResponse("Note added.", {
+                        type: "object",
+                        properties: { note: ref("NoteEntry") }
+                    }, { note: { id: "note_001", note: "Client requested a follow-up call.", createdAt: 1775600000000, createdBy: examples.userId } }, "Note added successfully", 201),
+                    400: responseRef("BadRequest"),
+                    401: responseRef("Unauthorized"),
+                    403: errorResponse("Access denied. This lead is not assigned to you.", 403, "Access denied. This lead is not assigned to you."),
+                    404: errorResponse("Lead not found.", 404, "Lead not found"),
+                    429: responseRef("TooManyRequests"),
+                    500: responseRef("ServerError")
+                }
+            }
+        },
+        "/api/leads/{leadId}/notes/{noteId}": {
+            delete: {
+                tags: ["Leads"],
+                operationId: "deleteLeadNote",
+                summary: "Delete a specific note from a lead",
+                description: "Deletes a note by its id from notesHistory and rebuilds the flat notes string. Staff can only delete notes from leads assigned to them.",
+                security: [{ cookieAuth: [] }],
+                parameters: [parameterRef("LeadIdPath"), parameterRef("NoteIdPath")],
+                responses: {
+                    200: emptySuccessResponse("Note deleted.", "Note deleted successfully"),
+                    401: responseRef("Unauthorized"),
+                    403: errorResponse("Access denied. This lead is not assigned to you.", 403, "Access denied. This lead is not assigned to you."),
+                    404: errorResponse("Lead or note not found.", 404, "Note not found"),
                     429: responseRef("TooManyRequests"),
                     500: responseRef("ServerError")
                 }

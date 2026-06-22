@@ -6,7 +6,7 @@ const { z } = require('zod');
 const middlewares = require('../middlewares');
 const { logger, generateToken, stripMongoId, serverError, clientError } = require('../helpers');
 const db = require('../db');
-const { createLeadSchema, updateLeadSchema, leadStatusEnum } = require('../models/lead');
+const { createLeadSchema, updateLeadSchema, leadStatusEnum, appendNoteSchema } = require('../models/lead');
 const services = require('../services');
 
 /** SETUP */
@@ -143,7 +143,7 @@ router.patch('/:leadId', middlewares.adminOnly, async (req, res) => {
 
         // FIX: Extract all editable fields from req.body to prevent Zod from stripping them out
         const updatePayload = { ...parsed.data };
-        const allowedFields = ['company', 'companyName', 'contactPerson', 'value', 'revenue', 'phone', 'email', 'source', 'notes', 'stage', 'status'];
+        const allowedFields = ['company', 'companyName', 'contactPerson', 'value', 'revenue', 'phone', 'email', 'source', 'stage', 'status'];
         
         allowedFields.forEach(field => {
             if (req.body[field] !== undefined) {
@@ -202,7 +202,95 @@ router.patch('/:leadId', middlewares.adminOnly, async (req, res) => {
     }
 });
 
-// 5. DELETE /api/leads/:leadId - Delete an individual lead
+// 5. POST /api/leads/:leadId/notes - Append a note
+router.post('/:leadId/notes', async (req, res) => {
+    try {
+        const lead = await db.getLeadById(req.params.leadId);
+        if (!lead) {
+            return clientError(res, 404, 'Lead not found');
+        }
+
+        const isAdmin = req.db_user?.role === 'admin';
+        if (!isAdmin && lead.assignedTo !== req.user?.userId) {
+            return clientError(res, 403, 'Access denied. This lead is not assigned to you.');
+        }
+
+        const parsed = appendNoteSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return clientError(res, 400, 'Note content is required.', parsed.error.issues.map(i => i.message));
+        }
+
+        const now = Date.now();
+        const noteEntry = {
+            id: generateToken(),
+            note: parsed.data.note,
+            createdAt: now,
+            createdBy: req.user?.userId || null,
+        };
+
+        const existingNotes = lead.notes || '';
+        const existingHistory = lead.notesHistory || [];
+        const updates = {
+            notes: existingNotes ? `${existingNotes}\n${parsed.data.note}` : parsed.data.note,
+            notesHistory: [...existingHistory, noteEntry],
+            updatedAt: now,
+        };
+
+        await db.updateLead(req.params.leadId, updates);
+
+        return res.status(201).json({
+            success: true,
+            message: 'Note added successfully',
+            data: { note: noteEntry },
+        });
+    } catch (e) {
+        logger('LEAD_NOTE_POST').error(e);
+        return serverError(res, e, 'Failed to add note.');
+    }
+});
+
+// 6. DELETE /api/leads/:leadId/notes/:noteId - Delete a specific note
+router.delete('/:leadId/notes/:noteId', async (req, res) => {
+    try {
+        const lead = await db.getLeadById(req.params.leadId);
+        if (!lead) {
+            return clientError(res, 404, 'Lead not found');
+        }
+
+        const isAdmin = req.db_user?.role === 'admin';
+        if (!isAdmin && lead.assignedTo !== req.user?.userId) {
+            return clientError(res, 403, 'Access denied. This lead is not assigned to you.');
+        }
+
+        const history = lead.notesHistory || [];
+        const noteIndex = history.findIndex((n) => n.id === req.params.noteId);
+        if (noteIndex === -1) {
+            return clientError(res, 404, 'Note not found');
+        }
+
+        history.splice(noteIndex, 1);
+
+        // Rebuild flat notes string from remaining history
+        const flatNotes = history.map((n) => n.note).join('\n');
+        const now = Date.now();
+
+        await db.updateLead(req.params.leadId, {
+            notes: flatNotes,
+            notesHistory: history,
+            updatedAt: now,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Note deleted successfully',
+        });
+    } catch (e) {
+        logger('LEAD_NOTE_DELETE').error(e);
+        return serverError(res, e, 'Failed to delete note.');
+    }
+});
+
+// 7. DELETE /api/leads/:leadId - Delete an individual lead
 router.delete('/:leadId', middlewares.adminOnly, async (req, res) => {
     try {
         const lead = await db.getLeadById(req.params.leadId);
